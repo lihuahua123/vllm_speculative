@@ -342,6 +342,8 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
         self._disable_logprobs = disable_logprobs
         self._disable_log_stats = disable_log_stats
         self._num_spec_prefill_steps = num_spec_prefill_steps
+        self.num_accepted_tokens = 0
+        
 
     def init_device(self) -> None:
         """Initialize both scorer and proposer models.
@@ -781,6 +783,10 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
         # With prefill chunking, expect requests to have prompts first
         # so that backend gets prefill|decode.
         assert num_lookahead_slots == execute_model_req.num_lookahead_slots
+        if hasattr(self.spec_decode_sampler, "ratio"):
+            num_lookahead_slots = min(int(self.spec_decode_sampler.ratio * num_lookahead_slots) + 1, num_lookahead_slots)
+            execute_model_req.num_lookahead_slots = num_lookahead_slots
+            # print(f"num_lookahead_slots: {num_lookahead_slots}")
 
         # Pass last hidden states from target model to proposer
         execute_model_req.previous_hidden_states = self.previous_hidden_states
@@ -824,9 +830,10 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
             self.proposer_worker.execute_model(prefill_req)
 
         with Timer() as verification_timer:
-            accepted_token_ids, target_logprobs = self._verify_tokens(
+            accepted_token_ids, target_logprobs, num_accepted_tokens = self._verify_tokens(
                 execute_model_req.seq_group_metadata_list, proposal_scores,
                 proposals, execute_model_req.num_lookahead_slots)
+            self.num_accepted_tokens = num_accepted_tokens
 
         stage_times = (proposal_timer.elapsed_time_ms / num_lookahead_slots,
                        scoring_timer.elapsed_time_ms,
@@ -856,7 +863,7 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
         the logprobs according to the scoring model.
         """
         proposal_lens_list = proposals.proposal_lens.tolist()
-
+        before_accepted_tokens = self.spec_decode_sampler.num_accepted_tokens.clone()
         # vLLM currently only supports proposal lens equal to zero or the batch
         # proposal len. This adds some complexity (splitting the batch into spec
         # and non spec sequences) and should be removed in the future. It can be
@@ -897,6 +904,7 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
             draft_token_ids=proposal_token_ids,
             **sampler_extra_kwargs,
         )
+        num_accepted_tokens = self.spec_decode_sampler.num_accepted_tokens - before_accepted_tokens
         # Append output tokens from non-speculative sequences to
         # the accepted token ids tensor.
         non_spec_token_ids = non_spec_token_ids.expand(-1, max_proposal_len +
@@ -936,7 +944,7 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
             self.previous_hidden_states = HiddenStates(
                 hidden_states, terminal_metadata,
                 second_last_token_hidden_states)
-        return accepted_token_ids, logprobs
+        return accepted_token_ids, logprobs, num_accepted_tokens
 
     def _create_output_sampler_list(
         self,

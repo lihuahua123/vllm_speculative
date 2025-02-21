@@ -138,6 +138,7 @@ class RejectionSampler(SpecDecodeStochasticBaseSampler):
             self.num_accepted_tokens += accepted_token_num.sum()
             self.num_emitted_tokens += emitted_token_num.sum() + batch_size
             self.num_draft_tokens += batch_size * k
+            self.ratio = accepted_token_num.sum() / (batch_size * k)
         else:
             accepted, recovered_token_ids = (
                 self._batch_modified_rejection_sampling(
