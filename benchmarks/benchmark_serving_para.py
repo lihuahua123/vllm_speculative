@@ -107,7 +107,7 @@ def sample_sharegpt_requests(
                 data["conversations"][1]["value"]) for data in dataset]
 
     # Shuffle the dataset.
-    # random.shuffle(dataset)
+    random.shuffle(dataset)
 
     # Filter out sequences that are too long or too short
     filtered_dataset: List[Tuple[str, int, int]] = []
@@ -126,7 +126,7 @@ def sample_sharegpt_requests(
         if prompt_len < 4 or (fixed_output_len is None and output_len < 4):
             # Prune too short sequences.
             continue
-        if prompt_len > 2048 or prompt_len + output_len > 4096:
+        if prompt_len > 1024 or prompt_len + output_len > 2048:
             # Prune too long sequences.
             continue
         filtered_dataset.append((prompt, prompt_len, output_len, None))
@@ -211,8 +211,7 @@ def sample_sonnet_requests(
     prefix_lines = poem_lines[:num_prefix_lines]
 
     # Sample the rest of lines per request.
-    sampled_requests: List[Tuple[str, int, int, Dict[str,
-                                                     Collection[str]]]] = []
+    sampled_requests: List[Tuple[str, int, int]] = []
     for _ in range(num_requests):
         num_lines_needed = num_input_lines - num_prefix_lines
         sampled_lines = "".join(prefix_lines +
@@ -584,26 +583,26 @@ async def benchmark(
         # multi-modal benchmark is only available on OpenAI Chat backend.
         raise ValueError(
             "Multi-modal content is only supported on 'openai-chat' backend.")
-    test_input = RequestFuncInput(
-        model=model_id,
-        model_name=model_name,
-        prompt=test_prompt,
-        api_url=api_url,
-        prompt_len=test_prompt_len,
-        output_len=test_output_len,
-        logprobs=logprobs,
-        best_of=best_of,
-        multi_modal_content=test_mm_content,
-        ignore_eos=ignore_eos,
-    )
+    # test_input = RequestFuncInput(
+    #     model=model_id,
+    #     model_name=model_name,
+    #     prompt=test_prompt,
+    #     api_url=api_url,
+    #     prompt_len=test_prompt_len,
+    #     output_len=test_output_len,
+    #     logprobs=logprobs,
+    #     best_of=best_of,
+    #     multi_modal_content=test_mm_content,
+    #     ignore_eos=ignore_eos,
+    # )
 
-    test_output = await request_func(request_func_input=test_input)
-    if not test_output.success:
-        raise ValueError(
-            "Initial test run failed - Please make sure benchmark arguments "
-            f"are correctly specified. Error: {test_output.error}")
-    else:
-        print("Initial test run completed. Starting main benchmark run...")
+    # test_output = await request_func(request_func_input=test_input)
+    # if not test_output.success:
+    #     raise ValueError(
+    #         "Initial test run failed - Please make sure benchmark arguments "
+    #         f"are correctly specified. Error: {test_output.error}")
+    # else:
+    #     print("Initial test run completed. Starting main benchmark run...")
 
     if lora_modules:
         # For each input request, choose a LoRA module at random.
@@ -636,63 +635,71 @@ async def benchmark(
     print(f"Maximum request concurrency: {max_concurrency}")
 
     pbar = None if disable_tqdm else tqdm(total=len(input_requests))
-    all_outputs = []
-    total_times = 5
-    for i in range(total_times):
-        # Replace the concurrent tasks execution with sequential execution
-        outputs: List[RequestFuncOutput] = []
-        benchmark_start_time = time.perf_counter()
-        
-        for request in input_requests:
-            prompt, prompt_len, output_len, mm_content = request
-            req_model_id, req_model_name = model_id, model_name
-            if lora_modules:
-                req_lora_module = next(lora_modules)
-                req_model_id, req_model_name = req_lora_module, req_lora_module
 
-            request_func_input = RequestFuncInput(
-                model=req_model_id,
-                model_name=req_model_name,
-                prompt=prompt,
-                api_url=api_url,
-                prompt_len=prompt_len,
-                output_len=output_len,
-                logprobs=logprobs,
-                best_of=best_of,
-                multi_modal_content=mm_content,
-                ignore_eos=ignore_eos
-            )
-            
-            # Make single request and wait for response
-            output = await request_func(request_func_input=request_func_input)
-            outputs.append(output)
+    # This can be used once the minimum Python version is 3.10 or higher,
+    # and it will simplify the code in limited_request_func.
+    #    semaphore = (asyncio.Semaphore(max_concurrency)
+    #                 if max_concurrency else contextlib.nullcontext())
+    semaphore = (asyncio.Semaphore(max_concurrency)
+                 if max_concurrency else None)
 
-        if profile:
-            print("Stopping profiler...")
-            profile_input = RequestFuncInput(
-                model=model_id,
-                prompt=test_prompt,
-                api_url=base_url + "/stop_profile",
-                prompt_len=test_prompt_len,
-                output_len=test_output_len,
-                logprobs=logprobs,
-                best_of=best_of,
-            )
-            profile_output = await request_func(request_func_input=profile_input)
-            if profile_output.success:
-                print("Profiler stopped")
+    async def limited_request_func(request_func_input, pbar):
+        if semaphore is None:
+            return await request_func(request_func_input=request_func_input,
+                                      pbar=pbar)
+        async with semaphore:
+            return await request_func(request_func_input=request_func_input,
+                                      pbar=pbar)
 
-        if pbar is not None:
-            pbar.close()
+    benchmark_start_time = time.perf_counter()
+    tasks: List[asyncio.Task] = []
+    async for request in get_request(input_requests, request_rate, burstiness):
+        prompt, prompt_len, output_len, mm_content = request
+        req_model_id, req_model_name = model_id, model_name
+        if lora_modules:
+            req_lora_module = next(lora_modules)
+            req_model_id, req_model_name = req_lora_module, req_lora_module
 
-        benchmark_duration = time.perf_counter() - benchmark_start_time
-        output_decoding_times = []
-        for output in outputs:
-            output_decoding_time = output.latency - output.ttft
-            output_decoding_times.append(output_decoding_time)
-        all_outputs.append(output_decoding_times)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    np.save(f"output_decoding_times_speculative_{timestamp}.npy", all_outputs)
+        request_func_input = RequestFuncInput(model=req_model_id,
+                                              model_name=req_model_name,
+                                              prompt=prompt,
+                                              api_url=api_url,
+                                              prompt_len=prompt_len,
+                                              output_len=output_len,
+                                              logprobs=logprobs,
+                                              best_of=best_of,
+                                              multi_modal_content=mm_content,
+                                              ignore_eos=ignore_eos)
+        tasks.append(
+            asyncio.create_task(
+                limited_request_func(request_func_input=request_func_input,
+                                     pbar=pbar)))
+    outputs: List[RequestFuncOutput] = await asyncio.gather(*tasks)
+
+    if profile:
+        print("Stopping profiler...")
+        profile_input = RequestFuncInput(
+            model=model_id,
+            prompt=test_prompt,
+            api_url=base_url + "/stop_profile",
+            prompt_len=test_prompt_len,
+            output_len=test_output_len,
+            logprobs=logprobs,
+            best_of=best_of,
+        )
+        profile_output = await request_func(request_func_input=profile_input)
+        if profile_output.success:
+            print("Profiler stopped")
+
+    if pbar is not None:
+        pbar.close()
+
+    benchmark_duration = time.perf_counter() - benchmark_start_time
+    output_decoding_times = []
+    for output in outputs:
+        output_decoding_time = output.latency - output.ttft
+        output_decoding_times.append(output_decoding_time)
+    np.save("output_decoding_times_speculative.npy", output_decoding_times)
         
     metrics, actual_output_lens = calculate_metrics(
         input_requests=input_requests,

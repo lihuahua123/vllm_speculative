@@ -533,6 +533,9 @@ class Scheduler:
         for i in range(1, self.scheduler_config.max_num_partial_prefills + 1):
             self.partial_prefill_budget_lookup_list[i] = (
                 scheduler_config.max_num_batched_tokens // i)
+        
+        self.speculative_metrics = None
+        self.speculative_metrics_cache = deque()
 
     @property
     def next_cache_id(self):
@@ -668,7 +671,7 @@ class Scheduler:
 
         ret.num_lookahead_slots = self._get_num_lookahead_slots(
             is_prefill=False, enable_chunking=enable_chunking)
-
+    
         ret.decode_seq_groups_list.clear()
         ret.prefill_seq_groups_list.clear()
 
@@ -1014,6 +1017,12 @@ class Scheduler:
         self.running = running_queue
         return force_preemption_count
 
+    def _get_max_tokens(self, seq_group: SequenceGroup) -> int:
+        """Get max_tokens from sampling params, return inf if not set."""
+        if seq_group.sampling_params is None or seq_group.sampling_params.max_tokens is None:
+            return float('inf')
+        return seq_group.sampling_params.max_tokens
+
     def _schedule_prefills(
         self,
         budget: SchedulingBudget,
@@ -1056,17 +1065,24 @@ class Scheduler:
             )
         ignored_seq_groups: List[SequenceGroup] = []
         seq_groups: List[ScheduledSequenceGroup] = []
-
+        
+        # Sort waiting queue by max_tokens in ascending order
+        # waiting_queue = deque(sorted(
+        #     self.waiting,
+        #     key=lambda x: self._get_max_tokens(x)
+        # ))
+        # self.waiting = waiting_queue
+        
         waiting_queue = self.waiting
-
+        
         leftover_waiting_sequences: Deque[SequenceGroup] = deque()
+        
         while self._passed_delay(time.time()) and waiting_queue:
             seq_group = waiting_queue[0]
-
             waiting_seqs = seq_group.get_seqs(status=SequenceStatus.WAITING)
             assert len(waiting_seqs) == 1, (
                 "Waiting sequence group should have only one prompt "
-                "sequence.")
+                "sequence., length of waiting_seqs: ", len(waiting_seqs))
             if (partial_prefill_metadata is not None
                     and not partial_prefill_metadata.can_schedule(seq_group)):
                 leftover_waiting_sequences.appendleft(seq_group)
@@ -1193,7 +1209,6 @@ class Scheduler:
         waiting_queue.extendleft(leftover_waiting_sequences)
         if len(seq_groups) > 0:
             self.prev_prompt = True
-
         return SchedulerPrefillOutputs(
             seq_groups=seq_groups,
             ignored_seq_groups=ignored_seq_groups,
@@ -1336,7 +1351,6 @@ class Scheduler:
             waiting=self.waiting,
             scheduler_config=self.scheduler_config,
         )
-
         # Decoding should be always scheduled first by fcfs.
         running_scheduled = self._schedule_running(
             budget,
@@ -1405,6 +1419,8 @@ class Scheduler:
                                (all_prefills
                                 and not self.scheduler_config.is_multi_step)
                                else running_scheduled.num_lookahead_slots)
+        print("all_prefills",all_prefills,"is_multi_step",self.scheduler_config.is_multi_step)
+        print("num_lookahead_slots vs running_scheduled.num_lookahead_slots",num_lookahead_slots,running_scheduled.num_lookahead_slots)
         return SchedulerOutputs(
             scheduled_seq_groups=scheduled_seq_groups,
             num_prefill_groups=num_prefill_groups,
@@ -1476,13 +1492,23 @@ class Scheduler:
         return no_single_seq
 
     def schedule(
-            self
+            self, speculative_metrics:None
     ) -> Tuple[List[SequenceGroupMetadata], SchedulerOutputs, bool]:
         # Schedule sequence groups.
         # This function call changes the internal states of the scheduler
         # such as self.running, self.swapped, and self.waiting.
+        
+        # Convert to float value before appending
+        metric_value = float(speculative_metrics[0])
+        self.speculative_metrics_cache.append(metric_value)
+        print("len(self.speculative_metrics_cache)",len(self.speculative_metrics_cache))
+        
+        # Print only the float values
+        for metric in self.speculative_metrics_cache:
+            print(f"{metric:.4f}", end=",")
+        print()
+        
         scheduler_start_time = time.perf_counter()
-
         scheduler_outputs: SchedulerOutputs = self._schedule()
         now = time.time()
 
@@ -1629,7 +1655,7 @@ class Scheduler:
 
         # Move to next cache (if exists)
         self.cache_id = self.next_cache_id
-
+        print("scheduler_outputs.num_lookahead_slots",scheduler_outputs.num_lookahead_slots)
         # Return results
         return (seq_group_metadata_list, scheduler_outputs,
                 allow_async_output_proc)
@@ -1854,10 +1880,20 @@ class Scheduler:
                 #
                 # "lookaheads" for prefills, is introduced in support for
                 # Chunked-Prefill in Multi-Step.
+                print("return self.scheduler_config.num_lookahead_slots + 1",self.scheduler_config.num_lookahead_slots + 1)
                 return self.scheduler_config.num_lookahead_slots + 1
             else:
                 return 0
-
+        history = [0,0.0000,0.6000,0.6000,0.0000,0.4000,0.4000,1.0000,1.0000,1.0000,0.6000,0.4000,0.8000,1.0000,0.4000,0.8000,0.4000,0.4000,0.8000,0.8000,0.6000,0.6000,0.6000,0.6000,0.8000,1.0000,0.6000,0.8000,1.0000,1.0000,0.8000,0.6000,0.6000,1.0000,0.6000,0.6000,1.0000,1.0000,0.4000,0.4000,0.4000,0.6000,0.8000,0.6000,0.6000,0.8000,0.8000,0.6000,1.0000,1.0000,1.0000,1.0000,0.8000,0.6000,0.8000,0.6000,0.6000,1.0000,0.8000,0.2000,0.6000,0.8000,0.6000,0.4000,0.8000,0.4000,0.6000,0.4000,0.8000,0.6000,0.6000,0.6000,0.6000,0.6000,0.6000,0.6000,0.4000,0.6000,0.4000,0.4000,0.2000,0.6000,1.0000,1.0000,0.6000,0.8000,1.0000,0.6000,0.6000,0.8000,0.6000,0.8000,0.8000,0.8000,0.8000,0.6000,0.4000,0.0000,0.0000,0.4000,0.0000,0.6000,0.2000,0.8000,0.6000,0.8000,0.4000,0.4000,0.6000,0.6000,0.0000,0.4000,0.4000,1.0000,1.0000,1.0000,0.6000,0.4000,0.8000,1.0000,0.4000,0.8000,0.4000,0.4000,0.8000,0.8000,0.6000,0.6000,0.6000,0.6000,0.8000,1.0000,0.6000,0.8000,1.0000,1.0000,0.8000,0.6000,0.6000,1.0000,0.6000,0.6000,1.0000,1.0000,0.4000,0.4000,0.4000,0.6000,0.8000,0.6000,0.6000,0.8000,0.8000,0.6000,1.0000,1.0000,1.0000,1.0000,0.8000,0.6000,0.8000,0.6000,0.6000,1.0000,0.8000,0.2000,0.6000,0.8000,0.6000,0.4000,0.8000,0.4000,0.6000,0.4000,0.8000,0.6000,0.6000,0.6000,0.6000,0.6000,0.6000,0.6000,0.4000,0.6000,0.4000,0.4000,0.2000,0.6000,1.0000,1.0000,0.6000,0.8000,1.0000,0.6000,0.6000,0.8000,0.6000,0.8000,0.8000,0.8000,0.8000,0.6000,0.4000,0.0000,0.0000,0.4000,0.0000,0.6000,0.2000,0.8000,0.6000,0.8000]
+        # if len(self.speculative_metrics_cache) > 0 and len(self.speculative_metrics_cache) < len(history):
+        #     num_lookahead_slots = int(5 * history[len(self.speculative_metrics_cache)]) + 1
+        #     # avg_ratio = sum(self.speculative_metrics_cache) / len(self.speculative_metrics_cache)
+        #     # num_lookahead_slots = self.scheduler_config.num_lookahead_slots
+        #     # num_lookahead_slots = min(int(avg_ratio * num_lookahead_slots) + 1, num_lookahead_slots)
+        #     # print(f"avg_ratio: {avg_ratio}, num_lookahead_slots: {num_lookahead_slots}")
+        #     # print("return my num_lookahead_slots",num_lookahead_slots)
+        #     return num_lookahead_slots
+        # print("return self.scheduler_config.num_lookahead_slots",self.scheduler_config.num_lookahead_slots)
         return self.scheduler_config.num_lookahead_slots
 
     def _get_num_new_uncached_and_cached_tokens(

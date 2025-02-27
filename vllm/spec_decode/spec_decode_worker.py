@@ -343,6 +343,7 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
         self._disable_log_stats = disable_log_stats
         self._num_spec_prefill_steps = num_spec_prefill_steps
         self.num_accepted_tokens = 0
+        self.proposer_worker_to_cpu = False
         
 
     def init_device(self) -> None:
@@ -484,6 +485,7 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
         disable_all_speculation = self._should_disable_all_speculation(
             execute_model_req)
         num_lookahead_slots = execute_model_req.num_lookahead_slots
+        print("num_lookahead_slotswakaka",num_lookahead_slots)
         all_prompt = True
         atleast_one_prompt = False
         all_zero_spec_tokens = True
@@ -547,6 +549,16 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
             disable_all_speculation, execute_model_req.seq_group_metadata_list)
 
         if no_spec:
+            # if (execute_model_req.running_queue_size
+            #     > self.disable_by_batch_size) and not self.proposer_worker_to_cpu:
+            #     print("offload!!!")
+            #     self.proposer_worker_to_cpu = True
+            #     self.proposer_worker.model_runner.model.to("cpu",non_blocking=True)
+            # elif (execute_model_req.running_queue_size
+            #     == self.disable_by_batch_size) and self.proposer_worker_to_cpu:
+            #     print("prefetch load to gpu!!!x1")
+            #     self.proposer_worker_to_cpu = False
+            #     self.proposer_worker.model_runner.model.to("cuda",non_blocking=True)
             return self._run_no_spec(execute_model_req,
                                      skip_proposer=disable_all_speculation)
         return self._run_speculative_decoding_step(execute_model_req,
@@ -783,9 +795,9 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
         # With prefill chunking, expect requests to have prompts first
         # so that backend gets prefill|decode.
         assert num_lookahead_slots == execute_model_req.num_lookahead_slots
-        if hasattr(self.spec_decode_sampler, "ratio"):
-            num_lookahead_slots = min(int(self.spec_decode_sampler.ratio * num_lookahead_slots) + 1, num_lookahead_slots)
-            execute_model_req.num_lookahead_slots = num_lookahead_slots
+        #if hasattr(self.spec_decode_sampler, "ratio"):
+            # num_lookahead_slots = min(int(self.spec_decode_sampler.ratio * num_lookahead_slots) + 1, num_lookahead_slots)
+            # execute_model_req.num_lookahead_slots = num_lookahead_slots
             # print(f"num_lookahead_slots: {num_lookahead_slots}")
 
         # Pass last hidden states from target model to proposer
@@ -824,6 +836,7 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
                 prefill_hidden_states = all_hidden_states[non_spec_indices]
                 execute_model_req.previous_hidden_states = \
                     prepare_prefill_hidden_states(prefill_hidden_states)
+                # print("prefill_hidden_states",prefill_hidden_states.shape)
             # Sync proposer KV cache for prefills.
             prefill_req = execute_model_req.clone(non_spec_seqs)
             # TODO avoid sampling here?
@@ -1303,6 +1316,15 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
     def stop_profile(self):
         if isinstance(self.scorer_worker, WorkerBase):
             self.scorer_worker.stop_profile()
+        
+    def get_proposer_worker_to_cpu(self):
+        # print("get_proposer_worker_to_cpu",self.proposer_worker_to_cpu)
+        return self.proposer_worker_to_cpu
+    
+    def get_speculative_metrics(self):
+        if hasattr(self.spec_decode_sampler, "ratio"):
+            return self.spec_decode_sampler.ratio
+        return 0
 
 
 def split_num_cache_blocks_evenly(scorer_cache_block_size_bytes: int,

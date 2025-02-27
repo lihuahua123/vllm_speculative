@@ -409,6 +409,7 @@ class LLMEngine:
             ))
 
         self.seq_id_to_seq_group: Dict[str, SequenceGroupBase] = {}
+        self.proposer_worker_to_cpu = False
 
     def _initialize_kv_caches(self) -> None:
         """Initialize the KV cache in the worker(s).
@@ -1335,11 +1336,14 @@ class LLMEngine:
         # This ensures that the scheduler is only called again when the current
         # batch has completed.
         if not self._has_remaining_steps(seq_group_metadata_list):
+            if self.scheduler_config.num_lookahead_slots > 0 and hasattr(self.model_executor, "get_speculative_metrics"):
+                speculative_metrics = self.model_executor.get_speculative_metrics()
+            else:
+                speculative_metrics = [0]
             # Schedule iteration
             (seq_group_metadata_list, scheduler_outputs,
              allow_async_output_proc
-             ) = self.scheduler[virtual_engine].schedule()
-
+             ) = self.scheduler[virtual_engine].schedule(speculative_metrics)
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
 
@@ -1390,7 +1394,17 @@ class LLMEngine:
 
             outputs = self.model_executor.execute_model(
                 execute_model_req=execute_model_req)
-
+            if hasattr(self.model_executor, "get_proposer_worker_to_cpu") and scheduler_outputs.num_lookahead_slots > 0:
+                aa = self.model_executor.get_proposer_worker_to_cpu()
+                if aa[0] == True and self.proposer_worker_to_cpu == False:
+                    print("increase block number@!!!!!")
+                    self.proposer_worker_to_cpu = True
+                    self.scheduler[virtual_engine].block_manager.block_allocator._allocators[Device.GPU].increase_block_number(100)
+                elif aa[0] == False and self.proposer_worker_to_cpu == True:
+                    print("decrease block number@!!!!!")
+                    self.proposer_worker_to_cpu = False
+                    # Use the new method that properly updates block tables
+                    self.scheduler[virtual_engine].block_manager.decrease_gpu_blocks(100)
             # We need to do this here so that last step's sampled_token_ids can
             # be passed to the next iteration for PP.
             if self.scheduler_config.is_multi_step:
@@ -1549,6 +1563,7 @@ class LLMEngine:
                                     finished_before, skip)
             for logger in self.stat_loggers.values():
                 logger.log(stats)
+                
 
     def _get_stats(self,
                    scheduler_outputs: Optional[SchedulerOutputs],

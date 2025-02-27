@@ -340,6 +340,62 @@ class NaiveBlockAllocator(BlockAllocator):
         # Not applicable for naive block allocator.
         return []
 
+    def increase_block_number(self, increase_num_blocks: int = 0):
+        """Increases the number of blocks while preserving existing block states.
+        
+        Args:
+            increase_num_blocks (int): Number of blocks to add
+        """
+        if increase_num_blocks <= 0:
+            return
+        
+        current_size = len(self._all_block_indices)
+        new_size = current_size + increase_num_blocks
+        
+        # Preserve existing block indices
+        new_all_block_indices = frozenset(range(new_size))
+        
+        # Keep existing free block indices and add new ones
+        new_free_indices = deque(self._free_block_indices)
+        new_free_indices.extend(range(current_size, new_size))
+        
+        # Create new refcounts for additional blocks while preserving existing ones
+        additional_refcounts = {
+            index: 0
+            for index in range(current_size, new_size)
+        }
+        
+        # Update structures
+        self._all_block_indices = new_all_block_indices
+        self._free_block_indices = new_free_indices
+        self._refcounter._refcounts.update(additional_refcounts)
+    
+    def decrease_block_number(self, decrease_num_blocks: int = 0):
+        """Decreases the number of blocks by removing blocks from the end.
+        Since block movement has already been handled by decrease_gpu_blocks,
+        this function only updates the data structures.
+        
+        Args:
+            decrease_num_blocks (int): Number of blocks to remove
+        """
+        if decrease_num_blocks <= 0:
+            return
+        
+        current_size = len(self._all_block_indices)
+        new_size = current_size - decrease_num_blocks
+        
+        # Update the free block indices to remove any that are beyond our new size
+        self._free_block_indices = deque(
+            [x for x in self._free_block_indices if x < new_size]
+        )
+        
+        # Update the set of all block indices
+        self._all_block_indices = frozenset(range(new_size))
+        
+        # Update refcounts
+        for block_id in range(new_size, current_size):
+            if block_id in self._refcounter._refcounts:
+                del self._refcounter._refcounts[block_id]
 
 class NaiveBlock(Block):
     """An implementation of the Block class that does not support prefix

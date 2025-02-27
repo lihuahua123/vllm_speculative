@@ -107,7 +107,7 @@ def sample_sharegpt_requests(
                 data["conversations"][1]["value"]) for data in dataset]
 
     # Shuffle the dataset.
-    # random.shuffle(dataset)
+    random.shuffle(dataset)
 
     # Filter out sequences that are too long or too short
     filtered_dataset: List[Tuple[str, int, int]] = []
@@ -126,7 +126,7 @@ def sample_sharegpt_requests(
         if prompt_len < 4 or (fixed_output_len is None and output_len < 4):
             # Prune too short sequences.
             continue
-        if prompt_len > 2048 or prompt_len + output_len > 4096:
+        if prompt_len > 1024 or prompt_len + output_len > 2048:
             # Prune too long sequences.
             continue
         filtered_dataset.append((prompt, prompt_len, output_len, None))
@@ -211,8 +211,7 @@ def sample_sonnet_requests(
     prefix_lines = poem_lines[:num_prefix_lines]
 
     # Sample the rest of lines per request.
-    sampled_requests: List[Tuple[str, int, int, Dict[str,
-                                                     Collection[str]]]] = []
+    sampled_requests: List[Tuple[str, int, int]] = []
     for _ in range(num_requests):
         num_lines_needed = num_input_lines - num_prefix_lines
         sampled_lines = "".join(prefix_lines +
@@ -636,64 +635,67 @@ async def benchmark(
     print(f"Maximum request concurrency: {max_concurrency}")
 
     pbar = None if disable_tqdm else tqdm(total=len(input_requests))
-    all_outputs = []
-    total_times = 5
-    for i in range(total_times):
-        # Replace the concurrent tasks execution with sequential execution
-        outputs: List[RequestFuncOutput] = []
-        benchmark_start_time = time.perf_counter()
-        
-        for request in input_requests:
-            prompt, prompt_len, output_len, mm_content = request
-            req_model_id, req_model_name = model_id, model_name
-            if lora_modules:
-                req_lora_module = next(lora_modules)
-                req_model_id, req_model_name = req_lora_module, req_lora_module
 
-            request_func_input = RequestFuncInput(
-                model=req_model_id,
-                model_name=req_model_name,
-                prompt=prompt,
-                api_url=api_url,
-                prompt_len=prompt_len,
-                output_len=output_len,
-                logprobs=logprobs,
-                best_of=best_of,
-                multi_modal_content=mm_content,
-                ignore_eos=ignore_eos
-            )
-            
-            # Make single request and wait for response
-            output = await request_func(request_func_input=request_func_input)
-            outputs.append(output)
+    # This can be used once the minimum Python version is 3.10 or higher,
+    # and it will simplify the code in limited_request_func.
+    #    semaphore = (asyncio.Semaphore(max_concurrency)
+    #                 if max_concurrency else contextlib.nullcontext())
+    semaphore = (asyncio.Semaphore(max_concurrency)
+                 if max_concurrency else None)
 
-        if profile:
-            print("Stopping profiler...")
-            profile_input = RequestFuncInput(
-                model=model_id,
-                prompt=test_prompt,
-                api_url=base_url + "/stop_profile",
-                prompt_len=test_prompt_len,
-                output_len=test_output_len,
-                logprobs=logprobs,
-                best_of=best_of,
-            )
-            profile_output = await request_func(request_func_input=profile_input)
-            if profile_output.success:
-                print("Profiler stopped")
+    async def limited_request_func(request_func_input, pbar):
+        if semaphore is None:
+            return await request_func(request_func_input=request_func_input,
+                                      pbar=pbar)
+        async with semaphore:
+            return await request_func(request_func_input=request_func_input,
+                                      pbar=pbar)
 
-        if pbar is not None:
-            pbar.close()
+    benchmark_start_time = time.perf_counter()
+    tasks: List[asyncio.Task] = []
+    async for request in get_request(input_requests, request_rate, burstiness):
+        prompt, prompt_len, output_len, mm_content = request
+        req_model_id, req_model_name = model_id, model_name
+        if lora_modules:
+            req_lora_module = next(lora_modules)
+            req_model_id, req_model_name = req_lora_module, req_lora_module
 
-        benchmark_duration = time.perf_counter() - benchmark_start_time
-        output_decoding_times = []
-        for output in outputs:
-            output_decoding_time = output.latency - output.ttft
-            output_decoding_times.append(output_decoding_time)
-        all_outputs.append(output_decoding_times)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    np.save(f"output_decoding_times_speculative_{timestamp}.npy", all_outputs)
-        
+        request_func_input = RequestFuncInput(model=req_model_id,
+                                              model_name=req_model_name,
+                                              prompt=prompt,
+                                              api_url=api_url,
+                                              prompt_len=prompt_len,
+                                              output_len=output_len,
+                                              logprobs=logprobs,
+                                              best_of=best_of,
+                                              multi_modal_content=mm_content,
+                                              ignore_eos=ignore_eos)
+        tasks.append(
+            asyncio.create_task(
+                limited_request_func(request_func_input=request_func_input,
+                                     pbar=pbar)))
+    outputs: List[RequestFuncOutput] = await asyncio.gather(*tasks)
+
+    if profile:
+        print("Stopping profiler...")
+        profile_input = RequestFuncInput(
+            model=model_id,
+            prompt=test_prompt,
+            api_url=base_url + "/stop_profile",
+            prompt_len=test_prompt_len,
+            output_len=test_output_len,
+            logprobs=logprobs,
+            best_of=best_of,
+        )
+        profile_output = await request_func(request_func_input=profile_input)
+        if profile_output.success:
+            print("Profiler stopped")
+
+    if pbar is not None:
+        pbar.close()
+
+    benchmark_duration = time.perf_counter() - benchmark_start_time
+
     metrics, actual_output_lens = calculate_metrics(
         input_requests=input_requests,
         outputs=outputs,
@@ -941,174 +943,190 @@ def main(args: argparse.Namespace):
     else:
         api_url = f"http://{args.host}:{args.port}{args.endpoint}"
         base_url = f"http://{args.host}:{args.port}"
-
-    # ... rest of the existing main() function code ...
+    print(args)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
     
-    tokenizer = get_tokenizer(tokenizer_id,
-                            tokenizer_mode=tokenizer_mode,
-                            trust_remote_code=args.trust_remote_code)
+    # Start the vLLM server first
+    server_process = None
+    try:
+        if args.backend == "vllm" and not args.base_url:
+            server_process, child_pids = start_vllm_server(args.model, args.port)
+        
+        # ... rest of the existing main() function code ...
+        
+        tokenizer = get_tokenizer(tokenizer_id,
+                                tokenizer_mode=tokenizer_mode,
+                                trust_remote_code=args.trust_remote_code)
 
-    if args.dataset is not None:
-        warnings.warn(
-            "The '--dataset' argument will be deprecated in the next "
-            "release. Please use '--dataset-name' and "
-            "'--dataset-path' in the future runs.",
-            stacklevel=2)
-        input_requests = sample_sharegpt_requests(
-            dataset_path=args.dataset,
-            num_requests=args.num_prompts,
-            tokenizer=tokenizer,
-            fixed_output_len=args.sharegpt_output_len,
-        )
+        if args.dataset is not None:
+            warnings.warn(
+                "The '--dataset' argument will be deprecated in the next "
+                "release. Please use '--dataset-name' and "
+                "'--dataset-path' in the future runs.",
+                stacklevel=2)
+            input_requests = sample_sharegpt_requests(
+                dataset_path=args.dataset,
+                num_requests=args.num_prompts,
+                tokenizer=tokenizer,
+                fixed_output_len=args.sharegpt_output_len,
+            )
 
-    elif args.dataset_name == "sharegpt":
-        input_requests = sample_sharegpt_requests(
-            dataset_path=args.dataset_path,
-            num_requests=args.num_prompts,
-            tokenizer=tokenizer,
-            fixed_output_len=args.sharegpt_output_len,
-        )
-
-    elif args.dataset_name == "burstgpt":
-        input_requests = sample_burstgpt_requests(
-            dataset_path=args.dataset_path,
-            num_requests=args.num_prompts,
-            random_seed=args.seed,
-            tokenizer=tokenizer,
-        )
-
-    elif args.dataset_name == "sonnet":
-        # Do not format the prompt, pass to message directly
-        if args.backend == "openai-chat":
-            input_requests = sample_sonnet_requests(
+        elif args.dataset_name == "sharegpt":
+            input_requests = sample_sharegpt_requests(
                 dataset_path=args.dataset_path,
                 num_requests=args.num_prompts,
-                input_len=args.sonnet_input_len,
-                output_len=args.sonnet_output_len,
-                prefix_len=args.sonnet_prefix_len,
+                tokenizer=tokenizer,
+                fixed_output_len=args.sharegpt_output_len,
+            )
+
+        elif args.dataset_name == "burstgpt":
+            input_requests = sample_burstgpt_requests(
+                dataset_path=args.dataset_path,
+                num_requests=args.num_prompts,
+                random_seed=args.seed,
                 tokenizer=tokenizer,
             )
-            input_requests = [(prompt, prompt_len, output_len, None)
-                            for prompt, prompt_formatted, prompt_len,
-                            output_len, _ in input_requests]
+
+        elif args.dataset_name == "sonnet":
+            # Do not format the prompt, pass to message directly
+            if args.backend == "openai-chat":
+                input_requests = sample_sonnet_requests(
+                    dataset_path=args.dataset_path,
+                    num_requests=args.num_prompts,
+                    input_len=args.sonnet_input_len,
+                    output_len=args.sonnet_output_len,
+                    prefix_len=args.sonnet_prefix_len,
+                    tokenizer=tokenizer,
+                )
+                input_requests = [(prompt, prompt_len, output_len, None)
+                                for prompt, prompt_formatted, prompt_len,
+                                output_len, _ in input_requests]
+            else:
+                assert (
+                    tokenizer.chat_template or tokenizer.default_chat_template
+                ), "Tokenizer/model must have chat template for sonnet dataset."
+                input_requests = sample_sonnet_requests(
+                    dataset_path=args.dataset_path,
+                    num_requests=args.num_prompts,
+                    input_len=args.sonnet_input_len,
+                    output_len=args.sonnet_output_len,
+                    prefix_len=args.sonnet_prefix_len,
+                    tokenizer=tokenizer,
+                )
+                input_requests = [(prompt_formatted, prompt_len, output_len, None)
+                                for prompt, prompt_formatted, prompt_len,
+                                output_len, _ in input_requests]
+
+        elif args.dataset_name == "hf":
+            input_requests = sample_hf_requests(
+                dataset_path=args.dataset_path,
+                dataset_subset=args.hf_subset,
+                dataset_split=args.hf_split,
+                num_requests=args.num_prompts,
+                tokenizer=tokenizer,
+                random_seed=args.seed,
+                fixed_output_len=args.hf_output_len,
+            )
+
+        elif args.dataset_name == "random":
+            input_requests = sample_random_requests(
+                prefix_len=args.random_prefix_len,
+                input_len=args.random_input_len,
+                output_len=args.random_output_len,
+                num_prompts=args.num_prompts,
+                range_ratio=args.random_range_ratio,
+                tokenizer=tokenizer,
+            )
+
         else:
-            assert (
-                tokenizer.chat_template or tokenizer.default_chat_template
-            ), "Tokenizer/model must have chat template for sonnet dataset."
-            input_requests = sample_sonnet_requests(
-                dataset_path=args.dataset_path,
-                num_requests=args.num_prompts,
-                input_len=args.sonnet_input_len,
-                output_len=args.sonnet_output_len,
-                prefix_len=args.sonnet_prefix_len,
-                tokenizer=tokenizer,
-            )
-            input_requests = [(prompt_formatted, prompt_len, output_len, None)
-                            for prompt, prompt_formatted, prompt_len,
-                            output_len, _ in input_requests]
+            raise ValueError(f"Unknown dataset: {args.dataset_name}")
 
-    elif args.dataset_name == "hf":
-        input_requests = sample_hf_requests(
-            dataset_path=args.dataset_path,
-            dataset_subset=args.hf_subset,
-            dataset_split=args.hf_split,
-            num_requests=args.num_prompts,
-            tokenizer=tokenizer,
-            random_seed=args.seed,
-            fixed_output_len=args.hf_output_len,
-        )
+        goodput_config_dict = check_goodput_args(args)
 
-    elif args.dataset_name == "random":
-        input_requests = sample_random_requests(
-            prefix_len=args.random_prefix_len,
-            input_len=args.random_input_len,
-            output_len=args.random_output_len,
-            num_prompts=args.num_prompts,
-            range_ratio=args.random_range_ratio,
-            tokenizer=tokenizer,
-        )
+        # Avoid GC processing "static" data - reduce pause times.
+        gc.collect()
+        gc.freeze()
 
-    else:
-        raise ValueError(f"Unknown dataset: {args.dataset_name}")
+        def run_benchmark_with_rate(request_rate):
+            print(f"Running benchmark with request rate: {request_rate},api_url: {api_url},base_url: {base_url}")
+            """Run a single benchmark with specified request rate"""
+            result = asyncio.run(
+                benchmark(
+                    backend=backend,
+                    api_url=api_url,
+                    base_url=base_url,
+                    model_id=model_id,
+                    model_name=model_name,
+                    tokenizer=tokenizer,
+                    input_requests=input_requests,
+                    logprobs=args.logprobs,
+                    best_of=args.best_of,
+                    request_rate=request_rate,
+                    burstiness=args.burstiness,
+                    disable_tqdm=args.disable_tqdm,
+                    profile=args.profile,
+                    selected_percentile_metrics=args.percentile_metrics.split(","),
+                    selected_percentiles=[float(p) for p in args.metric_percentiles.split(",")],
+                    ignore_eos=args.ignore_eos,
+                    goodput_config_dict=goodput_config_dict,
+                    max_concurrency=args.max_concurrency,
+                    lora_modules=args.lora_modules,
+                ))
+            
+            # Extract metrics into a dict
+            metrics_dict = {
+                "request_rate": request_rate,
+                "successful_requests": result["completed"],
+                "benchmark_duration": result["duration"],
+                "total_input_tokens": result["total_input_tokens"],
+                "total_output_tokens": result["total_output_tokens"],
+                "request_throughput": result["request_throughput"],
+                "output_throughput": result["output_throughput"],
+                "total_token_throughput": result["total_token_throughput"]
+            }
+            
+            # Add latency metrics
+            for metric in ["ttft", "tpot", "itl", "e2el"]:
+                if f"mean_{metric}_ms" in result:
+                    metrics_dict[f"mean_{metric}"] = result[f"mean_{metric}_ms"]
+                    metrics_dict[f"median_{metric}"] = result[f"median_{metric}_ms"]
+                    metrics_dict[f"p99_{metric}"] = result[f"p99_{metric}_ms"]
+            
+            return metrics_dict
 
-    goodput_config_dict = check_goodput_args(args)
-
-    # Avoid GC processing "static" data - reduce pause times.
-    gc.collect()
-    gc.freeze()
-
-    def run_benchmark_with_rate(request_rate):
-        print(f"Running benchmark with request rate: {request_rate},api_url: {api_url},base_url: {base_url}")
-        """Run a single benchmark with specified request rate"""
-        result = asyncio.run(
-            benchmark(
-                backend=backend,
-                api_url=api_url,
-                base_url=base_url,
-                model_id=model_id,
-                model_name=model_name,
-                tokenizer=tokenizer,
-                input_requests=input_requests,
-                logprobs=args.logprobs,
-                best_of=args.best_of,
-                request_rate=request_rate,
-                burstiness=args.burstiness,
-                disable_tqdm=args.disable_tqdm,
-                profile=args.profile,
-                selected_percentile_metrics=args.percentile_metrics.split(","),
-                selected_percentiles=[float(p) for p in args.metric_percentiles.split(",")],
-                ignore_eos=args.ignore_eos,
-                goodput_config_dict=goodput_config_dict,
-                max_concurrency=args.max_concurrency,
-                lora_modules=args.lora_modules,
-            ))
+        # Run benchmarks for different request rates
+        request_rates = range(1, 51, 10)  # 1, 11, 21, 31, 41
+        all_results = []
         
-        # Extract metrics into a dict
-        metrics_dict = {
-            "request_rate": request_rate,
-            "successful_requests": result["completed"],
-            "benchmark_duration": result["duration"],
-            "total_input_tokens": result["total_input_tokens"],
-            "total_output_tokens": result["total_output_tokens"],
-            "request_throughput": result["request_throughput"],
-            "output_throughput": result["output_throughput"],
-            "total_token_throughput": result["total_token_throughput"]
-        }
+        for rate in request_rates:
+            print(f"\nRunning benchmark with request rate: {rate}")
+            metrics = run_benchmark_with_rate(rate)
+            all_results.append(metrics)
         
-        # Add latency metrics
-        for metric in ["ttft", "tpot", "itl", "e2el"]:
-            if f"mean_{metric}_ms" in result:
-                metrics_dict[f"mean_{metric}"] = result[f"mean_{metric}_ms"]
-                metrics_dict[f"median_{metric}"] = result[f"median_{metric}_ms"]
-                metrics_dict[f"p99_{metric}"] = result[f"p99_{metric}_ms"]
+        # Create DataFrame from all results
+        results_df = pd.DataFrame(all_results)
         
-        return metrics_dict
-
-    # Run benchmarks for different request rates
-    request_rates = [50]#range(1, 51, 10)  # 1, 11, 21, 31, 41
-    all_results = []
-    
-    for rate in request_rates:
-        print(f"\nRunning benchmark with request rate: {rate}")
-        metrics = run_benchmark_with_rate(rate)
-        all_results.append(metrics)
-    
-    # Create DataFrame from all results
-    results_df = pd.DataFrame(all_results)
-    
-    # Create results directory
-    results_dir = "benchmark_results"
-    os.makedirs(results_dir, exist_ok=True)
-    
-    # Save results
-    current_dt = datetime.now().strftime("%Y%m%d-%H%M%S")
-    base_model_id = model_id.split("/")[-1]
-    
-    # Save to CSV
-    csv_filename = os.path.join(results_dir, f"benchmark_results_{args.benchmark_name}_{base_model_id}_{current_dt}.csv")
-    #results_df.to_csv(csv_filename, index=False)
-    #print(f"\nResults saved to: {csv_filename}")
-    
+        # Create results directory
+        results_dir = "benchmark_results"
+        os.makedirs(results_dir, exist_ok=True)
+        
+        # Save results
+        current_dt = datetime.now().strftime("%Y%m%d-%H%M%S")
+        base_model_id = model_id.split("/")[-1]
+        
+        # Save to CSV
+        csv_filename = os.path.join(results_dir, f"benchmark_results_{args.benchmark_name}_{base_model_id}_{current_dt}.csv")
+        results_df.to_csv(csv_filename, index=False)
+        print(f"\nResults saved to: {csv_filename}")
+    finally:
+        # Clean up the server process if it was started
+        print(f"server_process: {server_process}, child_pids: {child_pids}")
+        time.sleep(60)
+        if server_process is not None:
+            print("\nShutting down vLLM server...")
+            kill_processes([server_process.pid] + child_pids)
+            print("Server shutdown complete")
     
     # # Create plots
     # import matplotlib.pyplot as plt

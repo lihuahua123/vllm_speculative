@@ -258,6 +258,12 @@ class ExecutorBase(ABC):
         """Checks if the executor is healthy. If not, it should raise an
         exception."""
         self.check_health()
+    
+    def get_proposer_worker_to_cpu(self):
+        return self.collective_rpc("get_proposer_worker_to_cpu")
+    
+    def get_speculative_metrics(self):
+        return self.collective_rpc("get_speculative_metrics")
 
 
 class DistributedExecutorBase(ExecutorBase):

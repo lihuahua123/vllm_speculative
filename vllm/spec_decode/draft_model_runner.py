@@ -319,7 +319,7 @@ class TP1DraftModelRunner(ModelRunnerWrapperBase):
                 for i in range(nums_seqs):
                     bonus_seq_idx = self.indices_of_seq_with_bonus_tokens[
                         count]
-                    if i != bonus_seq_idx:
+                    if i != bonus_seq_idx : #and bonus_seq_idx < len(model_input.input_tokens):
                         # The following might cause a cpu->gpu sync
                         # However, the performance impact is negligible as we
                         # benchmarked on H100.

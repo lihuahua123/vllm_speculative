@@ -149,7 +149,6 @@ class EngineCore:
         if not self.scheduler.has_unfinished_requests():
             return EngineCoreOutputs(
                 outputs=[], scheduler_stats=self.scheduler.make_stats())
-
         scheduler_output = self.scheduler.schedule()
         output = self.model_executor.execute_model(scheduler_output)
         engine_core_outputs = self.scheduler.update_from_output(
@@ -300,7 +299,6 @@ class EngineCoreProc(EngineCore):
 
         step_fn = (self.step
                    if self.batch_queue is None else self.step_with_batch_queue)
-
         # Loop until process is sent a SIGINT or SIGTERM
         while True:
             # 1) Poll the input queue until there is work to do.

@@ -14,26 +14,15 @@ import torch
 from benchmark_utils import convert_to_pytorch_benchmark_format
 from tqdm import tqdm
 import sys
-
 # Add current directory to Python path
 current_dir = os.path.dirname('/home/nudt/lirui/vllm_speculative/vllm')
 sys.path.append(current_dir)
 print("Python path:")
-for path in sys.path:
-    print(f"  {path}")
-try:
-    import vllm
-    print(f"\nvllm found at: {vllm.__file__}")
-except ImportError as e:
-    print(f"\nFailed to import vllm: {e}")
-
-
 from vllm import LLM, SamplingParams
 from vllm.engine.arg_utils import EngineArgs
 from vllm.inputs import PromptType
 from vllm.sampling_params import BeamSearchParams
 from vllm.utils import FlexibleArgumentParser
-
 
 def save_to_pytorch_benchmark_format(args: argparse.Namespace,
                                      results: Dict[str, Any]) -> None:
@@ -52,6 +41,9 @@ def main(args: argparse.Namespace):
     print(args)
 
     engine_args = EngineArgs.from_cli_args(args)
+
+    # NOTE(woosuk): If the request cannot be processed in a single batch,
+    # the engine will automatically process the request in multiple batches.
     llm = LLM(**dataclasses.asdict(engine_args))
 
     sampling_params = SamplingParams(
@@ -59,41 +51,32 @@ def main(args: argparse.Namespace):
         temperature=1.0,
         top_p=1.0,
         ignore_eos=True,
-        max_tokens=1,
+        max_tokens=args.output_len,
     )
     print(sampling_params)
-
-    dummy_prompt_token_ids1 = np.random.randint(10000,
-                                             size=(args.batch_size,
-                                                   args.input_len))
-    dummy_prompt_token_ids2 = np.random.randint(10000,
-                                             size=(args.batch_size,
-                                                   args.input_len + 1))
-    
-    dummy_prompts1: List[PromptType] = [{
+    dummy_prompt_token_ids = np.random.randint(10000,
+                                               size=(args.batch_size,
+                                                     args.input_len))
+    dummy_prompts: List[PromptType] = [{
         "prompt_token_ids": batch
-    } for batch in dummy_prompt_token_ids1.tolist()]
-    
-    dummy_prompts2: List[PromptType] = [{
-        "prompt_token_ids": batch
-    } for batch in dummy_prompt_token_ids2.tolist()]
+    } for batch in dummy_prompt_token_ids.tolist()]
 
-    def llm_generate(prompts):
+    def llm_generate():
         if not args.use_beam_search:
-            llm.generate(prompts,
+            llm.generate(dummy_prompts,
                          sampling_params=sampling_params,
                          use_tqdm=False)
         else:
             llm.beam_search(
-                prompts,
+                dummy_prompts,
                 BeamSearchParams(
                     beam_width=args.n,
-                    max_tokens=1,
+                    max_tokens=args.output_len,
                     ignore_eos=True,
                 ),
             )
 
-    def run_to_completion(prompts, profile_dir: Optional[str] = None):
+    def run_to_completion(profile_dir: Optional[str] = None):
         if profile_dir:
             with torch.profiler.profile(
                     activities=[
@@ -103,19 +86,18 @@ def main(args: argparse.Namespace):
                     on_trace_ready=torch.profiler.tensorboard_trace_handler(
                         str(profile_dir)),
             ) as p:
-                llm_generate(prompts)
+                llm_generate()
             print(p.key_averages().table(sort_by="self_cuda_time_total"))
         else:
             start_time = time.perf_counter()
-            llm_generate(prompts)
+            llm_generate()
             end_time = time.perf_counter()
             latency = end_time - start_time
             return latency
 
     print("Warming up...")
     for _ in tqdm(range(args.num_iters_warmup), desc="Warmup iterations"):
-        run_to_completion(dummy_prompts1, profile_dir=None)
-        run_to_completion(dummy_prompts2, profile_dir=None)
+        run_to_completion(profile_dir=None)
 
     if args.profile:
         profile_dir = args.profile_result_dir
@@ -123,40 +105,26 @@ def main(args: argparse.Namespace):
             profile_dir = (Path(".") / "vllm_benchmark_result" /
                            f"latency_result_{time.time()}")
         print(f"Profiling (results will be saved to '{profile_dir}')...")
-        run_to_completion(dummy_prompts1, profile_dir=profile_dir)
-        run_to_completion(dummy_prompts2, profile_dir=profile_dir)
+        run_to_completion(profile_dir=profile_dir)
         return
 
-    # Benchmark
-    latencies1 = []
-    latencies2 = []
+    # Benchmark.
+    latencies = []
     for _ in tqdm(range(args.num_iters), desc="Profiling iterations"):
-        latencies1.append(run_to_completion(dummy_prompts1, profile_dir=None))
-        latencies2.append(run_to_completion(dummy_prompts2, profile_dir=None))
-    
-    latencies1 = np.array(latencies1)
-    latencies2 = np.array(latencies2)
-    
-    # Calculate average latencies and ratio
-    avg_latency1 = np.mean(latencies1)
-    avg_latency2 = np.mean(latencies2)
-    ratio = avg_latency2 / avg_latency1
-    
-    print(f"\nResults for batch_size={args.batch_size}, input_len={args.input_len}:")
-    print(f"Avg latency for input_len={args.input_len}: {avg_latency1:.4f} seconds")
-    print(f"Avg latency for input_len={args.input_len + 1}: {avg_latency2:.4f} seconds")
-    print(f"Ratio (len+1/len): {ratio:.4f}")
+        latencies.append(run_to_completion(profile_dir=None))
+    latencies = np.array(latencies)
+    percentages = [10, 25, 50, 75, 90, 99]
+    percentiles = np.percentile(latencies, percentages)
+    print(f"Avg latency: {np.mean(latencies)} seconds")
+    for percentage, percentile in zip(percentages, percentiles):
+        print(f"{percentage}% percentile latency: {percentile} seconds")
 
     # Output JSON results if specified
     if args.output_json:
         results = {
-            "batch_size": args.batch_size,
-            "input_len": args.input_len,
-            "avg_latency_len": avg_latency1,
-            "avg_latency_len_plus_1": avg_latency2,
-            "ratio": ratio,
-            "latencies_len": latencies1.tolist(),
-            "latencies_len_plus_1": latencies2.tolist(),
+            "avg_latency": np.mean(latencies),
+            "latencies": latencies.tolist(),
+            "percentiles": dict(zip(percentages, percentiles.tolist())),
         }
         with open(args.output_json, "w") as f:
             json.dump(results, f, indent=4)

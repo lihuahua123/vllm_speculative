@@ -96,7 +96,7 @@ class Scheduler:
         self.encoder_cache_manager = EncoderCacheManager(
             cache_size=encoder_cache_size)
 
-    def schedule(self) -> "SchedulerOutput":
+    def schedule(self, speculative_metrics:float=1) -> "SchedulerOutput":
         # NOTE(woosuk) on the scheduling algorithm:
         # There's no "decoding phase" nor "prefill phase" in the scheduler.
         # Each request just has the num_computed_tokens and
@@ -124,7 +124,7 @@ class Scheduler:
 
         # For logging.
         scheduled_timestamp = time.monotonic()
-
+        # self.running.sort(key=lambda request: request.max_tokens - request.num_computed_tokens)
         # First, schedule the RUNNING requests.
         req_index = 0
         while req_index < len(self.running) and token_budget > 0:
@@ -133,7 +133,6 @@ class Scheduler:
                 # This request has already been scheduled.
                 req_index += 1
                 continue
-
             num_new_tokens = (request.num_tokens_with_spec -
                               request.num_computed_tokens)
             num_new_tokens = min(num_new_tokens, token_budget)

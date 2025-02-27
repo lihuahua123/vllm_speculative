@@ -518,3 +518,56 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         cached in the block manager for the sequence.
         """
         return self._computed_blocks_tracker.get_num_cached_tokens(seq)
+    
+    def decrease_gpu_blocks(self, decrease_num_blocks: int) -> None:
+        """Decreases the number of GPU blocks and updates all block tables accordingly."""
+        if decrease_num_blocks <= 0:
+            return
+        
+        # Get current and new size
+        current_size = self.num_total_gpu_blocks
+        new_size = current_size - decrease_num_blocks
+        
+        # First collect all blocks that need to be moved
+        blocks_to_move = {}  # block_table -> list of (block, new_block_id)
+        
+        # Get all block tables that need to be updated
+        for seq_id, block_table in self.block_tables.items():
+            blocks_to_move[seq_id] = []
+            for block in block_table.blocks:
+                if block is not None and block.block_id is not None:
+                    if block.block_id >= new_size:
+                        # Find a new block id in the range we want to keep
+                        new_block_id = None
+                        for potential_id in self.block_allocator._allocators[Device.GPU]._free_block_indices:
+                            if potential_id < new_size:
+                                new_block_id = potential_id
+                                break
+                        
+                        if new_block_id is not None:
+                            blocks_to_move[seq_id].append((block, new_block_id))
+
+        # Now perform the moves
+        for seq_id, moves in blocks_to_move.items():
+            for old_block, new_block_id in moves:
+                # Create new block with same content
+                new_block = self.block_allocator._allocators[Device.GPU]._block_pool.init_block(
+                    prev_block=old_block.prev_block,
+                    token_ids=old_block.token_ids,
+                    block_size=self.block_size,
+                    physical_block_id=new_block_id)
+                
+                # Update the block table before freeing the old block
+                self.block_tables[seq_id].replace_block(old_block, new_block)
+                
+                # Remove the new_block_id from free indices since we're using it
+                if new_block_id in self.block_allocator._allocators[Device.GPU]._free_block_indices:
+                    self.block_allocator._allocators[Device.GPU]._free_block_indices.remove(new_block_id)
+                
+                # Now it's safe to free the old block
+                # if old_block.block_id is not None:  # Extra safety check
+                #     self.block_allocator._allocators[Device.GPU].free(old_block)
+        
+        # Now decrease the blocks in the allocator
+        self.block_allocator._allocators[Device.GPU].decrease_block_number(decrease_num_blocks)
+        self.num_total_gpu_blocks = new_size

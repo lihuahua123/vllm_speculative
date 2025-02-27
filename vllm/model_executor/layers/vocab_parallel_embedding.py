@@ -381,7 +381,7 @@ class VocabParallelEmbedding(torch.nn.Module):
             start_idx = start_idx // packed_factor
             shard_size = shard_size // packed_factor
         else:
-            assert loaded_weight.shape[output_dim] == self.org_vocab_size
+            assert loaded_weight.shape[output_dim] == self.org_vocab_size, f"loaded_weight.shape[output_dim]: {loaded_weight.shape[output_dim]}, self.org_vocab_size: {self.org_vocab_size}"
 
         # Copy the data. Select chunk corresponding to current shard.
         loaded_weight = loaded_weight.narrow(output_dim, start_idx, shard_size)
