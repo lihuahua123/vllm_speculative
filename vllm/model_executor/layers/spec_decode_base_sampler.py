@@ -129,8 +129,8 @@ class SpecDecodeBaseSampler(nn.Module):
         self.num_accepted_tokens += accepted.sum()
         self.num_emitted_tokens += (output_with_bonus_tokens != -1).sum()
         self.num_draft_tokens += batch_size * k
-        print("accepted.sum()",accepted.sum())
-        print("batch_size , k",batch_size , k)
+        # print("accepted.sum()",accepted.sum(),accepted)
+        # print("batch_size , accepted.sum()",batch_size , accepted.sum())
         self.ratio = accepted.sum() / (batch_size * k)
 
         return output_with_bonus_tokens

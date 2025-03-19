@@ -3,7 +3,7 @@
 from typing import List, Optional, Set, Tuple
 
 import torch
-
+import heapq
 from vllm.model_executor.layers.sampler import SamplerOutput
 from vllm.sequence import ExecuteModelRequest, SequenceGroupMetadata
 from vllm.spec_decode.interfaces import (SpeculativeProposals,
@@ -82,6 +82,32 @@ class Top1Proposer(SpeculativeProposer):
                 seq_ids_with_bonus_token_in_last_step=\
                     seq_ids_with_bonus_token_in_last_step,
             )
+            #print("maybe_sampler_output.sampled_token_probs.shape", len(nonzero_proposal_len_seqs),len(maybe_sampler_output), maybe_sampler_output[0].sampled_token_probs.shape)
+            # sampled_token_probs shape: [batch_size, vocab_size]
+            # batch_size = maybe_sampler_output[0].sampled_token_probs.shape[0]
+            # steps_num = org_proposal_len
+            # budget = batch_size * steps_num
+            # # 初始化堆，用于存储候选token
+            # heap = []
+            # # 初始化被选中的token列表
+            # selected_tokens = [[-1 for _ in range(org_proposal_len)] for _ in range(batch_size)]
+            # for i in range(batch_size):
+            #     probs = maybe_sampler_output[0].sampled_token_probs[i]
+            #     token_idx = torch.multinomial(probs, num_samples=1)
+            #     selected_probs = probs[token_idx]
+            #     heapq.heappush(heap, (-selected_probs, 0, i, token_idx))
+            # while len(selected_tokens) < budget:
+            #     if len(heap) == 0:
+            #         break
+            #     _, step_idx,req_idx, token_idx = heapq.heappop(heap)
+            #     selected_tokens[req_idx][step_idx] = token_idx
+            #     if step_idx < org_proposal_len - 1 :
+            #         probs = maybe_sampler_output[step_idx+1].sampled_token_probs[req_idx]
+            #         token_idx = torch.multinomial(probs, num_samples=1)
+            #         heapq.heappush(heap, (-selected_probs, step_idx+1, req_idx, token_idx))
+            #print("selected_tokens", selected_tokens)
+            #print("maybe_sampler_output", maybe_sampler_output[0].sampled_token_ids)
+                
             (
                 proposal_lens,
                 maybe_sampler_output,
@@ -105,7 +131,14 @@ class Top1Proposer(SpeculativeProposer):
             nonzero_proposal_len_indices=nonzero_proposal_len_indices,
             sampler_transposed=transposed,
         )
-
+        # TETRIS print("proposal_tokens.shape", proposal_tokens.shape,proposal_probs.shape)
+        # proposal_tokens = torch.tensor(selected_tokens, device=self._device)
+        # for i,plen in enumerate(proposal_lens):
+        #     if proposal_lens[i] > 0:
+        #         proposal_lens[i] = org_proposal_len
+        # proposal_probs = proposal_probs[:, :org_proposal_len, :]
+        # execute_model_req.num_lookahead_slots = org_proposal_len
+        # print("proposal_probs.sahpe",proposal_probs.shape)
         proposals = SpeculativeProposals(proposal_token_ids=proposal_tokens,
                                          proposal_probs=proposal_probs,
                                          proposal_lens=proposal_lens,

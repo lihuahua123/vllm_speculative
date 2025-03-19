@@ -485,7 +485,7 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
         disable_all_speculation = self._should_disable_all_speculation(
             execute_model_req)
         num_lookahead_slots = execute_model_req.num_lookahead_slots
-        print("num_lookahead_slotswakaka",num_lookahead_slots)
+        # print("num_lookahead_slotswakaka",num_lookahead_slots)
         all_prompt = True
         atleast_one_prompt = False
         all_zero_spec_tokens = True
@@ -1325,6 +1325,13 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
         if hasattr(self.spec_decode_sampler, "ratio"):
             return self.spec_decode_sampler.ratio
         return 0
+    
+    def update_typical_acceptance_threshold(self, new_threshold):
+        if hasattr(self.spec_decode_sampler, "posterior_threshold"):
+            old_threshold = self.spec_decode_sampler.posterior_threshold
+            self.spec_decode_sampler.posterior_threshold = new_threshold
+            return old_threshold
+        return None
 
 
 def split_num_cache_blocks_evenly(scorer_cache_block_size_bytes: int,

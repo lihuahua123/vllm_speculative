@@ -1,0 +1,4 @@
+python benchmarks/benchmark_serving.py         --backend openai-chat         --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B  --dataset-name sharegpt    --dataset-path /data/sharegpt.json      --num-prompts 300 
+python benchmarks/benchmark_serving.py         --backend openai-chat         --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B  --dataset-name sharegpt    --dataset-path /data/sharegpt.json      --num-prompts 500
+python benchmarks/benchmark_serving.py         --backend openai-chat         --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B  --dataset-name sharegpt    --dataset-path /data/sharegpt.json      --num-prompts 1000
+python benchmarks/benchmark_serving.py         --backend openai-chat         --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B  --dataset-name sharegpt    --dataset-path /data/sharegpt.json      --num-prompts 2000 

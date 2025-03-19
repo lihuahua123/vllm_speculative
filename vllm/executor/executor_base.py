@@ -264,6 +264,9 @@ class ExecutorBase(ABC):
     
     def get_speculative_metrics(self):
         return self.collective_rpc("get_speculative_metrics")
+    
+    def update_typical_acceptance_threshold(self, new_threshold):
+        return self.collective_rpc("update_typical_acceptance_threshold", kwargs=dict(new_threshold=new_threshold))
 
 
 class DistributedExecutorBase(ExecutorBase):

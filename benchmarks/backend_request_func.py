@@ -339,7 +339,7 @@ async def async_request_openai_chat_completions(
         "chat/completions"
     ), "OpenAI Chat Completions API URL must end with 'chat/completions'."
 
-    async with aiohttp.ClientSession(trust_env=True,
+    async with aiohttp.ClientSession(trust_env=False,
                                      timeout=AIOHTTP_TIMEOUT) as session:
         content = [{"type": "text", "text": request_func_input.prompt}]
         if request_func_input.multi_modal_content:
@@ -378,7 +378,7 @@ async def async_request_openai_chat_completions(
         most_recent_timestamp = st
         try:
             async with session.post(url=api_url, json=payload,
-                                    headers=headers) as response:
+                                    headers=headers, proxy=None) as response:
                 if response.status == 200:
                     async for chunk_bytes in response.content:
                         chunk_bytes = chunk_bytes.strip()

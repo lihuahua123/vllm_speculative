@@ -1394,6 +1394,9 @@ class LLMEngine:
 
             outputs = self.model_executor.execute_model(
                 execute_model_req=execute_model_req)
+            stats = self._get_stats(scheduler_outputs, outputs,
+                                    finished_before=None, skip=None)
+            self.scheduler[virtual_engine].set_stats(stats)
             if hasattr(self.model_executor, "get_proposer_worker_to_cpu") and scheduler_outputs.num_lookahead_slots > 0:
                 aa = self.model_executor.get_proposer_worker_to_cpu()
                 if aa[0] == True and self.proposer_worker_to_cpu == False:
@@ -1440,7 +1443,7 @@ class LLMEngine:
                               is_async=allow_async_output_proc,
                               is_last_step=True,
                               is_first_step_output=is_first_step_output)
-
+            
             if outputs and allow_async_output_proc:
                 assert len(outputs) == 1, (
                     "Async postprocessor expects only a single output set")

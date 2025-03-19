@@ -107,7 +107,7 @@ def sample_sharegpt_requests(
                 data["conversations"][1]["value"]) for data in dataset]
 
     # Shuffle the dataset.
-    random.shuffle(dataset)
+    # random.shuffle(dataset)
 
     # Filter out sequences that are too long or too short
     filtered_dataset: List[Tuple[str, int, int]] = []

@@ -5,11 +5,12 @@ import os
 import random
 import time
 from collections import deque
+from joblib import load
 from dataclasses import dataclass, field
 from typing import Callable, Deque, Dict, Iterable, List, Optional
 from typing import Sequence as GenericSequence
 from typing import Set, Tuple, Union
-
+from vllm.engine.metrics_types import Stats
 from vllm.config import CacheConfig, LoRAConfig, SchedulerConfig
 from vllm.core.interfaces import AllocStatus, BlockSpaceManager
 from vllm.logger import init_logger
@@ -200,7 +201,78 @@ class SchedulerOutputs:
             if g.seq_group.prompt_adapter_request is not None
         }
 
+class SmartSpec:
+    def __init__(self, model, draft_model, max_proposed_length=5):
+        """
+        初始化SmartSpec。
+        :param model: 模型，用于计算执行时间。
+        :param max_proposed_length: 最大推测长度。
+        """
+        self.model = model
+        self.draft_model = draft_model
+        self.max_proposed_length = max_proposed_length
+        self.prev_alphas = []  # 用于存储历史token接受率
 
+    def moving_average(self, window_size=5):
+        """
+        计算历史token接受率的移动平均值。
+        :param window_size: 移动平均的窗口大小。
+        :return: 移动平均值。
+        """
+        if len(self.prev_alphas) == 0:
+            return 0.7  # 默认值，如果没有历史数据
+        window = self.prev_alphas[-window_size:]
+        return sum(window) / len(window)
+
+    def estimate_generated_length(self, alpha, k):
+        """
+        估计生成的token长度。
+        :param alpha: token接受率。
+        :param k: 推测长度。
+        :return: 生成的token长度。
+        """
+        if alpha == 1:
+            return k + 1  # 如果接受率为1，生成k+1个token
+        return (1 - alpha ** (k + 1)) / (1 - alpha)
+    
+    def estimate_batch_execution_time(self, batch_size, proposed_length):
+        """
+        估计批处理的执行时间。
+        :param batch_size: 批处理大小。
+        :param proposed_length: 推测长度。
+        :return: 执行时间。
+        """
+        # 假设执行时间是线性的，基于模型系数
+        draft = self.draft_model.predict([[batch_size,1]])[0]
+        target = self.model.predict([[batch_size, proposed_length]])[0]
+        return abs(draft)*proposed_length + \
+            abs(target)
+    def goodput_estimation(self, batch_size, proposed_length):
+        """
+        计算goodput。
+        :param batch_size: 批处理大小。
+        :param proposed_length: 推测长度。
+        :return: goodput值。
+        """
+        alpha = self.moving_average()
+        generated_length = self.estimate_generated_length(alpha, proposed_length)
+        execution_time = self.estimate_batch_execution_time(batch_size, proposed_length)
+        return generated_length / execution_time
+
+    def optimize_proposed_length(self, batch_size):
+        """
+        优化推测长度，选择最大化goodput的长度。
+        :param batch_size: 批处理大小。
+        :return: 最优的推测长度。
+        """
+        best_goodput = -1
+        best_length = 0
+        for k in range(1, self.max_proposed_length + 1):
+            goodput = self.goodput_estimation(batch_size, k)
+            if goodput > best_goodput:
+                best_goodput = goodput
+                best_length = k
+        return best_length
 @dataclass
 class SchedulerRunningOutputs:
     """The requests that are scheduled from a running queue.
@@ -535,7 +607,11 @@ class Scheduler:
                 scheduler_config.max_num_batched_tokens // i)
         
         self.speculative_metrics = None
-        self.speculative_metrics_cache = deque()
+        self.speculative_metrics_cache = []
+        # if self.scheduler_config.num_lookahead_slots > 0:
+        #     self.smart_spec = SmartSpec(load('deepseek-aiDeepSeek-R1-Distill-Qwen-7B.pkl'), load('DeepSeek-R1-DRAFT-Qwen2.5-0.5B.pkl'), self.scheduler_config.num_lookahead_slots)
+        # else:
+        self.smart_spec = None
 
     @property
     def next_cache_id(self):
@@ -640,6 +716,7 @@ class Scheduler:
         curr_loras: Optional[Set[int]],
         enable_chunking: bool = False,
         partial_prefill_metadata: Optional[PartialPrefillMetadata] = None,
+        best_batch: Optional[List[SequenceGroup]] = None,
     ) -> SchedulerRunningOutputs:
         """Schedule sequence groups that are running.
 
@@ -684,8 +761,11 @@ class Scheduler:
             ScheduledSequenceGroup] = ret.prefill_seq_groups
         preempted: List[SequenceGroup] = ret.preempted
         swapped_out: List[SequenceGroup] = ret.swapped_out
-
-        running_queue = self.running
+        if best_batch is not None and best_batch < len(self.running):
+            running_queue = deque(list(self.running)[:best_batch])
+        else:
+            running_queue = self.running
+        # running_queue = deque(best_batch)
         assert len(self._async_stopped) == 0
         while running_queue:
             seq_group = running_queue[0]
@@ -800,7 +880,8 @@ class Scheduler:
                     budget.add_num_seqs(seq_group.request_id, num_running_seqs)
                 if curr_loras is not None and seq_group.lora_int_id > 0:
                     curr_loras.add(seq_group.lora_int_id)
-
+        if best_batch is not None and best_batch < len(self.running):
+            self.running = running_queue
         self._scheduler_running_outputs_cache[self.next_cache_id].reset()
         self._scheduled_seq_group_cache[self.next_cache_id].reset()
 
@@ -1021,7 +1102,7 @@ class Scheduler:
         """Get max_tokens from sampling params, return inf if not set."""
         if seq_group.sampling_params is None or seq_group.sampling_params.max_tokens is None:
             return float('inf')
-        return seq_group.sampling_params.max_tokens
+        return -len(seq_group.first_seq.prompt_token_ids) # + seq_group.sampling_params.max_tokens
 
     def _schedule_prefills(
         self,
@@ -1072,7 +1153,9 @@ class Scheduler:
         #     key=lambda x: self._get_max_tokens(x)
         # ))
         # self.waiting = waiting_queue
-        
+        # if best_batch is not None:
+        #     waiting_queue = best_batch
+        # else:
         waiting_queue = self.waiting
         
         leftover_waiting_sequences: Deque[SequenceGroup] = deque()
@@ -1209,6 +1292,9 @@ class Scheduler:
         waiting_queue.extendleft(leftover_waiting_sequences)
         if len(seq_groups) > 0:
             self.prev_prompt = True
+        # Filter out sequences that have already been scheduled from self.waiting
+        # scheduled_request_ids = {seq_group.seq_group.request_id for seq_group in seq_groups}
+        # self.waiting = deque([seq_group for seq_group in self.waiting if seq_group.request_id not in scheduled_request_ids])
         return SchedulerPrefillOutputs(
             seq_groups=seq_groups,
             ignored_seq_groups=ignored_seq_groups,
@@ -1216,7 +1302,7 @@ class Scheduler:
                 is_prefill=True, enable_chunking=enable_chunking),
         )
 
-    def _schedule_default(self) -> SchedulerOutputs:
+    def _schedule_default(self, best_batch=None) -> SchedulerOutputs:
         """Schedule queued requests.
 
         The current policy is designed to optimize the throughput. First,
@@ -1258,7 +1344,8 @@ class Scheduler:
         if len(prefills.seq_groups) == 0:
             running_scheduled = self._schedule_running(budget,
                                                        curr_loras,
-                                                       enable_chunking=False)
+                                                       enable_chunking=False,
+                                                       best_batch=best_batch)
 
             # If any sequence group is preempted, do not swap in any sequence
             # group. because it means there's no slot for new running requests.
@@ -1419,8 +1506,6 @@ class Scheduler:
                                (all_prefills
                                 and not self.scheduler_config.is_multi_step)
                                else running_scheduled.num_lookahead_slots)
-        print("all_prefills",all_prefills,"is_multi_step",self.scheduler_config.is_multi_step)
-        print("num_lookahead_slots vs running_scheduled.num_lookahead_slots",num_lookahead_slots,running_scheduled.num_lookahead_slots)
         return SchedulerOutputs(
             scheduled_seq_groups=scheduled_seq_groups,
             num_prefill_groups=num_prefill_groups,
@@ -1453,12 +1538,12 @@ class Scheduler:
         ]
         return finishing + not_finishing
 
-    def _schedule(self) -> SchedulerOutputs:
+    def _schedule(self, best_batch=None) -> SchedulerOutputs:
         """Schedule queued requests."""
         if self.scheduler_config.chunked_prefill_enabled:
             return self._schedule_chunked_prefill()
         else:
-            return self._schedule_default()
+            return self._schedule_default(best_batch)
 
     def _can_append_slots(self, seq_group: SequenceGroup,
                           enable_chunking: bool) -> bool:
@@ -1501,15 +1586,21 @@ class Scheduler:
         # Convert to float value before appending
         metric_value = float(speculative_metrics[0])
         self.speculative_metrics_cache.append(metric_value)
-        print("len(self.speculative_metrics_cache)",len(self.speculative_metrics_cache))
+        best_batch = None #len(self.running)
+        if self.smart_spec is not None:
+            self.smart_spec.prev_alphas = self.speculative_metrics_cache
+            best_batch, best_proposed_lengths = self.smart_spec_schedule()
+            # print("best_proposed_lengths",len(self.running),best_proposed_lengths,best_batch)
+            self.scheduler_config.num_lookahead_slots = best_proposed_lengths
+        #print("len(self.speculative_metrics_cache)",len(self.speculative_metrics_cache))
         
         # Print only the float values
-        for metric in self.speculative_metrics_cache:
-            print(f"{metric:.4f}", end=",")
-        print()
+        # for metric in self.speculative_metrics_cache:
+        #     print(f"{metric:.4f}", end=",")
+        # print()
         
         scheduler_start_time = time.perf_counter()
-        scheduler_outputs: SchedulerOutputs = self._schedule()
+        scheduler_outputs: SchedulerOutputs = self._schedule(best_batch)
         now = time.time()
 
         if not self.cache_config.enable_prefix_caching:
@@ -1655,7 +1746,7 @@ class Scheduler:
 
         # Move to next cache (if exists)
         self.cache_id = self.next_cache_id
-        print("scheduler_outputs.num_lookahead_slots",scheduler_outputs.num_lookahead_slots)
+        # print("scheduler_outputs.num_lookahead_slots",scheduler_outputs.num_lookahead_slots)
         # Return results
         return (seq_group_metadata_list, scheduler_outputs,
                 allow_async_output_proc)
@@ -1856,6 +1947,25 @@ class Scheduler:
         else:
             passed_delay = True
         return passed_delay
+    
+    def smart_spec_schedule(self):
+        batch_candidates = [] 
+        for i in range(1, len(self.running) + 1):
+            batch_candidates.append(i)
+        best_goodput = -1
+        best_proposed_lengths = self.scheduler_config.num_lookahead_slots
+        best_batch = None
+
+        for batch_size in batch_candidates:
+            proposed_length = self.smart_spec.optimize_proposed_length(batch_size)
+            goodput = self.smart_spec.goodput_estimation(batch_size, proposed_length)
+
+            if goodput > best_goodput:
+                best_goodput = goodput
+                best_proposed_lengths = proposed_length
+                best_batch = batch_size
+
+        return best_batch, best_proposed_lengths
 
     def _get_num_lookahead_slots(self, is_prefill: bool,
                                  enable_chunking: bool) -> int:
@@ -1885,6 +1995,7 @@ class Scheduler:
             else:
                 return 0
         history = [0,0.0000,0.6000,0.6000,0.0000,0.4000,0.4000,1.0000,1.0000,1.0000,0.6000,0.4000,0.8000,1.0000,0.4000,0.8000,0.4000,0.4000,0.8000,0.8000,0.6000,0.6000,0.6000,0.6000,0.8000,1.0000,0.6000,0.8000,1.0000,1.0000,0.8000,0.6000,0.6000,1.0000,0.6000,0.6000,1.0000,1.0000,0.4000,0.4000,0.4000,0.6000,0.8000,0.6000,0.6000,0.8000,0.8000,0.6000,1.0000,1.0000,1.0000,1.0000,0.8000,0.6000,0.8000,0.6000,0.6000,1.0000,0.8000,0.2000,0.6000,0.8000,0.6000,0.4000,0.8000,0.4000,0.6000,0.4000,0.8000,0.6000,0.6000,0.6000,0.6000,0.6000,0.6000,0.6000,0.4000,0.6000,0.4000,0.4000,0.2000,0.6000,1.0000,1.0000,0.6000,0.8000,1.0000,0.6000,0.6000,0.8000,0.6000,0.8000,0.8000,0.8000,0.8000,0.6000,0.4000,0.0000,0.0000,0.4000,0.0000,0.6000,0.2000,0.8000,0.6000,0.8000,0.4000,0.4000,0.6000,0.6000,0.0000,0.4000,0.4000,1.0000,1.0000,1.0000,0.6000,0.4000,0.8000,1.0000,0.4000,0.8000,0.4000,0.4000,0.8000,0.8000,0.6000,0.6000,0.6000,0.6000,0.8000,1.0000,0.6000,0.8000,1.0000,1.0000,0.8000,0.6000,0.6000,1.0000,0.6000,0.6000,1.0000,1.0000,0.4000,0.4000,0.4000,0.6000,0.8000,0.6000,0.6000,0.8000,0.8000,0.6000,1.0000,1.0000,1.0000,1.0000,0.8000,0.6000,0.8000,0.6000,0.6000,1.0000,0.8000,0.2000,0.6000,0.8000,0.6000,0.4000,0.8000,0.4000,0.6000,0.4000,0.8000,0.6000,0.6000,0.6000,0.6000,0.6000,0.6000,0.6000,0.4000,0.6000,0.4000,0.4000,0.2000,0.6000,1.0000,1.0000,0.6000,0.8000,1.0000,0.6000,0.6000,0.8000,0.6000,0.8000,0.8000,0.8000,0.8000,0.6000,0.4000,0.0000,0.0000,0.4000,0.0000,0.6000,0.2000,0.8000,0.6000,0.8000]
+        
         # if len(self.speculative_metrics_cache) > 0 and len(self.speculative_metrics_cache) < len(history):
         #     num_lookahead_slots = int(5 * history[len(self.speculative_metrics_cache)]) + 1
         #     # avg_ratio = sum(self.speculative_metrics_cache) / len(self.speculative_metrics_cache)
@@ -2080,3 +2191,7 @@ class Scheduler:
                              prefill_slot_budget)
 
         return num_new_tokens
+    
+    def set_stats(self,stats:Stats=None):
+        self.stats = stats
+
