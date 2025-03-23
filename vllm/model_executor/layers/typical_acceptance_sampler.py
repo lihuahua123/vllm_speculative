@@ -34,7 +34,11 @@ class TypicalAcceptanceSampler(SpecDecodeDeterministicBaseSampler):
         """
         self._posterior_threshold = posterior_threshold
         self._posterior_alpha = posterior_alpha
+        self.last_metrics = []
         super().__init__(strict_mode=strict_mode)
+    def update_posterior_threshold(self, new_threshold, new_alpha):
+        self._posterior_threshold = new_threshold
+        self._posterior_alpha = new_alpha
 
     def forward(
         self,
@@ -142,6 +146,40 @@ class TypicalAcceptanceSampler(SpecDecodeDeterministicBaseSampler):
         epsilon = 1e-5
         posterior_entropy = -torch.sum(
             target_probs * torch.log(target_probs + epsilon), dim=-1)
+        
+        # # 收集更多数据特征
+        # metrics = {}
+        
+        # # 1. 熵和归一化熵
+        # epsilon = 1e-5
+        # posterior_entropy = -torch.sum(target_probs * torch.log(target_probs + epsilon), dim=-1)
+        # vocab_size = target_probs.shape[-1]
+        # max_entropy = torch.log(torch.tensor(vocab_size, dtype=torch.float, device=target_probs.device))
+        # normalized_entropy = posterior_entropy / max_entropy
+        
+        # metrics['posterior_entropy'] = posterior_entropy
+        # metrics['normalized_entropy'] = normalized_entropy
+        
+        # # 2. Top-k概率和差异
+        # topk_probs, topk_indices = torch.topk(target_probs, min(5, target_probs.shape[-1]), dim=-1)
+        # top1_top2_diff = topk_probs[:,:,0] - topk_probs[:,:,1]  # Top-1与Top-2的差距
+        # metrics['top1_top2_diff'] = top1_top2_diff
+        # metrics['top1_prob'] = topk_probs[:,:,0]
+        
+        # # 3. 计算nucleus大小和分布特征
+        # sorted_probs, _ = torch.sort(target_probs, dim=-1, descending=True)
+        # cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+        
+        # p_values = [0.5, 0.9, 0.95]
+        # for p_val in p_values:
+        #     batch_size, k_size = cumulative_probs.shape[0], cumulative_probs.shape[1]
+        #     p_tensor = torch.full((batch_size, k_size, 1), p_val, device=device)
+        #     mask = cumulative_probs.gt(p_tensor)
+        #     nucleus_size = torch.argmax(mask.type(torch.int), dim=-1) + 1  # +1因为索引从0开始
+        #     metrics[f'nucleus_size_p{p_val}'] = nucleus_size
+        
+        # # 将收集的度量保存到对象属性，以便外部访问
+        # self.last_metrics.append(metrics)
         threshold = torch.minimum(
             torch.ones_like(posterior_entropy, device=device) *
             self._posterior_threshold,

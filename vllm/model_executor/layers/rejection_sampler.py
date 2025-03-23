@@ -283,6 +283,21 @@ class RejectionSampler(SpecDecodeStochasticBaseSampler):
                                      device=target_probs.device)[:, None]
         probs_indicies = torch.arange(k, device=target_probs.device)
 
+        # Calculate posterior entropy (similar to TypicalAcceptanceSampler)
+        # epsilon = 1e-5
+        # posterior_entropy = -torch.sum(
+        #     target_probs * torch.log(target_probs + epsilon), dim=-1)
+        
+        # # Calculate maximum entropy and normalized entropy
+        # vocab_size = target_probs.shape[-1]
+        # max_entropy = torch.log(torch.tensor(vocab_size, dtype=torch.float, device=target_probs.device))
+        # normalized_entropy = posterior_entropy / max_entropy
+        
+        # # Print entropy information
+        # print("posterior_entropy.shape", posterior_entropy.shape)
+        # print("max_entropy:", max_entropy.item())
+        # print("normalized_entropy:", normalized_entropy)
+
         # shape [batch_size, k]
         selected_draft_probs = draft_probs[batch_indices, probs_indicies,
                                            draft_token_ids]

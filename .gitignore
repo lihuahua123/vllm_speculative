@@ -12,7 +12,7 @@ __pycache__/
 benchmark_results/
 # C extensions
 *.so
-
+logs/
 # Distribution / packaging
 .Python
 build/
@@ -45,7 +45,7 @@ MANIFEST
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
-
+*.out
 # Unit test / coverage reports
 htmlcov/
 .tox/

@@ -1326,13 +1326,36 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
             return self.spec_decode_sampler.ratio
         return 0
     
-    def update_typical_acceptance_threshold(self, new_threshold):
-        if hasattr(self.spec_decode_sampler, "posterior_threshold"):
-            old_threshold = self.spec_decode_sampler.posterior_threshold
-            self.spec_decode_sampler.posterior_threshold = new_threshold
-            return old_threshold
-        return None
+    def update_typical_acceptance_threshold(self, new_threshold, new_alpha):
+        self.spec_decode_sampler.update_posterior_threshold(new_threshold, new_alpha)
+        old_threshold = self.spec_decode_sampler._posterior_threshold
+        old_alpha = self.spec_decode_sampler._posterior_alpha
+        return old_threshold, old_alpha
+    
+    def update_spec_decode_sampler(self, draft_token_acceptance_method):
+        org_spec_decode_sampler = self.spec_decode_sampler
+        
+        if draft_token_acceptance_method == "rejection_sampler":
+            spec_decode_sampler = RejectionSampler()
+        elif draft_token_acceptance_method == "typical_acceptance_sampler":
+            spec_decode_sampler = TypicalAcceptanceSampler(
+                posterior_threshold=0.09,
+                posterior_alpha=0.3,
+            )
+        spec_decode_sampler._strict_mode = org_spec_decode_sampler._strict_mode
+        spec_decode_sampler._num_bonus_tokens = org_spec_decode_sampler._num_bonus_tokens
 
+        spec_decode_sampler.num_accepted_tokens = org_spec_decode_sampler.num_accepted_tokens
+        spec_decode_sampler.num_emitted_tokens = org_spec_decode_sampler.num_emitted_tokens
+        spec_decode_sampler.num_draft_tokens = org_spec_decode_sampler.num_draft_tokens
+        self.spec_decode_sampler = spec_decode_sampler
+        return True
+    
+    def get_metrics(self):
+        return self.spec_decode_sampler.last_metrics
+    
+    def clear_metrics(self):
+        self.spec_decode_sampler.last_metrics = []
 
 def split_num_cache_blocks_evenly(scorer_cache_block_size_bytes: int,
                                   proposer_cache_block_size_bytes: int,

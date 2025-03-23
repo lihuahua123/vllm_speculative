@@ -3124,3 +3124,69 @@ usage: benchmark_serving_req_block.py [-h]
                                       [--served-model-name SERVED_MODEL_NAME]
                                       [--lora-modules LORA_MODULES [LORA_MODULES ...]]
 benchmark_serving_req_block.py: error: the following arguments are required: --benchmark-name
+INFO 03-22 22:11:54 __init__.py:207] Automatically detected platform cuda.
+Traceback (most recent call last):
+  File "/home/nudt/.conda/envs/vllm/lib/python3.11/subprocess.py", line 1209, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/nudt/.conda/envs/vllm/lib/python3.11/subprocess.py", line 2115, in _communicate
+    ready = selector.select(timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/nudt/.conda/envs/vllm/lib/python3.11/selectors.py", line 415, in select
+    fd_event_list = self._selector.poll(timeout)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/nudt/lirui/vllm_speculative/examples/offline_inference/mlpspeculator.py", line 302, in <module>
+    llm = LLM(
+          ^^^^
+  File "/home/nudt/lirui/vllm_speculative/vllm/utils.py", line 1022, in inner
+    return fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/home/nudt/lirui/vllm_speculative/vllm/entrypoints/llm.py", line 242, in __init__
+    self.llm_engine = self.engine_class.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/nudt/lirui/vllm_speculative/vllm/engine/llm_engine.py", line 487, in from_engine_args
+    engine_config = engine_args.create_engine_config(usage_context)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/nudt/lirui/vllm_speculative/vllm/engine/arg_utils.py", line 1127, in create_engine_config
+    model_config = self.create_model_config()
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/nudt/lirui/vllm_speculative/vllm/engine/arg_utils.py", line 1047, in create_model_config
+    return ModelConfig(
+           ^^^^^^^^^^^^
+  File "/home/nudt/lirui/vllm_speculative/vllm/config.py", line 366, in __init__
+    self.multimodal_config = self._init_multimodal_config(
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/nudt/lirui/vllm_speculative/vllm/config.py", line 427, in _init_multimodal_config
+    if ModelRegistry.is_multimodal_model(architectures):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/nudt/lirui/vllm_speculative/vllm/model_executor/models/registry.py", line 460, in is_multimodal_model
+    model_cls, _ = self.inspect_model_cls(architectures)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/nudt/lirui/vllm_speculative/vllm/model_executor/models/registry.py", line 416, in inspect_model_cls
+    model_info = self._try_inspect_model_cls(arch)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/nudt/lirui/vllm_speculative/vllm/model_executor/models/registry.py", line 391, in _try_inspect_model_cls
+    return _try_inspect_model_cls(model_arch, self.models[model_arch])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/nudt/lirui/vllm_speculative/vllm/model_executor/models/registry.py", line 319, in _try_inspect_model_cls
+    return model.inspect_model_cls()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/nudt/lirui/vllm_speculative/vllm/model_executor/models/registry.py", line 290, in inspect_model_cls
+    return _run_in_subprocess(
+           ^^^^^^^^^^^^^^^^^^^
+  File "/home/nudt/lirui/vllm_speculative/vllm/model_executor/models/registry.py", line 522, in _run_in_subprocess
+    returned = subprocess.run(_SUBPROCESS_COMMAND,
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/nudt/.conda/envs/vllm/lib/python3.11/subprocess.py", line 550, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/nudt/.conda/envs/vllm/lib/python3.11/subprocess.py", line 1220, in communicate
+    self._wait(timeout=sigint_timeout)
+  File "/home/nudt/.conda/envs/vllm/lib/python3.11/subprocess.py", line 2047, in _wait
+    time.sleep(delay)
+KeyboardInterrupt

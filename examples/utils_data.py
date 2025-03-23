@@ -43,6 +43,35 @@ class Gsm8k_dataset(Dataset):
             tokenized_full_data=self.tokenize(ins,None,self.tokenizer)
         return tokenized_full_data, ins["answer"]
     
+    def create_boxed_answer_prompt(self,question):
+        """
+        Creates a prompt template that instructs the model to provide answers within a \boxed{} environment.
+        
+        Args:
+            question (str): The question to be answered
+            
+        Returns:
+            str: The formatted prompt with instructions to place the answer in \boxed{}
+        """
+        template = """Please solve the following problem step-by-step, showing your complete reasoning process. When you arrive at the final answer, please place it inside a \\boxed{{}} environment.
+
+        For example:
+        Q: What is 2 + 3?
+        A: To find the sum of 2 and 3, I add these numbers together.
+        2 + 3 = 5
+        Therefore, the answer is \\boxed{{5}}.
+
+        Remember to:
+        1. Break down the problem into logical steps
+        2. Show all your work clearly, short and concise
+        3. Explain your reasoning at each step
+        4. Place your final answer inside \\boxed{{}}
+
+        Problem:
+        {question}
+        """
+        return template.format(question=question)
+
     def tokenize(self,test_dict,big_output_pre,tokenizer):
 
         # examplar = """Answer the question:
@@ -64,7 +93,8 @@ class Gsm8k_dataset(Dataset):
         if self.stage2:
             instruction=system_prompt+examplar + " Q: " + test_dict["question"] +"\nA: "+big_output_pre
         else:
-            instruction=system_prompt+examplar + " Q: " + test_dict["question"] +"\n<think> I will answer the question with the format: The answer is <answer>.\n "
+            instruction= system_prompt+examplar + " Q: " + test_dict["question"] +"\n <think> "
+        instruction= self.create_boxed_answer_prompt(test_dict["question"])
         input_text=instruction
         #TEMPLATE.format_map({'instruction': instruction,"system_prompt":DEFAULT_SYSTEM_PROMPT})
         # inputs = tokenizer(input_text, 

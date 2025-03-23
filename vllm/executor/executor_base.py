@@ -265,9 +265,17 @@ class ExecutorBase(ABC):
     def get_speculative_metrics(self):
         return self.collective_rpc("get_speculative_metrics")
     
-    def update_typical_acceptance_threshold(self, new_threshold):
-        return self.collective_rpc("update_typical_acceptance_threshold", kwargs=dict(new_threshold=new_threshold))
+    def update_typical_acceptance_threshold(self, new_threshold, new_alpha):
+        return self.collective_rpc("update_typical_acceptance_threshold", kwargs=dict(new_threshold=new_threshold, new_alpha=new_alpha))
 
+    def change_spec_decode_sampler(self, draft_token_acceptance_method):
+        return self.collective_rpc("update_spec_decode_sampler", kwargs=dict(draft_token_acceptance_method=draft_token_acceptance_method))
+    
+    def get_metrics(self):
+        return self.collective_rpc("get_metrics")
+    
+    def clear_metrics(self):
+        return self.collective_rpc("clear_metrics")
 
 class DistributedExecutorBase(ExecutorBase):
     """Abstract superclass of distributed executor implementations."""

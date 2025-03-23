@@ -1,5 +1,40 @@
 import numpy as np
+import re
 
+def extract_final_answer(text):
+    # First priority: Look for boxed values with "boxed" keyword
+    boxed_pattern = r"\\boxed\{([^{}]*)\}"
+    matches = re.findall(boxed_pattern, text)
+    
+    if matches:
+        # Get all boxed values
+        for boxed_content in matches:
+            print(boxed_content)
+            # Clean the content (remove all non-digit characters except decimal points)
+            clean_number = re.sub(r'[^\d.]', '', boxed_content)
+            if clean_number:
+                return clean_number
+    
+    # # If no boxed values, look for bold numbers with ** marking
+    # bold_pattern = r"\*\*\\\$([0-9,]+)\*\*"
+    # match = re.search(bold_pattern, text)
+    # if match:
+    #     return re.sub(r'[^\d.]', '', match.group(1))
+    
+    # # Last resort: check for dollar amounts after equals signs
+    # equals_pattern = r'=\s*\\\$\s*([0-9,]+)'
+    # matches = re.findall(equals_pattern, text)
+    # if matches:
+    #     # Take the last match (most likely to be the final answer)
+    #     return re.sub(r'[^\d.]', '', matches[-1])
+    
+    return None
+
+# Test with your example
+text = '**Answer:** \\(\\boxed{\\$70,000}\\)'
+result = extract_final_answer(text)
+print(result)  # Should output: 70000
+exit()
 # data1 = np.load("output_decoding_times_speculative_20250225_182212.npy")
 # data2 = np.load("output_decoding_times_speculative.npy")
 
