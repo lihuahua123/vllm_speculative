@@ -132,20 +132,20 @@ def sample_sharegpt_requests(
         if prompt_len + output_len > 4096:
             # Prune too long sequences.
             continue
-        if output_len > 1024 and long_prompt_count > num_requests /2 :
-            continue
-        if output_len < 512 and short_prompt_count > num_requests /2 :
-            continue
-        if output_len > 1024:
-            long_prompt_count += 1
-            print(prompt_len, output_len)
-            filtered_dataset.append((prompt, prompt_len, output_len, None))
-        elif output_len < 512:
-            short_prompt_count += 1
-            print(prompt_len, output_len)
-            filtered_dataset.append((prompt, prompt_len, output_len, None))
+        # if output_len > 1024 and long_prompt_count > num_requests /2 :
+        #     continue
+        # if output_len < 512 and short_prompt_count > num_requests /2 :
+        #     continue
+        # if output_len > 1024:
+        #     long_prompt_count += 1
+        #     print(prompt_len, output_len)
+        #     filtered_dataset.append((prompt, prompt_len, output_len, None))
+        # elif output_len < 512:
+        #     short_prompt_count += 1
+        #     print(prompt_len, output_len)
+        filtered_dataset.append((prompt, prompt_len, output_len, None))
     # Sort filtered_dataset by output_len in descending order
-    filtered_dataset.sort(key=lambda x: x[2], reverse=True)
+    # filtered_dataset.sort(key=lambda x: x[2], reverse=True)
     return filtered_dataset
 
 

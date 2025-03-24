@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any, Union, Type
 
 import torch
+import time
 
 from vllm.forward_context import set_forward_context
 from vllm.model_executor.layers.sampler import SamplerOutput
@@ -36,6 +37,59 @@ debug_advance_input = False
 allow_gpu_advance_step = True
 
 
+# Define a ModelType enum to track what type of draft model is currently being used
+class DraftModelType:
+    NEURAL = "neural"
+    NGRAM = "ngram"
+
+
+class DraftModelManager:
+    """Manager class to handle different types of draft models and switching between them."""
+    
+    def __init__(self):
+        self.current_model_type = DraftModelType.NEURAL
+        self.model_runners: Dict[str, ModelRunnerWrapperBase] = {}
+        self.traffic_threshold = 100  # Default threshold for high traffic
+        self.last_load_check_time = time.time()
+        self.load_check_interval = 30  # Check load every 30 seconds
+        
+    def register_model(self, model_type: str, model_runner: ModelRunnerWrapperBase) -> None:
+        """Register a model runner for a specific model type."""
+        self.model_runners[model_type] = model_runner
+        
+    def get_current_model(self) -> ModelRunnerWrapperBase:
+        """Get the current active model runner."""
+        return self.model_runners[self.current_model_type]
+    
+    def switch_model(self, model_type: str) -> bool:
+        """Switch to a different model type if it's registered."""
+        if model_type not in self.model_runners:
+            logger.warning(f"Model type {model_type} not registered.")
+            return False
+            
+        if model_type == self.current_model_type:
+            return True  # Already using this model type
+            
+        logger.info(f"Switching draft model from {self.current_model_type} to {model_type}")
+        self.current_model_type = model_type
+        return True
+        
+    def check_and_switch_based_on_load(self, current_load: int) -> None:
+        """Check system load and switch models if necessary."""
+        current_time = time.time()
+        if current_time - self.last_load_check_time < self.load_check_interval:
+            return
+            
+        self.last_load_check_time = current_time
+        
+        if current_load > self.traffic_threshold and self.current_model_type == DraftModelType.NEURAL:
+            # High load, switch to n-gram model
+            self.switch_model(DraftModelType.NGRAM)
+        elif current_load <= self.traffic_threshold and self.current_model_type == DraftModelType.NGRAM:
+            # Low load, switch back to neural model
+            self.switch_model(DraftModelType.NEURAL)
+
+
 class TP1DraftModelRunner(ModelRunnerWrapperBase):
     """Specialized model runner for speculative decoding draft model.
     Since the draft model always execute k forward passes consecutively to
@@ -59,7 +113,44 @@ class TP1DraftModelRunner(ModelRunnerWrapperBase):
         super().__init__(model_runner)
 
         self.indices_of_seq_with_bonus_tokens = None
+        self.draft_model_manager = DraftModelManager()
+        self.draft_model_manager.register_model(DraftModelType.NEURAL, self)
+        
+        # Cache for storing model state during model switching
+        self.model_state_cache = {}
 
+    def register_ngram_model(self, ngram_model_runner: ModelRunnerWrapperBase) -> None:
+        """Register an n-gram model runner to enable switching."""
+        self.draft_model_manager.register_model(DraftModelType.NGRAM, ngram_model_runner)
+        
+    def switch_to_ngram_model(self) -> bool:
+        """Switch from neural to n-gram model."""
+        return self.draft_model_manager.switch_model(DraftModelType.NGRAM)
+        
+    def switch_to_neural_model(self) -> bool:
+        """Switch from n-gram back to neural model."""
+        return self.draft_model_manager.switch_model(DraftModelType.NEURAL)
+        
+    def check_and_switch_based_on_load(self, current_load: int) -> None:
+        """Check system load and switch models if necessary."""
+        self.draft_model_manager.check_and_switch_based_on_load(current_load)
+
+    def save_model_state(self) -> None:
+        """Save current model state before switching models."""
+        # Save KV cache and other important state
+        model_type = self.draft_model_manager.current_model_type
+        self.model_state_cache[model_type] = {
+            'indices_of_seq_with_bonus_tokens': self.indices_of_seq_with_bonus_tokens,
+            # Add other state properties that need to be preserved
+        }
+        
+    def load_model_state(self, model_type: str) -> None:
+        """Load saved model state after switching models."""
+        if model_type in self.model_state_cache:
+            state = self.model_state_cache[model_type]
+            self.indices_of_seq_with_bonus_tokens = state['indices_of_seq_with_bonus_tokens']
+            # Load other state properties that were preserved
+            
     def _update_sampling_metadata(self, sampling_metadata, num_seqs,
                                   num_queries):
 
@@ -144,6 +235,11 @@ class TP1DraftModelRunner(ModelRunnerWrapperBase):
             3. No LORA
             4. No prompt_adapter_config
         """
+        # Use the current active model implementation
+        current_model = self.draft_model_manager.get_current_model()
+        if current_model != self:
+            return current_model.supports_gpu_multi_step(execute_model_req)
+            
         if not allow_gpu_advance_step:
             return False
 
@@ -166,6 +262,10 @@ class TP1DraftModelRunner(ModelRunnerWrapperBase):
     def set_indices_of_seq_with_bonus_tokens(self,
                                              indices_of_seq_with_bonus_tokens):
         self.indices_of_seq_with_bonus_tokens = indices_of_seq_with_bonus_tokens
+        # If we're using an n-gram model, propagate the setting to it
+        if self.draft_model_manager.current_model_type == DraftModelType.NGRAM:
+            ngram_model = self.draft_model_manager.get_current_model()
+            ngram_model.set_indices_of_seq_with_bonus_tokens(indices_of_seq_with_bonus_tokens)
 
     @torch.inference_mode()
     def execute_model(
@@ -187,6 +287,23 @@ class TP1DraftModelRunner(ModelRunnerWrapperBase):
             3. Reuses sampling tensors (since we run only decodes and they have
                 a repeating sampling logic)
         """
+        # Check if we need to switch models based on load
+        if 'current_load' in kwargs:
+            self.check_and_switch_based_on_load(kwargs['current_load'])
+            
+        # Get the current active model
+        current_model = self.draft_model_manager.get_current_model()
+        
+        # If we're using a different model than self, delegate to that model
+        if current_model != self:
+            return current_model.execute_model(
+                model_input, 
+                kv_caches, 
+                previous_hidden_states, 
+                intermediate_tensors, 
+                num_steps, 
+                **kwargs
+            )
 
         # When num_steps == 1, we execute the fallback here for the GPU
         # advance_step, which runs prepare_inputs on CPU and for each spec

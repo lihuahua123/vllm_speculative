@@ -135,6 +135,7 @@ class NaiveBlockAllocator(BlockAllocator):
             raise BlockAllocator.NoFreeBlocksError()
 
         block_id = self._free_block_indices.popleft()
+
         self._refcounter.incr(block_id)
         return block_id
 
@@ -364,11 +365,11 @@ class NaiveBlockAllocator(BlockAllocator):
             index: 0
             for index in range(current_size, new_size)
         }
-        
+
         # Update structures
         self._all_block_indices = new_all_block_indices
         self._free_block_indices = new_free_indices
-        self._refcounter._refcounts.update(additional_refcounts)
+        self._refcounter.update_refcounts(additional_refcounts)
     
     def decrease_block_number(self, decrease_num_blocks: int = 0):
         """Decreases the number of blocks by removing blocks from the end.

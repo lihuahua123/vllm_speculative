@@ -127,10 +127,10 @@ class EAGLE(nn.Module):
         intermediate_tensors: Optional[IntermediateTensors] = None,
         inputs_embeds: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        print("input_ids",input_ids.shape)
+
         if inputs_embeds is None:
             inputs_embeds = self.get_input_embeddings(input_ids)
-        print("inputs_embeds",inputs_embeds.shape)
+
         inputs_embeds = self.fc(
             torch.cat([inputs_embeds, previous_hidden_states], dim=-1))
 

@@ -396,3 +396,10 @@ class BlockTable:
         token_blocks.extend(
             chunk_list(token_ids[first_chunk_size:], self._block_size))
         return token_blocks
+    
+    def replace_block(self, old_block, new_block):
+        for i, block in enumerate(self._blocks):
+            if block == old_block:
+                self._blocks[i] = new_block
+                return
+        raise ValueError("Block not found")

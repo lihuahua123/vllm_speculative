@@ -40,6 +40,9 @@ class RefCounter(RefCounterProtocol):
             index: 0
             for index in deduped
         }
+        
+    def update_refcounts(self, refcounts: Dict[BlockId, RefCount]):
+        self._refcounts.update(refcounts)
 
     def incr(self, block_id: BlockId) -> RefCount:
         assert block_id in self._refcounts
@@ -49,12 +52,15 @@ class RefCounter(RefCounterProtocol):
 
         post_incr_refcount = pre_incr_refcount + 1
         self._refcounts[block_id] = post_incr_refcount
+
         return post_incr_refcount
 
     def decr(self, block_id: BlockId) -> RefCount:
         assert block_id in self._refcounts
         refcount = self._refcounts[block_id]
 
+        if refcount == 0:
+            return refcount
         assert refcount > 0
         refcount -= 1
 

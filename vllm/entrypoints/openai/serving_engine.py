@@ -414,11 +414,11 @@ class OpenAIServing:
                 conversation=conversation,
                 **_chat_template_kwargs,
             )
-        request_prompt += "<think>\n"
-        # request_prompt += "I can use fewer tokens if the task can be addressed effectively with less detailed reasoning.\n"
-        request_prompt += "I will limit my reasoning process to a maximum of 5 stages. I can use fewer stages if the task can be addressed effectively with less detailed reasoning.\n"
-        # request_prompt += "I will limit my reasoning process to a maximum of 6 stages. I can use fewer stages if the task can be addressed effectively with less detailed reasoning. Let's think step by step and use less than 10 tokens for each stage.\n"
-        request_prompt += "**Stage 1** "
+        # request_prompt += "<think>\n"
+        # # request_prompt += "I can use fewer tokens if the task can be addressed effectively with less detailed reasoning.\n"
+        # request_prompt += "I will limit my reasoning process to a maximum of 5 stages. I can use fewer stages if the task can be addressed effectively with less detailed reasoning.\n"
+        # # request_prompt += "I will limit my reasoning process to a maximum of 6 stages. I can use fewer stages if the task can be addressed effectively with less detailed reasoning. Let's think step by step and use less than 10 tokens for each stage.\n"
+        # request_prompt += "**Stage 1** "
         mm_data = await mm_data_future
 
         # tool parsing is done only if a tool_parser has been set and if

@@ -411,6 +411,19 @@ class LLMEngine:
         self.seq_id_to_seq_group: Dict[str, SequenceGroupBase] = {}
         self.proposer_worker_to_cpu = False
 
+        # Track request load for draft model switching
+        self.request_load_tracker = {
+            'current_load': 0,
+            'last_update_time': time.time(),
+            'update_interval': 5.0,  # Update load metrics every 5 seconds
+            'high_load_threshold': 100,  # Threshold for high load
+            'is_high_load': False
+        }
+        
+        # Initialize state for draft model switching
+        self.using_ngram_draft_model = False
+        self.has_initialized_ngram_model = False
+
     def _initialize_kv_caches(self) -> None:
         """Initialize the KV cache in the worker(s).
 
@@ -1311,6 +1324,9 @@ class LLMEngine:
             >>>     if not (engine.has_unfinished_requests() or example_inputs):
             >>>         break
         """
+        # Update request load metrics to determine if we need to switch draft models
+        self.update_request_load()
+        
         if self.parallel_config.pipeline_parallel_size > 1:
             raise NotImplementedError(
                 "Pipeline parallelism is only supported through AsyncLLMEngine "
@@ -1402,12 +1418,12 @@ class LLMEngine:
                 if aa[0] == True and self.proposer_worker_to_cpu == False:
                     print("increase block number@!!!!!")
                     self.proposer_worker_to_cpu = True
-                    self.scheduler[virtual_engine].block_manager.block_allocator._allocators[Device.GPU].increase_block_number(100)
+                    self.scheduler[virtual_engine].block_manager.block_allocator._allocators[Device.GPU].increase_block_number(20)
                 elif aa[0] == False and self.proposer_worker_to_cpu == True:
                     print("decrease block number@!!!!!")
                     self.proposer_worker_to_cpu = False
                     # Use the new method that properly updates block tables
-                    self.scheduler[virtual_engine].block_manager.decrease_gpu_blocks(100)
+                    self.scheduler[virtual_engine].block_manager.decrease_gpu_blocks(20)
             # We need to do this here so that last step's sampled_token_ids can
             # be passed to the next iteration for PP.
             if self.scheduler_config.is_multi_step:
@@ -2046,3 +2062,94 @@ class LLMEngine:
                 sampling_params.logits_processors.extend(logits_processors)
 
         return sampling_params
+
+    def update_request_load(self) -> None:
+        """Update the request load metrics to determine if we should switch draft models."""
+        current_time = time.time()
+        if current_time - self.request_load_tracker['last_update_time'] < self.request_load_tracker['update_interval']:
+            return
+            
+        # Calculate current load (active requests)
+        current_load = self.get_num_unfinished_requests()
+        self.request_load_tracker['current_load'] = current_load
+        self.request_load_tracker['last_update_time'] = current_time
+        
+        # Determine if we're in high load
+        was_high_load = self.request_load_tracker['is_high_load']
+        is_high_load = current_load > self.request_load_tracker['high_load_threshold']
+        self.request_load_tracker['is_high_load'] = is_high_load
+        
+        # Log changes in load status
+        if was_high_load != is_high_load:
+            logger.info(f"Load status changed: {'high' if is_high_load else 'normal'} load "
+                       f"with {current_load} active requests")
+            
+        # If we detect high load and aren't using ngram, initialize it if needed
+        if is_high_load and not self.using_ngram_draft_model:
+            self.switch_to_ngram_draft_model()
+        # If load is back to normal and we're using ngram, switch back to neural
+        elif not is_high_load and self.using_ngram_draft_model:
+            self.switch_to_neural_draft_model()
+                
+    def switch_to_ngram_draft_model(self) -> None:
+        """Switch from neural draft model to n-gram draft model."""
+        if self.using_ngram_draft_model:
+            return  # Already using n-gram model
+            
+        # Initialize n-gram model if it hasn't been done yet
+        if not self.has_initialized_ngram_model:
+            self._initialize_ngram_draft_model()
+            
+        logger.info("Switching to n-gram draft model due to high load")
+        
+        # Tell the model executor to switch models
+        if hasattr(self.model_executor, 'switch_draft_model_to_ngram'):
+            self.model_executor.switch_draft_model_to_ngram()
+            self.using_ngram_draft_model = True
+        else:
+            logger.warning("Model executor does not support switching to n-gram draft model")
+            
+    def switch_to_neural_draft_model(self) -> None:
+        """Switch from n-gram draft model back to neural draft model."""
+        if not self.using_ngram_draft_model:
+            return  # Already using neural model
+            
+        logger.info("Switching back to neural draft model due to normal load")
+        
+        # Tell the model executor to switch models
+        if hasattr(self.model_executor, 'switch_draft_model_to_neural'):
+            self.model_executor.switch_draft_model_to_neural()
+            self.using_ngram_draft_model = False
+        else:
+            logger.warning("Model executor does not support switching to neural draft model")
+            
+    def _initialize_ngram_draft_model(self) -> None:
+        """Initialize the n-gram draft model."""
+        from vllm.spec_decode.ngram_draft_model_runner import NGramDraftModelRunner
+        
+        # Check if the model executor supports registering a draft model
+        if hasattr(self.model_executor, 'register_ngram_draft_model'):
+            # Get corpus from successful generations to train the n-gram model
+            recent_generations = self._get_recent_successful_generations(max_samples=1000)
+            
+            # Register the n-gram model with the executor
+            self.model_executor.register_ngram_draft_model(recent_generations)
+            self.has_initialized_ngram_model = True
+            logger.info("Initialized n-gram draft model")
+        else:
+            logger.warning("Model executor does not support registering n-gram draft model")
+            
+    def _get_recent_successful_generations(self, max_samples: int = 1000) -> List[List[int]]:
+        """Get recent successful generations to train the n-gram model."""
+        # This is a placeholder - in a real implementation, you'd collect 
+        # successful generations from your request history
+        # For now, we return a simple list of token sequences
+        samples = []
+        
+        # In a real implementation, you would:
+        # 1. Retrieve recent successful completions from a cache or database
+        # 2. Extract their token sequences 
+        # 3. Return them as a list of token id lists
+        
+        logger.info(f"Collected {len(samples)} samples for n-gram training")
+        return samples

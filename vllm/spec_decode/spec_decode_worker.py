@@ -549,16 +549,16 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
             disable_all_speculation, execute_model_req.seq_group_metadata_list)
 
         if no_spec:
-            # if (execute_model_req.running_queue_size
-            #     > self.disable_by_batch_size) and not self.proposer_worker_to_cpu:
-            #     print("offload!!!")
-            #     self.proposer_worker_to_cpu = True
-            #     self.proposer_worker.model_runner.model.to("cpu",non_blocking=True)
-            # elif (execute_model_req.running_queue_size
-            #     == self.disable_by_batch_size) and self.proposer_worker_to_cpu:
-            #     print("prefetch load to gpu!!!x1")
-            #     self.proposer_worker_to_cpu = False
-            #     self.proposer_worker.model_runner.model.to("cuda",non_blocking=True)
+            if (execute_model_req.running_queue_size
+                > self.disable_by_batch_size) and not self.proposer_worker_to_cpu:
+                print("offload!!!")
+                self.proposer_worker_to_cpu = True
+                self.proposer_worker.model_runner.model.to("cpu",non_blocking=True)
+            elif (execute_model_req.running_queue_size
+                == self.disable_by_batch_size) and self.proposer_worker_to_cpu:
+                print("prefetch load to gpu!!!x1")
+                self.proposer_worker_to_cpu = False
+                self.proposer_worker.model_runner.model.to("cuda",non_blocking=True)
             return self._run_no_spec(execute_model_req,
                                      skip_proposer=disable_all_speculation)
         return self._run_speculative_decoding_step(execute_model_req,
