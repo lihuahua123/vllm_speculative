@@ -63,14 +63,18 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         block_size: int,
         num_gpu_blocks: int,
         num_cpu_blocks: int,
+        num_virtual_blocks: int = 0,
         watermark: float = 0.01,
         sliding_window: Optional[int] = None,
         enable_caching: bool = False,
     ) -> None:
         self.block_size = block_size
+        self.num_virtual_blocks = num_virtual_blocks
         self.num_total_gpu_blocks = num_gpu_blocks
         self.num_total_cpu_blocks = num_cpu_blocks
-
+        self.num_usable_gpu_blocks = num_gpu_blocks - self.num_virtual_blocks
+        
+        print(self.block_size,"num_usable_gpu_blocks", self.num_usable_gpu_blocks,self.num_total_gpu_blocks)
         self.sliding_window = sliding_window
         # max_block_sliding_window is the max number of blocks that need to be
         # allocated
@@ -93,9 +97,10 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
 
         self.block_allocator = CpuGpuBlockAllocator.create(
             allocator_type="prefix_caching" if enable_caching else "naive",
-            num_gpu_blocks=num_gpu_blocks,
+            num_gpu_blocks=self.num_usable_gpu_blocks,#num_gpu_blocks,
             num_cpu_blocks=num_cpu_blocks,
             block_size=block_size,
+            num_virtual_blocks=self.num_virtual_blocks
         )
 
         self.block_tables: Dict[SeqId, BlockTable] = {}
@@ -105,6 +110,36 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             self.block_allocator, self.block_size, self.enable_caching)
         self._last_access_blocks_tracker = LastAccessBlocksTracker(
             self.block_allocator)
+
+    # 添加方法来增加实际可用的block数量
+    def increase_usable_gpu_blocks(self, increase_num_blocks: int) -> None:
+        """增加实际可用的GPU block数量，不超过总分配量。
+        
+        Args:
+            increase_num_blocks: 要增加的block数量
+        """
+        new_usable_blocks = self.num_usable_gpu_blocks + increase_num_blocks
+        if new_usable_blocks > self.num_total_gpu_blocks:
+            new_usable_blocks = self.num_total_gpu_blocks
+        
+        self.num_usable_gpu_blocks = new_usable_blocks
+        print("self.num_usable_gpu_blocks reassigned increase",self.num_usable_gpu_blocks)
+        self.watermark_blocks = int(self.watermark * self.num_usable_gpu_blocks)
+
+    # 添加方法来减少实际可用的block数量
+    def decrease_usable_gpu_blocks(self, decrease_num_blocks: int) -> None:
+        """减少实际可用的GPU block数量。
+        
+        Args:
+            decrease_num_blocks: 要减少的block数量
+        """
+        new_usable_blocks = self.num_usable_gpu_blocks - decrease_num_blocks
+        if new_usable_blocks <= 0:
+            new_usable_blocks = 1  # 至少保留1个可用block
+        
+        self.num_usable_gpu_blocks = new_usable_blocks
+        print("self.num_usable_gpu_blocks reassigned decrease",self.num_usable_gpu_blocks)
+        self.watermark_blocks = int(self.watermark * self.num_usable_gpu_blocks)
 
     def can_allocate(self,
                      seq_group: SequenceGroup,
@@ -135,17 +170,18 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
 
         num_free_gpu_blocks = self.block_allocator.get_num_free_blocks(
             device=Device.GPU)
-
-        # Use watermark to avoid frequent cache eviction.
-        if (self.num_total_gpu_blocks - num_required_blocks
-                < self.watermark_blocks):
+        if (self.num_usable_gpu_blocks - num_required_blocks < self.watermark_blocks):
             return AllocStatus.NEVER
+        # # Use watermark to avoid frequent cache eviction.
+        # if (self.num_total_gpu_blocks - num_required_blocks
+        #         < self.watermark_blocks):
+        #     return AllocStatus.NEVER
         if num_free_gpu_blocks - num_required_blocks >= self.watermark_blocks:
             return AllocStatus.OK
         else:
             return AllocStatus.LATER
 
-    def _allocate_sequence(self, seq: Sequence) -> BlockTable:
+    def  _allocate_sequence(self, seq: Sequence) -> BlockTable:
         block_table = BlockTable(
             block_size=self.block_size,
             block_allocator=self.block_allocator,
@@ -449,7 +485,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
 
     def get_num_free_gpu_blocks(self) -> int:
         return self.block_allocator.get_num_free_blocks(Device.GPU)
-
+    
     def get_num_free_cpu_blocks(self) -> int:
         return self.block_allocator.get_num_free_blocks(Device.CPU)
 
@@ -525,49 +561,124 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             return
         
         # Get current and new size
-        current_size = self.num_total_gpu_blocks
+        current_size = self.num_usable_gpu_blocks
         new_size = current_size - decrease_num_blocks
+        print("current_size",current_size,"new_size",new_size)
         
-        # First collect all blocks that need to be moved
-        blocks_to_move = {}  # block_table -> list of (block, new_block_id)
-        
-        # Get all block tables that need to be updated
+        # First identify all blocks that need to be migrated
+        blocks_to_migrate = {}  # old_block -> seq_id
         for seq_id, block_table in self.block_tables.items():
-            blocks_to_move[seq_id] = []
             for block in block_table.blocks:
                 if block is not None and block.block_id is not None:
                     if block.block_id >= new_size:
-                        # Find a new block id in the range we want to keep
-                        new_block_id = None
-                        for potential_id in self.block_allocator._allocators[Device.GPU]._free_block_indices:
-                            if potential_id < new_size:
-                                new_block_id = potential_id
-                                break
-                        
-                        if new_block_id is not None:
-                            blocks_to_move[seq_id].append((block, new_block_id))
+                        blocks_to_migrate[block] = seq_id
 
-        # Now perform the moves
-        for seq_id, moves in blocks_to_move.items():
-            for old_block, new_block_id in moves:
-                # Create new block with same content
+        # Create a map to hold new blocks that will replace old ones
+        block_mapping = {}  # old_block -> new_block
+        
+        # Find potential block IDs we can use (below the new size limit)
+        available_block_ids = []
+        for potential_id in self.block_allocator._allocators[Device.GPU]._free_block_indices:
+            if potential_id < new_size:
+                available_block_ids.append(potential_id)
+        
+        if len(available_block_ids) < len(blocks_to_migrate):
+            raise ValueError(f"Not enough free blocks available. Need {len(blocks_to_migrate)}, have {len(available_block_ids)}")
+        
+        # Process blocks in topological order (blocks with no prev_block or prev_block outside migration set first)
+        processed_blocks = set()
+        
+        # Helper function to safely get previous block, resolving through the mapping if needed
+        def get_new_prev_block(old_block):
+            if old_block.prev_block is None:
+                return None
+            elif old_block.prev_block in block_mapping:
+                return block_mapping[old_block.prev_block]
+            else:
+                return old_block.prev_block
+        
+        # Continue processing until all blocks are migrated
+        while blocks_to_migrate and available_block_ids:
+            # Find blocks we can safely migrate in this iteration
+            blocks_to_process = []
+            for old_block in blocks_to_migrate:
+                # Process block if it has no prev_block or prev_block is already processed or not in migration set
+                if (old_block.prev_block is None or 
+                    old_block.prev_block in processed_blocks or 
+                    old_block.prev_block not in blocks_to_migrate):
+                    blocks_to_process.append(old_block)
+            
+            # If we couldn't find any blocks to process but still have blocks to migrate,
+            # we might have a cycle. In this case, just choose one to break the cycle.
+            if not blocks_to_process and blocks_to_migrate:
+                blocks_to_process = [next(iter(blocks_to_migrate))]
+            
+            # Process the identified blocks
+            for old_block in blocks_to_process:
+                seq_id = blocks_to_migrate.pop(old_block)
+                new_block_id = available_block_ids.pop(0)
+                
+                # Get the correct prev_block reference (which might be already migrated)
+                new_prev_block = get_new_prev_block(old_block)
+                
+                # Create new block with same content but new ID
                 new_block = self.block_allocator._allocators[Device.GPU]._block_pool.init_block(
-                    prev_block=old_block.prev_block,
+                    prev_block=new_prev_block,
                     token_ids=old_block.token_ids,
                     block_size=self.block_size,
                     physical_block_id=new_block_id)
                 
-                # Update the block table before freeing the old block
+                # Store the mapping
+                block_mapping[old_block] = new_block
+                processed_blocks.add(old_block)
+                
+                # Update the block table
                 self.block_tables[seq_id].replace_block(old_block, new_block)
+                # Increment the reference count for the new block
+                self.block_allocator._allocators[Device.GPU]._refcounter.incr(new_block_id)
                 
                 # Remove the new_block_id from free indices since we're using it
                 if new_block_id in self.block_allocator._allocators[Device.GPU]._free_block_indices:
                     self.block_allocator._allocators[Device.GPU]._free_block_indices.remove(new_block_id)
                 
-                # Now it's safe to free the old block
-                # if old_block.block_id is not None:  # Extra safety check
-                #     self.block_allocator._allocators[Device.GPU].free(old_block)
+                # Free the old block after we've successfully migrated it
+                if old_block.block_id is not None:
+                    self.block_allocator._allocators[Device.GPU].free(old_block)
         
         # Now decrease the blocks in the allocator
-        self.block_allocator._allocators[Device.GPU].decrease_block_number(decrease_num_blocks)
-        self.num_total_gpu_blocks = new_size
+        self.block_allocator._allocators[Device.GPU].decrease_block_number(current_size, decrease_num_blocks)
+        
+
+    def increase_gpu_blocks(self, increase_num_blocks: int) -> None:
+        """Increases the number of GPU blocks and updates all block tables accordingly.
+        
+        This method properly increases the GPU block count by:
+        1. Updating the block allocator data structures
+        2. Initializing new memory for KV cache
+        3. Ensuring consistency across all tracking structures
+        
+        Args:
+            increase_num_blocks: Number of blocks to add to GPU memory
+        """
+        if increase_num_blocks <= 0:
+            return
+        
+        # Get current and new size
+        current_size = self.num_usable_gpu_blocks
+        new_size = current_size + increase_num_blocks
+        print("current_size",current_size,"new_size",new_size)
+        
+        # First increase the blocks in the allocator to get new block IDs
+        # This only updates the data structures without allocating actual memory
+        try:
+            # Update the allocator's tracking structures
+            self.block_allocator.increase_block_number(current_size, new_size, Device.GPU)
+            
+            # Update the total block count
+            old_num_total_gpu_blocks = self.num_total_gpu_blocks
+            # self.num_total_gpu_blocks = new_size
+            
+            #logger.info(f"Successfully increased GPU blocks to {new_size}")
+        except Exception as e:
+            #logger.error(f"Failed to update block allocator data structures: {e}")
+            raise

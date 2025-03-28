@@ -28,6 +28,7 @@ class CpuGpuBlockAllocator(DeviceAwareBlockAllocator):
         num_gpu_blocks: int,
         num_cpu_blocks: int,
         block_size: int,
+        num_virtual_blocks: int = 0
     ) -> DeviceAwareBlockAllocator:
         """Creates a CpuGpuBlockAllocator instance with the specified
         configuration.
@@ -58,10 +59,10 @@ class CpuGpuBlockAllocator(DeviceAwareBlockAllocator):
         # For HPU, block id 0 is used only for padding
         reserved_blocks = 1 if current_platform.is_hpu() else 0
         block_ids = list(
-            range(reserved_blocks, num_gpu_blocks + num_cpu_blocks))
+            range(reserved_blocks, num_gpu_blocks + num_cpu_blocks+num_virtual_blocks))
         num_gpu_blocks -= reserved_blocks
         gpu_block_ids = block_ids[:num_gpu_blocks]
-        cpu_block_ids = block_ids[num_gpu_blocks:]
+        cpu_block_ids = block_ids[num_gpu_blocks+num_virtual_blocks:]
 
         if allocator_type == "naive":
             gpu_allocator: BlockAllocator = NaiveBlockAllocator(
@@ -95,15 +96,17 @@ class CpuGpuBlockAllocator(DeviceAwareBlockAllocator):
         return CpuGpuBlockAllocator(
             cpu_block_allocator=cpu_allocator,
             gpu_block_allocator=gpu_allocator,
+            init_num_gpu_blocks = num_gpu_blocks
         )
 
     def __init__(self, cpu_block_allocator: BlockAllocator,
-                 gpu_block_allocator: BlockAllocator):
+                 gpu_block_allocator: BlockAllocator,
+                 init_num_gpu_blocks: int):
         assert not (
             cpu_block_allocator.all_block_ids
             & gpu_block_allocator.all_block_ids
         ), "cpu and gpu block allocators can't have intersection of block ids"
-
+        self.init_num_gpu_blocks = init_num_gpu_blocks
         self._allocators = {
             Device.CPU: cpu_block_allocator,
             Device.GPU: gpu_block_allocator,
@@ -366,6 +369,40 @@ class CpuGpuBlockAllocator(DeviceAwareBlockAllocator):
         device: Device = Device.GPU,
     ) -> List[int]:
         return self._allocators[device].find_cached_blocks_prefix(block_hashes)
+    
+    def increase_block_number(self, org_num_blocks: int, new_num_blocks: int, device: Device = Device.GPU):
+        """Increases the number of blocks for the specified device allocator.
+        
+        This method increases the number of blocks in the specified device allocator
+        and updates the internal mapping structures to maintain consistency.
+        
+        Args:
+            num_blocks (int): Number of blocks to add.
+            device (Device): The device for which to increase blocks (default: GPU).
+        
+        Note:
+            This method updates both the allocator's internal structures and the
+            CpuGpuBlockAllocator's mapping of block IDs to allocators.
+        """
+            
+        # Get the allocator for the specified device
+        allocator = self._allocators[device]
+        # Calculate the new block IDs
+        current_max_block_id = org_num_blocks # max(self._block_ids_to_allocator.keys()) if self._block_ids_to_allocator else -1
+        new_block_ids = list(range(org_num_blocks , new_num_blocks))
+        
+        # Increase the block number in the device allocator
+        if hasattr(allocator, 'increase_block_number'):
+            allocator.increase_block_number(org_num_blocks, new_num_blocks)
+        else:
+            # Default implementation if the allocator doesn't have the method
+            raise NotImplementedError(
+                f"Allocator of type {type(allocator).__name__} does not support increasing block number")
+            
+        # Update the mapping of block IDs to allocators
+
+        for block_id in new_block_ids:
+            self._block_ids_to_allocator[block_id] = allocator
 
 
 class NullBlock(Block):

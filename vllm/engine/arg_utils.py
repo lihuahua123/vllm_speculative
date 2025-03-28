@@ -209,6 +209,8 @@ class EngineArgs:
     calculate_kv_scales: Optional[bool] = None
 
     additional_config: Optional[Dict[str, Any]] = None
+    disable_switch_draft_model: bool = False
+    disable_offload_proposer_worker: bool = False
 
     def __post_init__(self):
         if not self.tokenizer:
@@ -1033,6 +1035,22 @@ class EngineArgs:
             "Different platforms may support different configs. Make sure the "
             "configs are valid for the platform you are using. The input format"
             " is like '{\"config_key\":\"config_value\"}'")
+        
+        parser.add_argument(
+            "--disable-switch-draft-model",
+            action="store_true",  # This is important - it means the flag takes no value
+            default=False,
+            help="Disable the switch of draft model during speculative decoding. "
+            "This is useful when the draft model is a deepseek_mtp model that requires prefill "
+            "kv cache separately for each MTP layer.")
+        
+        parser.add_argument(
+            "--disable-offload-proposer-worker",
+            action="store_true",  # This is important - it means the flag takes no value
+            default=False,
+            help="Disable the offload of the proposer worker to CPU. "
+            "This is useful when the proposer worker is a deepseek_mtp model that requires prefill "
+            "kv cache separately for each MTP layer.")
         return parser
 
     @classmethod
@@ -1079,7 +1097,7 @@ class EngineArgs:
             generation_config=self.generation_config,
             override_generation_config=self.override_generation_config,
             enable_sleep_mode=self.enable_sleep_mode,
-            model_impl=self.model_impl,
+            model_impl=self.model_impl
         )
 
     def create_load_config(self) -> LoadConfig:
@@ -1230,6 +1248,8 @@ class EngineArgs:
             typical_acceptance_sampler_posterior_alpha=self.
             typical_acceptance_sampler_posterior_alpha,
             disable_logprobs=self.disable_logprobs_during_spec_decoding,
+            disable_offload_proposer_worker=self.disable_offload_proposer_worker,
+            disable_switch_draft_model=self.disable_switch_draft_model
         )
 
         # Reminder: Please update docs/source/features/compatibility_matrix.md

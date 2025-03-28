@@ -7,7 +7,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Type
 
 import torch
 import torch.nn as nn
-
+import time
+import vllm.spec_decode.ngram_worker
+import copy
 from vllm.config import ParallelConfig, SpeculativeConfig, VllmConfig
 from vllm.distributed.communication_op import (broadcast_tensor_dict,
                                                get_tp_group,
@@ -111,6 +113,7 @@ def create_spec_worker(*args, **kwargs) -> "SpecDecodeWorker":
         disable_logprobs=speculative_config.disable_logprobs,
         disable_log_stats=speculative_config.disable_log_stats,
         num_speculative_tokens=speculative_config.num_speculative_tokens,
+        vllm_config=vllm_config
     )
 
     return spec_decode_worker
@@ -157,6 +160,7 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
         disable_logprobs: bool,
         disable_log_stats: bool,
         num_speculative_tokens: int,
+        vllm_config: VllmConfig
     ) -> "SpecDecodeWorker":
 
         allow_zero_draft_token_step = True
@@ -200,7 +204,7 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
                 # Load lm_head weight for eagle in init_device
                 if draft_model_config.hf_config.model_type == "eagle":
                     enable_lm_head_weight_load = True
-
+            
                 proposer_worker = MultiStepWorker(**draft_worker_kwargs)
                 if draft_model_config.hf_config.model_type == "deepseek_mtp":
                     num_spec_prefill_steps = num_speculative_tokens
@@ -247,7 +251,7 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
                     "[Speculative Decoding] Disabling MQA scorer as the "
                     "target model is not running in eager mode.")
 
-        return SpecDecodeWorker(
+        sworker =  SpecDecodeWorker(
             proposer_worker,
             scorer_worker,
             disable_mqa_scorer=disable_mqa_scorer,
@@ -257,7 +261,10 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
             spec_decode_sampler=spec_decode_sampler,
             allow_zero_draft_token_step=allow_zero_draft_token_step,
             enable_lm_head_weight_load=enable_lm_head_weight_load,
-            num_spec_prefill_steps=num_spec_prefill_steps)
+            num_spec_prefill_steps=num_spec_prefill_steps,
+            vllm_config=vllm_config)
+        sworker.draft_worker_kwargs = draft_worker_kwargs
+        return sworker
 
     def __init__(
         self,
@@ -272,6 +279,7 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
         allow_zero_draft_token_step: Optional[bool] = True,
         enable_lm_head_weight_load: Optional[bool] = False,
         num_spec_prefill_steps: int = 1,
+        vllm_config: VllmConfig = None
     ):
         """
         Create a SpecDecodeWorker.
@@ -308,7 +316,9 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
                 before the speculative decoding starts. This is only used when
                 the draft model is a deepseek_mtp model that requires prefill
                 kv cache separately for each MTP layer.
+            vllm_config: vLLM config
         """
+        self.vllm_config = vllm_config
         self.proposer_worker = proposer_worker
         self.scorer_worker = scorer_worker
         scorer_runner = getattr(self.scorer_worker, "model_runner", None)
@@ -344,7 +354,8 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
         self._num_spec_prefill_steps = num_spec_prefill_steps
         self.num_accepted_tokens = 0
         self.proposer_worker_to_cpu = False
-        
+        self.need_decrease_block_number = False
+        self.using_ngram_draft_model = False
 
     def init_device(self) -> None:
         """Initialize both scorer and proposer models.
@@ -438,6 +449,10 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
         num_gpu_blocks, num_cpu_blocks = (
             self.scorer_worker.determine_num_available_blocks(
                 other_memory_usage=proposer_model_memory_usage))
+        actual_num_gpu_blocks, actual_num_cpu_blocks = (
+            self.scorer_worker.determine_num_available_blocks())
+        print("num_gpu_blocks",num_gpu_blocks,"actual_num_gpu_blocks",actual_num_gpu_blocks)
+        print("num_cpu_blocks",num_cpu_blocks,"actual_num_cpu_blocks",actual_num_cpu_blocks)
 
         scorer_cache_block_size_bytes = (
             self.scorer_worker.get_cache_block_size_bytes())
@@ -447,6 +462,10 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
         new_num_gpu_blocks = split_num_cache_blocks_evenly(
             scorer_cache_block_size_bytes, proposer_cache_block_size_bytes,
             num_gpu_blocks)
+        new_actual_num_gpu_blocks = split_num_cache_blocks_evenly(
+            scorer_cache_block_size_bytes, proposer_cache_block_size_bytes,
+            actual_num_gpu_blocks)
+        print("new_num_gpu_blocks",new_num_gpu_blocks,"new_actual_num_gpu_blocks",new_actual_num_gpu_blocks)
         return new_num_gpu_blocks, num_cpu_blocks
 
     def initialize_cache(self, num_gpu_blocks: int,
@@ -549,16 +568,28 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
             disable_all_speculation, execute_model_req.seq_group_metadata_list)
 
         if no_spec:
-            if (execute_model_req.running_queue_size
-                > self.disable_by_batch_size) and not self.proposer_worker_to_cpu:
-                print("offload!!!")
-                self.proposer_worker_to_cpu = True
-                self.proposer_worker.model_runner.model.to("cpu",non_blocking=True)
-            elif (execute_model_req.running_queue_size
-                == self.disable_by_batch_size) and self.proposer_worker_to_cpu:
-                print("prefetch load to gpu!!!x1")
-                self.proposer_worker_to_cpu = False
-                self.proposer_worker.model_runner.model.to("cuda",non_blocking=True)
+            # if not self.vllm_config.speculative_config.disable_offload_proposer_worker and (execute_model_req.running_queue_size
+            #     > self.disable_by_batch_size) and not self.proposer_worker_to_cpu:
+            #         print("offload!!!")
+            #         self.proposer_worker_to_cpu = True
+            #         if not self.using_ngram_draft_model:
+            #             print("offload!!!x1")
+            #             self.proposer_worker.model_runner.model.to("cpu",non_blocking=True)
+            #         disable_all_speculation = True
+            # elif not self.vllm_config.speculative_config.disable_offload_proposer_worker and execute_model_req.running_queue_size \
+            #     - self.disable_by_batch_size > 1 and execute_model_req.running_queue_size \
+            #     - self.disable_by_batch_size < 3 and self.proposer_worker_to_cpu:
+            #     if not self.using_ngram_draft_model:
+            #         print("decrease memory for proposal worker!!!x1")
+            #         self.proposer_worker_to_cpu = True
+            #         self.need_decrease_block_number = True
+            #     disable_all_speculation = True
+            # elif not self.vllm_config.speculative_config.disable_offload_proposer_worker and execute_model_req.running_queue_size \
+            #     <= self.disable_by_batch_size and self.need_decrease_block_number and self.proposer_worker_to_cpu:
+            #     print("prefetch load to gpu!!!x1")     
+            #     self.proposer_worker_to_cpu = False   
+            #     self.proposer_worker.model_runner.model.to("cuda",non_blocking=True)
+            #     disable_all_speculation = True
             return self._run_no_spec(execute_model_req,
                                      skip_proposer=disable_all_speculation)
         return self._run_speculative_decoding_step(execute_model_req,
@@ -1319,7 +1350,7 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
         
     def get_proposer_worker_to_cpu(self):
         # print("get_proposer_worker_to_cpu",self.proposer_worker_to_cpu)
-        return self.proposer_worker_to_cpu
+        return self.need_decrease_block_number
     
     def get_speculative_metrics(self):
         if hasattr(self.spec_decode_sampler, "ratio"):
@@ -1356,6 +1387,128 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
     
     def clear_metrics(self):
         self.spec_decode_sampler.last_metrics = []
+        
+    def switch_draft_model_to_ngram(self):
+        if hasattr(self, 'using_ngram_draft_model') and self.using_ngram_draft_model:
+            return True
+        print("switch_draft_model_to_ngram, offload!!!x2")
+        self.proposer_worker.model_runner.model.to("cpu",non_blocking=True)
+        self.proposer_worker_to_cpu = True
+
+        # Save current state of the proposer worker
+        old_proposer_worker = self.proposer_worker
+        self.old_proposer_worker = old_proposer_worker
+        
+        # Get the necessary configuration from the current spec worker
+        vllm_config = getattr(self.scorer_worker, "vllm_config", None)
+        if vllm_config is None:
+            logger.warning("Failed to get vllm_config from scorer_worker, creating a new one")
+            vllm_config = VllmConfig(self.scorer_worker.model_config)
+        
+        # Create a copy of vllm_config to avoid modifying the original
+        vllm_config_copy = copy.deepcopy(vllm_config)
+        
+        # Create a speculative config if it doesn't exist
+        if vllm_config_copy.speculative_config is None:
+            vllm_config_copy.speculative_config = SpeculativeConfig()
+        
+        # Set ngram parameters
+        ngram_prompt_lookup_min = 1
+        ngram_prompt_lookup_max = 4  # Default value, adjust as needed
+        
+        # Create a new NGramWorker
+        new_proposer_worker = vllm.spec_decode.ngram_worker.NGramWorker(
+            vllm_config=vllm_config_copy,
+            local_rank=self.rank,
+            device_type=self.device.type,
+        )
+        
+        # Initialize the new worker
+        new_proposer_worker.set_ngram_window_size(
+            ngram_prompt_lookup_min=ngram_prompt_lookup_min,
+            ngram_prompt_lookup_max=ngram_prompt_lookup_max,
+        )
+        
+        # Transfer any necessary state from the old worker
+        if hasattr(old_proposer_worker, "_include_gpu_probs_tensor"):
+            new_proposer_worker.set_include_gpu_probs_tensor()
+        
+        if hasattr(old_proposer_worker, "_should_modify_greedy_probs_inplace"):
+            new_proposer_worker.set_should_modify_greedy_probs_inplace()
+        
+        # Initialize device and load model for the new worker
+        new_proposer_worker.init_device()
+        new_proposer_worker.load_model()
+        
+        # Replace the old proposer worker with the new one
+        self.proposer_worker = new_proposer_worker
+        
+        # Log the successful switch
+        logger.info("Successfully switched draft model to NGramWorker with "
+                   f"ngram_min={ngram_prompt_lookup_min}, ngram_max={ngram_prompt_lookup_max}")
+        
+        self.using_ngram_draft_model = True
+        # self.proposer_worker_to_cpu = False
+        
+        return True
+    
+    def load_neural_model_async(self):
+        if not hasattr(self, 'using_ngram_draft_model') or not self.using_ngram_draft_model:
+            logger.info("Already using neural draft model, no switch needed")
+            return True
+            
+        if not hasattr(self, 'old_proposer_worker') or self.old_proposer_worker is None:
+            logger.error("No saved neural draft model found")
+            return False
+        
+        # Move the neural model back to GPU
+        if hasattr(self.old_proposer_worker, 'model_runner') and hasattr(self.old_proposer_worker.model_runner, 'model'):
+            logger.info("Moving neural draft model back to CUDA")
+            start_time = time.time()
+            self.old_proposer_worker.model_runner.model.to("cuda", non_blocking=True)
+            end_time = time.time()
+            logger.info(f"Time taken to move neural draft model back to CUDA: {end_time - start_time} seconds")
+        
+    
+    def switch_draft_model_to_neural(self):
+        """Switch from NGram draft model back to neural draft model.
+        
+        This method restores the previously saved neural draft model,
+        transfers any necessary state from the NGram worker, and
+        moves the model back to CUDA.
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not hasattr(self, 'using_ngram_draft_model') or not self.using_ngram_draft_model:
+            logger.info("Already using neural draft model, no switch needed")
+            return True
+            
+        if not hasattr(self, 'old_proposer_worker') or self.old_proposer_worker is None:
+            logger.error("No saved neural draft model found")
+            return False
+        
+        # Save current NGram worker to transfer any necessary state
+        ngram_worker = self.proposer_worker
+        
+        # Restore the neural draft model
+        self.proposer_worker = self.old_proposer_worker
+        
+        
+        # Transfer any state that might have been updated in the NGram worker
+        if hasattr(ngram_worker, '_include_gpu_probs_tensor'):
+            self.proposer_worker.set_include_gpu_probs_tensor()
+        
+        if hasattr(ngram_worker, '_should_modify_greedy_probs_inplace'):
+            self.proposer_worker.set_should_modify_greedy_probs_inplace()
+        
+        # Clean up the NGram worker reference
+        self.old_proposer_worker = None
+        self.using_ngram_draft_model = False
+        self.proposer_worker_to_cpu = False
+        
+        logger.info("Successfully switched back to neural draft model")
+        return True
 
 def split_num_cache_blocks_evenly(scorer_cache_block_size_bytes: int,
                                   proposer_cache_block_size_bytes: int,

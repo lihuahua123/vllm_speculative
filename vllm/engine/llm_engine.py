@@ -416,13 +416,19 @@ class LLMEngine:
             'current_load': 0,
             'last_update_time': time.time(),
             'update_interval': 5.0,  # Update load metrics every 5 seconds
-            'high_load_threshold': 100,  # Threshold for high load
+            'high_load_threshold': 5,  # Threshold for high load
             'is_high_load': False
         }
         
         # Initialize state for draft model switching
         self.using_ngram_draft_model = False
-        self.has_initialized_ngram_model = False
+        self.has_loaded_neural_model = False
+        if self.vllm_config.speculative_config:
+            self.disable_switch_draft_model = self.vllm_config.speculative_config.disable_switch_draft_model
+            self.disable_offload_proposer_worker = self.vllm_config.speculative_config.disable_offload_proposer_worker
+        else:
+            self.disable_switch_draft_model = True
+            self.disable_offload_proposer_worker = True
 
     def _initialize_kv_caches(self) -> None:
         """Initialize the KV cache in the worker(s).
@@ -433,7 +439,10 @@ class LLMEngine:
         start = time.time()
         num_gpu_blocks, num_cpu_blocks = (
             self.model_executor.determine_num_available_blocks())
-
+        if self.cache_config.num_gpu_blocks_override is not None and self.cache_config.num_gpu_blocks_override > num_gpu_blocks:
+            self.cache_config.num_virtual_blocks = self.cache_config.num_gpu_blocks_override - num_gpu_blocks 
+        else:
+            self.cache_config.num_virtual_blocks = 0
         if self.cache_config.num_gpu_blocks_override is not None:
             num_gpu_blocks_override = self.cache_config.num_gpu_blocks_override
             logger.info(
@@ -922,7 +931,12 @@ class LLMEngine:
         """Gets the number of unfinished requests."""
         return sum(scheduler.get_num_unfinished_seq_groups()
                    for scheduler in self.scheduler)
-
+        
+    def get_num_running_requests(self) -> int:
+        """Gets the number of running requests."""
+        return sum(len(scheduler.running)
+                   for scheduler in self.scheduler)
+        
     def has_unfinished_requests(self) -> bool:
         """Returns True if there are unfinished requests."""
         return any(scheduler.has_unfinished_seqs()
@@ -1413,17 +1427,12 @@ class LLMEngine:
             stats = self._get_stats(scheduler_outputs, outputs,
                                     finished_before=None, skip=None)
             self.scheduler[virtual_engine].set_stats(stats)
-            if hasattr(self.model_executor, "get_proposer_worker_to_cpu") and scheduler_outputs.num_lookahead_slots > 0:
-                aa = self.model_executor.get_proposer_worker_to_cpu()
-                if aa[0] == True and self.proposer_worker_to_cpu == False:
-                    print("increase block number@!!!!!")
-                    self.proposer_worker_to_cpu = True
-                    self.scheduler[virtual_engine].block_manager.block_allocator._allocators[Device.GPU].increase_block_number(20)
-                elif aa[0] == False and self.proposer_worker_to_cpu == True:
-                    print("decrease block number@!!!!!")
-                    self.proposer_worker_to_cpu = False
-                    # Use the new method that properly updates block tables
-                    self.scheduler[virtual_engine].block_manager.decrease_gpu_blocks(20)
+            # if hasattr(self.model_executor, "get_proposer_worker_to_cpu") and scheduler_outputs.num_lookahead_slots > 0:
+            #     aa = self.model_executor.get_proposer_worker_to_cpu()
+            #     if aa[0] == False and self.proposer_worker_to_cpu == False:
+            #         self.increase_block_number(virtual_engine)
+            #     elif aa[0] == True and self.proposer_worker_to_cpu == True:
+            #         self.decrease_block_number(virtual_engine)
             # We need to do this here so that last step's sampled_token_ids can
             # be passed to the next iteration for PP.
             if self.scheduler_config.is_multi_step:
@@ -1497,6 +1506,30 @@ class LLMEngine:
 
         return ctx.request_outputs
 
+    def increase_block_number(self,virtual_engine):
+        start_time = time.time()
+        self.proposer_worker_to_cpu = True
+        # First, try to allocate more GPU memory through the model executor
+        increased_blocks = self.cache_config.num_virtual_blocks 
+        print(f"increase block number@!!!!!{increased_blocks}")
+        if increased_blocks > 0:
+            # Now it's safe to update the block manager's data structures
+            self.scheduler[virtual_engine].block_manager.increase_gpu_blocks(increased_blocks)
+            self.scheduler[virtual_engine].block_manager.increase_usable_gpu_blocks(increased_blocks)
+        end_time = time.time()
+        print(f"Time taken to increase block number: {end_time - start_time} seconds")
+        
+    def decrease_block_number(self,virtual_engine):
+        start_time = time.time()
+        increased_blocks = self.cache_config.num_virtual_blocks
+        print(f"decrease block number@!!!!!{increased_blocks}")
+        self.proposer_worker_to_cpu = False
+        # Use the new method that properly updates block tables
+        self.scheduler[virtual_engine].block_manager.decrease_gpu_blocks(increased_blocks)
+        self.scheduler[virtual_engine].block_manager.decrease_usable_gpu_blocks(increased_blocks)
+        end_time = time.time()
+        print(f"Time taken to decrease block number: {end_time - start_time} seconds")
+        
     def _has_remaining_steps(
         self, seq_group_metadata_list: Optional[List[SequenceGroupMetadata]]
     ) -> bool:
@@ -2065,12 +2098,14 @@ class LLMEngine:
 
     def update_request_load(self) -> None:
         """Update the request load metrics to determine if we should switch draft models."""
-        current_time = time.time()
-        if current_time - self.request_load_tracker['last_update_time'] < self.request_load_tracker['update_interval']:
+        if self.disable_switch_draft_model:
             return
+        current_time = time.time()
+        # if current_time - self.request_load_tracker['last_update_time'] < self.request_load_tracker['update_interval']:
+        #     return
             
         # Calculate current load (active requests)
-        current_load = self.get_num_unfinished_requests()
+        current_load = self.get_num_running_requests()
         self.request_load_tracker['current_load'] = current_load
         self.request_load_tracker['last_update_time'] = current_time
         
@@ -2087,19 +2122,20 @@ class LLMEngine:
         # If we detect high load and aren't using ngram, initialize it if needed
         if is_high_load and not self.using_ngram_draft_model:
             self.switch_to_ngram_draft_model()
-        # If load is back to normal and we're using ngram, switch back to neural
-        elif not is_high_load and self.using_ngram_draft_model:
-            self.switch_to_neural_draft_model()
+            self.has_loaded_neural_model = False
+            # If load is back to normal and we're using ngram, switch back to neural
+        # elif not is_high_load and self.using_ngram_draft_model and not self.has_loaded_neural_model:
+        #     self.dec_and_load_neural_model()
+        #     self.has_loaded_neural_model = True
+        # elif not is_high_load and self.using_ngram_draft_model and self.has_loaded_neural_model:
+        #     self.switch_to_neural_draft_model()
                 
     def switch_to_ngram_draft_model(self) -> None:
         """Switch from neural draft model to n-gram draft model."""
         if self.using_ngram_draft_model:
             return  # Already using n-gram model
-            
-        # Initialize n-gram model if it hasn't been done yet
-        if not self.has_initialized_ngram_model:
-            self._initialize_ngram_draft_model()
-            
+        virtual_engine = 0
+        self.increase_block_number(virtual_engine)    
         logger.info("Switching to n-gram draft model due to high load")
         
         # Tell the model executor to switch models
@@ -2107,7 +2143,14 @@ class LLMEngine:
             self.model_executor.switch_draft_model_to_ngram()
             self.using_ngram_draft_model = True
         else:
+            self.using_ngram_draft_model = False
             logger.warning("Model executor does not support switching to n-gram draft model")
+    
+    def dec_and_load_neural_model(self) -> None:
+        """Decrease the block number and load the neural model."""
+        virtual_engine = 0
+        self.decrease_block_number(virtual_engine)
+        self.model_executor.load_neural_model_async()
             
     def switch_to_neural_draft_model(self) -> None:
         """Switch from n-gram draft model back to neural draft model."""
@@ -2115,41 +2158,9 @@ class LLMEngine:
             return  # Already using neural model
             
         logger.info("Switching back to neural draft model due to normal load")
-        
         # Tell the model executor to switch models
         if hasattr(self.model_executor, 'switch_draft_model_to_neural'):
             self.model_executor.switch_draft_model_to_neural()
             self.using_ngram_draft_model = False
         else:
             logger.warning("Model executor does not support switching to neural draft model")
-            
-    def _initialize_ngram_draft_model(self) -> None:
-        """Initialize the n-gram draft model."""
-        from vllm.spec_decode.ngram_draft_model_runner import NGramDraftModelRunner
-        
-        # Check if the model executor supports registering a draft model
-        if hasattr(self.model_executor, 'register_ngram_draft_model'):
-            # Get corpus from successful generations to train the n-gram model
-            recent_generations = self._get_recent_successful_generations(max_samples=1000)
-            
-            # Register the n-gram model with the executor
-            self.model_executor.register_ngram_draft_model(recent_generations)
-            self.has_initialized_ngram_model = True
-            logger.info("Initialized n-gram draft model")
-        else:
-            logger.warning("Model executor does not support registering n-gram draft model")
-            
-    def _get_recent_successful_generations(self, max_samples: int = 1000) -> List[List[int]]:
-        """Get recent successful generations to train the n-gram model."""
-        # This is a placeholder - in a real implementation, you'd collect 
-        # successful generations from your request history
-        # For now, we return a simple list of token sequences
-        samples = []
-        
-        # In a real implementation, you would:
-        # 1. Retrieve recent successful completions from a cache or database
-        # 2. Extract their token sequences 
-        # 3. Return them as a list of token id lists
-        
-        logger.info(f"Collected {len(samples)} samples for n-gram training")
-        return samples

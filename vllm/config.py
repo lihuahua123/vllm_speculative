@@ -1729,6 +1729,8 @@ class SpeculativeConfig:
         typical_acceptance_sampler_posterior_threshold: Optional[float],
         typical_acceptance_sampler_posterior_alpha: Optional[float],
         disable_logprobs: Optional[bool],
+        disable_offload_proposer_worker: bool,
+        disable_switch_draft_model: bool,
     ) -> Optional["SpeculativeConfig"]:
         """Create a SpeculativeConfig if possible, else return None.
 
@@ -1786,6 +1788,10 @@ class SpeculativeConfig:
                 If set to False, token log probabilities are returned
                 according to the log probability settings in SamplingParams.
                 If not specified, it defaults to True.
+            disable_switch_draft_model (bool): If set to True, disable the
+                switch of draft model during speculative decoding.
+            disable_offload_proposer_worker (bool): If set to True, disable the
+                offload of the proposer worker to CPU.
 
         Returns:
             Optional["SpeculativeConfig"]: An instance of SpeculativeConfig if
@@ -1933,6 +1939,8 @@ class SpeculativeConfig:
                 typical_acceptance_sampler_posterior_alpha,
             disable_logprobs=disable_logprobs,
             disable_log_stats=disable_log_stats,
+            disable_offload_proposer_worker=disable_offload_proposer_worker,
+            disable_switch_draft_model=disable_switch_draft_model,
         )
 
     @staticmethod
@@ -2041,6 +2049,8 @@ class SpeculativeConfig:
         typical_acceptance_sampler_posterior_alpha: float,
         disable_logprobs: bool,
         disable_log_stats: bool,
+        disable_offload_proposer_worker: bool,
+        disable_switch_draft_model: bool,
     ):
         """Create a SpeculativeConfig object.
 
@@ -2075,6 +2085,10 @@ class SpeculativeConfig:
                 returned.
             disable_log_stats: Whether to disable periodic printing of stage
                 times in speculative decoding.
+            disable_offload_proposer_worker: If set to True, disable the offload
+                of the proposer worker to CPU.
+            disable_switch_draft_model: If set to True, disable the switch of
+                draft model during speculative decoding.
         """
         self.draft_model_config = draft_model_config
         self.draft_parallel_config = draft_parallel_config
@@ -2091,7 +2105,8 @@ class SpeculativeConfig:
             typical_acceptance_sampler_posterior_alpha
         self.disable_logprobs = disable_logprobs
         self.disable_log_stats = disable_log_stats
-
+        self.disable_offload_proposer_worker = disable_offload_proposer_worker
+        self.disable_switch_draft_model = disable_switch_draft_model
         self._verify_args()
 
     def _verify_args(self) -> None:

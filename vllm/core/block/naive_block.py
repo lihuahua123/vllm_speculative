@@ -44,6 +44,7 @@ class NaiveBlockAllocator(BlockAllocator):
 
         self._refcounter = RefCounter(
             all_block_indices=self._free_block_indices)
+        
         self._block_size = block_size
 
         self._cow_tracker = CopyOnWriteTracker(
@@ -341,17 +342,10 @@ class NaiveBlockAllocator(BlockAllocator):
         # Not applicable for naive block allocator.
         return []
 
-    def increase_block_number(self, increase_num_blocks: int = 0):
-        """Increases the number of blocks while preserving existing block states.
+    def increase_block_number(self, org_num_blocks, new_num_blocks):
         
-        Args:
-            increase_num_blocks (int): Number of blocks to add
-        """
-        if increase_num_blocks <= 0:
-            return
-        
-        current_size = len(self._all_block_indices)
-        new_size = current_size + increase_num_blocks
+        current_size = org_num_blocks
+        new_size = new_num_blocks
         
         # Preserve existing block indices
         new_all_block_indices = frozenset(range(new_size))
@@ -371,7 +365,7 @@ class NaiveBlockAllocator(BlockAllocator):
         self._free_block_indices = new_free_indices
         self._refcounter.update_refcounts(additional_refcounts)
     
-    def decrease_block_number(self, decrease_num_blocks: int = 0):
+    def decrease_block_number(self, org_num_blocks, decrease_num_blocks: int = 0):
         """Decreases the number of blocks by removing blocks from the end.
         Since block movement has already been handled by decrease_gpu_blocks,
         this function only updates the data structures.
@@ -382,7 +376,7 @@ class NaiveBlockAllocator(BlockAllocator):
         if decrease_num_blocks <= 0:
             return
         
-        current_size = len(self._all_block_indices)
+        current_size = org_num_blocks
         new_size = current_size - decrease_num_blocks
         
         # Update the free block indices to remove any that are beyond our new size
@@ -391,7 +385,7 @@ class NaiveBlockAllocator(BlockAllocator):
         )
         
         # Update the set of all block indices
-        self._all_block_indices = frozenset(range(new_size))
+        self._all_block_indices = frozenset(range(new_size)) # 从0开始
         
         # Update refcounts
         for block_id in range(new_size, current_size):

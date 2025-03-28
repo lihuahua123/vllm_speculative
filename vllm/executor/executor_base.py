@@ -276,7 +276,17 @@ class ExecutorBase(ABC):
     
     def clear_metrics(self):
         return self.collective_rpc("clear_metrics")
-
+    
+    def switch_draft_model_to_ngram(self):
+        return self.collective_rpc("switch_draft_model_to_ngram")
+    
+    def switch_draft_model_to_neural(self):
+        return self.collective_rpc("switch_draft_model_to_neural")
+    
+    def load_neural_model_async(self):
+        return self.collective_rpc("load_neural_model_async")
+    
+    
 class DistributedExecutorBase(ExecutorBase):
     """Abstract superclass of distributed executor implementations."""
 

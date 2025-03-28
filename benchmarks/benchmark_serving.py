@@ -129,7 +129,7 @@ def sample_sharegpt_requests(
         if prompt_len < 4 or (fixed_output_len is None and  output_len < 128):
             # Prune too short sequences.
             continue
-        if prompt_len + output_len > 4096:
+        if prompt_len + output_len > 2048:
             # Prune too long sequences.
             continue
         # if output_len > 1024 and long_prompt_count > num_requests /2 :
@@ -690,7 +690,8 @@ async def benchmark(
                 limited_request_func(request_func_input=request_func_input,
                                      pbar=pbar)))
     outputs: list[RequestFuncOutput] = await asyncio.gather(*tasks)
-
+    for i, output in enumerate(outputs):
+        print(f"Request {i} generated text: {output.generated_text}")
     if profile:
         print("Stopping profiler...")
         profile_input = RequestFuncInput(
@@ -1050,7 +1051,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--endpoint",
         type=str,
-        default="/v1/chat/completions",
+        default="/v1/completions",
         help="API endpoint.",
     )
     parser.add_argument(

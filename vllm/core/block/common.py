@@ -52,15 +52,11 @@ class RefCounter(RefCounterProtocol):
 
         post_incr_refcount = pre_incr_refcount + 1
         self._refcounts[block_id] = post_incr_refcount
-
         return post_incr_refcount
 
     def decr(self, block_id: BlockId) -> RefCount:
         assert block_id in self._refcounts
         refcount = self._refcounts[block_id]
-
-        if refcount == 0:
-            return refcount
         assert refcount > 0
         refcount -= 1
 
@@ -90,6 +86,7 @@ class ReadOnlyRefCounter(RefCounterProtocol):
 
     def __init__(self, refcounter: RefCounter):
         self._refcounter = refcounter
+        print("init readonly",hex(id(self._refcounter)))
 
     def incr(self, block_id: BlockId) -> RefCount:
         raise ValueError("Incr not allowed")
@@ -116,6 +113,7 @@ class CopyOnWriteTracker:
     def __init__(self, refcounter: RefCounterProtocol):
         self._copy_on_writes: List[Tuple[BlockId, BlockId]] = []
         self._refcounter = refcounter
+        print("init cow",hex(id(self._refcounter)))
 
     def is_appendable(self, block: Block) -> bool:
         """Checks if the block is shared or not. If shared, then it cannot
