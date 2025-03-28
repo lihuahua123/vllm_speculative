@@ -243,7 +243,7 @@ async def async_request_openai_completions(
         ("completions", "profile")
     ), "OpenAI Completions API URL must end with 'completions' or 'profile'."
 
-    async with aiohttp.ClientSession(trust_env=True,
+    async with aiohttp.ClientSession(trust_env=False,
                                      timeout=AIOHTTP_TIMEOUT) as session:
         payload = {
             "model": request_func_input.model_name \
@@ -273,7 +273,7 @@ async def async_request_openai_completions(
         most_recent_timestamp = st
         try:
             async with session.post(url=api_url, json=payload,
-                                    headers=headers) as response:
+                                    headers=headers,proxy=None) as response:
                 if response.status == 200:
                     first_chunk_received = False
                     async for chunk_bytes in response.content:

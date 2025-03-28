@@ -370,7 +370,8 @@ async def benchmark(
                 limited_request_func(request_func_input=request_func_input,
                                      pbar=pbar)))
     outputs: list[RequestFuncOutput] = await asyncio.gather(*tasks)
-
+    for index,output in enumerate(outputs):
+        print(f"request {index} output: {output.generated_text}")
     if profile:
         print("Stopping profiler...")
         profile_input = RequestFuncInput(

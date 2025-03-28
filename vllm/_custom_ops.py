@@ -448,22 +448,22 @@ if hasattr(torch.ops._C, "ggml_dequantize"):
         batch = X.size(0)
         return torch.empty((batch, row), dtype=X.dtype, device=W.device)
 
-    @register_fake("_C::ggml_moe_a8")
-    def _ggml_moe_a8_fake(
-        X: torch.Tensor,
-        W: torch.Tensor,
-        sorted_token_ids: torch.Tensor,
-        expert_ids: torch.Tensor,
-        num_tokens_post_padded: torch.Tensor,
-        quant_type: int,
-        row: torch.SymInt,
-        top_k: torch.SymInt,
-        tokens: torch.SymInt,
-    ) -> torch.Tensor:
-        tokens = X.size(0)
-        return torch.empty((tokens * top_k, row),
-                           dtype=torch.float16,
-                           device=W.device)
+    # @register_fake("_C::ggml_moe_a8")
+    # def _ggml_moe_a8_fake(
+    #     X: torch.Tensor,
+    #     W: torch.Tensor,
+    #     sorted_token_ids: torch.Tensor,
+    #     expert_ids: torch.Tensor,
+    #     num_tokens_post_padded: torch.Tensor,
+    #     quant_type: int,
+    #     row: torch.SymInt,
+    #     top_k: torch.SymInt,
+    #     tokens: torch.SymInt,
+    # ) -> torch.Tensor:
+    #     tokens = X.size(0)
+    #     return torch.empty((tokens * top_k, row),
+    #                        dtype=torch.float16,
+    #                        device=W.device)
 
 
 # cutlass
