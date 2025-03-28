@@ -2219,7 +2219,7 @@ class LLMEngine:
         if was_high_load != is_high_load:
             logger.info(f"Load status changed: {'high' if is_high_load else 'normal'} load "
                        f"with {current_load} active requests")
-            
+        logger.info(f"current_load: {current_load},using_ngram_draft_model: {self.using_ngram_draft_model},has_loaded_neural_model: {self.has_loaded_neural_model}")    
         # If we detect high load and aren't using ngram, initialize it if needed
         if is_high_load and not self.using_ngram_draft_model:
             self.switch_to_ngram_draft_model()
@@ -2229,8 +2229,8 @@ class LLMEngine:
             self.dec_and_load_neural_model()
             self.has_loaded_neural_model = True
             return
-        # elif not is_high_load and self.using_ngram_draft_model and self.has_loaded_neural_model:
-        #     self.switch_to_neural_draft_model()
+        elif not is_high_load and self.using_ngram_draft_model and self.has_loaded_neural_model:
+            self.switch_to_neural_draft_model()
                 
     def switch_to_ngram_draft_model(self) -> None:
         """Switch from neural draft model to n-gram draft model."""
