@@ -2225,9 +2225,10 @@ class LLMEngine:
             self.switch_to_ngram_draft_model()
             self.has_loaded_neural_model = False
             # If load is back to normal and we're using ngram, switch back to neural
-        # elif not is_high_load and self.using_ngram_draft_model and not self.has_loaded_neural_model:
-        #     self.dec_and_load_neural_model()
-        #     self.has_loaded_neural_model = True
+        elif not is_high_load and self.using_ngram_draft_model and not self.has_loaded_neural_model:
+            self.dec_and_load_neural_model()
+            self.has_loaded_neural_model = True
+            return
         # elif not is_high_load and self.using_ngram_draft_model and self.has_loaded_neural_model:
         #     self.switch_to_neural_draft_model()
                 
