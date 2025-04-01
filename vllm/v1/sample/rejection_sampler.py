@@ -375,7 +375,8 @@ def rejection_greedy_sample_kernel(
     if is_greedy_ptr is None:
         is_greedy = True
     else:
-        is_greedy = tl.load(is_greedy_ptr + req_idx)
+        is_greedy_val = tl.load(is_greedy_ptr + req_idx)
+        is_greedy = is_greedy_val #!= 0
     if not is_greedy:
         # Early exit for non-greedy sampling requests.
         return
@@ -423,7 +424,8 @@ def rejection_random_sample_kernel(
     IS_NGRAM: tl.constexpr,
 ):
     req_idx = tl.program_id(0)
-    is_greedy = tl.load(is_greedy_ptr + req_idx)
+    is_greedy_val = tl.load(is_greedy_ptr + req_idx)
+    is_greedy = is_greedy_val # != 0
     if is_greedy:
         # Early exit for greedy sampling requests.
         return

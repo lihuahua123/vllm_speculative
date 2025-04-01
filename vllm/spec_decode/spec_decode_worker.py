@@ -746,6 +746,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
                     seq_group_meta_with_hidden):
                 self.previous_hidden_states.update(hidden_states,
                                                    seq_group_meta_with_hidden)
+                self.previous_hidden_states.prune(seq_group_meta_with_hidden)
 
         if not skip_proposer:
             # We prepare the prefill hidden states here so that there no
@@ -1507,6 +1508,10 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         
         logger.info("Successfully switched back to neural draft model")
         return True
+    
+    def set_ngram_prompt_lookup_window_size(self,ngram_prompt_lookup_min,ngram_prompt_lookup_max):
+        self.proposer_worker.set_ngram_window_size(ngram_prompt_lookup_min,ngram_prompt_lookup_max)
+    
 
 def split_num_cache_blocks_evenly(scorer_cache_block_size_bytes: int,
                                   proposer_cache_block_size_bytes: int,

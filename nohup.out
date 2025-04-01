@@ -3190,3 +3190,4 @@ Traceback (most recent call last):
   File "/home/nudt/.conda/envs/vllm/lib/python3.11/subprocess.py", line 2047, in _wait
     time.sleep(delay)
 KeyboardInterrupt
+rm: 无法删除 'logs2/ngram5.log': 没有那个文件或目录

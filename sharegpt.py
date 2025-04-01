@@ -47,6 +47,7 @@ def plot_token_length_distribution(dataset_path: str, tokenizer: PreTrainedToken
 
 tokenizer = AutoTokenizer.from_pretrained("/data/model/Llama-3.1-8B")
 plot_token_length_distribution("/data/sharegpt.json", tokenizer)
+
 def sample_sharegpt_requests(
     dataset_path: str,
     num_requests: int,

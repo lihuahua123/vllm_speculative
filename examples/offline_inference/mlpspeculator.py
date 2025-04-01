@@ -80,7 +80,12 @@ context_length = {
 context_length = 8000 #context_length["llama8b"] - 2000
 max_tokens = 4090
 num_speculative_tokens = 10
+
 def extract_numbers(text):
+    """
+    提取文本中的数字
+    只能适配deepseek-aiDeepSeek-R1-Distill-Qwen-7B
+    """
     pattern = r"\\boxed\{([^{}]*)\}"
     match = re.findall(pattern, text)
     number = None
@@ -447,18 +452,7 @@ if __name__ == "__main__":
                        help="Number of samples to test. If None, use full dataset")
     args = parser.parse_args()
 
-    # template = (
-    #     "Below is an instruction that describes a task. Write a response "
-    #     "that appropriately completes the request.\n\n### Instruction:\n{}"
-    #     "\n\n### Response:\n")
-
-    # # Sample prompts.
-    # prompts = [
-    #     "Write about the president of the United States.",
-    # ]
-    # prompts = [TokensPrompt(prompt_token_ids=prompt_token_ids) for prompt, prompt_token_ids, _ in meta_prompts][:2]
-    # meta_prompts = generate_meta_prompts(tokenizer)
-    model_name = "/data/model/Llama-3.1-8B"#"/data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B"
+    model_name = "/data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     datasets = []
     # datasets.append(sample_sharegpt_requests("/data/sharegpt.json", 56, tokenizer))
@@ -503,8 +497,8 @@ if __name__ == "__main__":
     # wrong_indexs_1024 = [2,7,8,12,13,15,20,21,23,41,43,44,46]
     # wrong_indexs_4096 = wrong_indexs
     index_buckets = {
-        "bucket1": [ 4, 7,  13, 29,  43, 46],     # [21]
-         "bucket2": [2, 8, 12, 21, 37],    # [4, 12]
+        # "bucket1": [ 4, 7,  13, 29,  43, 46],     # [21]
+        #  "bucket2": [2, 8, 12, 21, 37],    # [4, 12]
         # "bucket3": indexs3,    # [7]
         "default": []          # All other indices
     }

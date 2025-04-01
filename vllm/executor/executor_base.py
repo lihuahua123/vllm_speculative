@@ -286,6 +286,8 @@ class ExecutorBase(ABC):
     def load_neural_model_async(self):
         return self.collective_rpc("load_neural_model_async")
     
+    def set_ngram_prompt_lookup_window_size(self,ngram_prompt_lookup_min,ngram_prompt_lookup_max):
+        return self.collective_rpc("set_ngram_prompt_lookup_window_size", kwargs=dict(ngram_prompt_lookup_min=ngram_prompt_lookup_min,ngram_prompt_lookup_max=ngram_prompt_lookup_max))
     
 class DistributedExecutorBase(ExecutorBase):
     """Abstract superclass of distributed executor implementations."""
