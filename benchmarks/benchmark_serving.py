@@ -54,7 +54,7 @@ except ImportError:
 
 from benchmark_dataset import (BurstGPTDataset, HuggingFaceDataset,
                                RandomDataset, SampleRequest, ShareGPTDataset,
-                               SonnetDataset, VisionArenaDataset)
+                               SonnetDataset, VisionArenaDataset, HuggingFaceAlpacaDataset)
 from benchmark_utils import convert_to_pytorch_benchmark_format, write_to_json
 
 MILLISECONDS_TO_SECONDS_CONVERSION = 1000
@@ -617,6 +617,12 @@ def main(args: argparse.Namespace):
             lambda: BurstGPTDataset(random_seed=args.seed,
                                     dataset_path=args.dataset_path).
             sample(tokenizer=tokenizer, num_requests=args.num_prompts),
+            "alpaca":
+            lambda: HuggingFaceAlpacaDataset(dataset_path=args.dataset_path,dataset_split="train").sample(
+                tokenizer=tokenizer,
+                num_requests=args.num_prompts,
+                output_len=args.hf_output_len,
+            ),
             "random":
             lambda: RandomDataset(dataset_path=args.dataset_path).sample(
                 tokenizer=tokenizer,
@@ -632,6 +638,7 @@ def main(args: argparse.Namespace):
             input_requests = dataset_mapping[args.dataset_name]()
         except KeyError as err:
             raise ValueError(f"Unknown dataset: {args.dataset_name}") from err
+    
     goodput_config_dict = check_goodput_args(args)
 
     # Avoid GC processing "static" data - reduce pause times.
@@ -745,7 +752,7 @@ if __name__ == "__main__":
         "--dataset-name",
         type=str,
         default="sharegpt",
-        choices=["sharegpt", "burstgpt", "sonnet", "random", "hf"],
+        choices=["sharegpt", "burstgpt", "sonnet", "random", "hf", "alpaca"],
         help="Name of the dataset to benchmark on.",
     )
     parser.add_argument("--dataset-path",
@@ -933,6 +940,7 @@ if __name__ == "__main__":
         default=None,
         help="Output length for each request. Overrides the output length "
         "from the ShareGPT dataset.")
+    
 
     random_group = parser.add_argument_group("random dataset options")
     random_group.add_argument(

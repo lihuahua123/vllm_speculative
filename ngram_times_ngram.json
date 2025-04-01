@@ -1,0 +1,39 @@
+[
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 0,
+    "batch_size": 1,
+    "elapse_time": 0.02281101674449687
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 0,
+    "batch_size": 2,
+    "elapse_time": 0.015512149040631315
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 0,
+    "batch_size": 4,
+    "elapse_time": 0.00772344119965084
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 0,
+    "batch_size": 8,
+    "elapse_time": 0.005663949548467104
+  }
+][
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 0,
+    "batch_size": 16,
+    "elapse_time": 0.00531756212263543
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 0,
+    "batch_size": 32,
+    "elapse_time": 0.002851636223249229
+  }
+]

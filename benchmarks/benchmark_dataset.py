@@ -561,6 +561,80 @@ class BurstGPTDataset(BenchmarkDataset):
         return samples
 
 
+class HuggingFaceAlpacaDataset(BenchmarkDataset):
+    """
+    Dataset class for processing a HuggingFace dataset with conversation data
+    and optional images.
+    """
+
+    def __init__(
+        self,
+        dataset_split: str,
+        dataset_subset: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.dataset_split = dataset_split
+        self.dataset_subset = dataset_subset
+
+        self.load_data()
+
+    def load_data(self) -> None:
+        if not self.dataset_path:
+            raise ValueError("dataset_path must be provided for loading data.")
+
+        self.data = load_dataset(
+            self.dataset_path,
+            name=self.dataset_subset,
+            split=self.dataset_split,
+            streaming=True,
+        )
+        if hasattr(self.data, "train"):
+            self.data = self.data.train
+        self.data = self.data.shuffle(seed=self.random_seed)
+
+    def sample(self,
+               tokenizer: PreTrainedTokenizerBase,
+               num_requests: int,
+               output_len: Optional[int] = None,
+               enable_multimodal_chat: bool = False,
+               **kwargs) -> list:
+        sampled_requests = []
+        dynamic_output = output_len is None
+        system_prompt = "Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.\n\n"
+        for item in self.data:
+            if len(sampled_requests) >= num_requests:
+                break
+            prompt = item["instruction"]
+            input = item["input"]
+            completion = item["output"]
+
+            prompt_ids = tokenizer(system_prompt  + prompt + " " + input).input_ids
+            completion_ids = tokenizer(completion).input_ids
+            prompt_len = len(prompt_ids)
+            completion_len = len(completion_ids)
+            output_len = completion_len if dynamic_output else output_len
+            assert isinstance(output_len, int) and output_len > 0
+            if dynamic_output and not is_valid_sequence(
+                    prompt_len, completion_len):
+                continue
+            mm_content = process_image(
+                item["image"]) if "image" in item else None
+            if enable_multimodal_chat:
+                # Note: when chat is enabled the request prompt_len is no longer
+                # accurate and we will be using request output to count the
+                # actual prompt len and output len
+                prompt = self.apply_multimodal_chat_transformation(
+                    prompt, mm_content)
+            sampled_requests.append(
+                SampleRequest(
+                    prompt=prompt,
+                    prompt_len=prompt_len,
+                    expected_output_len=output_len,
+                    multi_modal_data=mm_content,
+                ))
+        self.maybe_oversample_requests(sampled_requests, num_requests)
+        return sampled_requests
 # -----------------------------------------------------------------------------
 # HuggingFace Dataset Implementation
 # -----------------------------------------------------------------------------
@@ -594,6 +668,8 @@ class HuggingFaceDataset(BenchmarkDataset):
             split=self.dataset_split,
             streaming=True,
         )
+        if hasattr(self.data, "train"):
+            self.data = self.data.train
         if self.data.features is None or "conversations" \
             not in self.data.features:
             raise ValueError(

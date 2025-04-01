@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
-
+import multiprocessing
+# 在导入torch或其他库之前设置多进程启动方法
+multiprocessing.set_start_method('spawn', force=True)
 import gc
 import time
 from typing import List
 import sys
 import os
 from transformers import AutoTokenizer, AutoConfig
-sys.path.append('/home/nudt/lirui/vllm_speculative/')
+sys.path.append('/home/hello/lirui/vllm_speculative/')
 from vllm.inputs import TokensPrompt
 from vllm import EngineArgs, LLMEngine, RequestOutput, SamplingParams
 from vllm.utils import FlexibleArgumentParser
@@ -81,6 +83,10 @@ context_length = 8000 #context_length["llama8b"] - 2000
 max_tokens = 4090
 num_speculative_tokens = 10
 def extract_numbers(text):
+    """
+    Extract numbers from text using regex patterns.
+    只适配DeepSeek-R1-Distill-Qwen-7B
+    """
     pattern = r"\\boxed\{([^{}]*)\}"
     match = re.findall(pattern, text)
     number = None
@@ -375,9 +381,9 @@ def time_generation(llm: LLM, prompts,
     
     end = time.time()
     
-    return calculate_results(all_outputs)
+    return calculate_results(all_outputs, used_time=end-start)
 
-def calculate_results(outputs):
+def calculate_results(outputs, used_time=0):
     """计算结果统计信息"""
     early_time = float('inf')
     last_token_time = float(0)
@@ -390,19 +396,15 @@ def calculate_results(outputs):
             continue
             
         generated_text = output.outputs[0].text[-100:]
-        # print(f"text: {generated_text!r}")
+        print(f"text: {generated_text!r}")
         # print(f"len(output.outputs[0].token_ids): ", len(output.outputs[0].token_ids))
         
-        if len(output.outputs[0].token_ids) > 0:
-            early_time = min(early_time, output.metrics.first_token_time)
-            last_token_time = max(last_token_time, output.metrics.finished_time)
         
         ans = answer_cleansing_gsm8k(output.outputs[0].text)
         anss.append(ans)
         result = {
             "result": output.outputs[0].text,
             "answer": ans,
-            "time": output.metrics.finished_time - output.metrics.first_token_time
         }
         results.append(result)
     # 计算有效token
@@ -410,10 +412,10 @@ def calculate_results(outputs):
     total_tokens = sum([len(o.outputs[0].token_ids) for o in valid_outputs])
     
     # 计算总时间
-    total_time = last_token_time - early_time if valid_outputs else 0
-    avg_time_per_token = total_time / total_tokens if total_tokens > 0 else 0
+    # total_time = last_token_time - early_time if valid_outputs else 0
+    avg_time_per_token = used_time / total_tokens if total_tokens > 0 else 0
     
-    print(f"Total generation time: {total_time:.2f}s for {total_tokens} tokens")
+    print(f"Total generation time: {used_time:.2f}s for {total_tokens} tokens")
     print(f"Average time per token: {avg_time_per_token:.6f}s")
     print(f"Processed {len(valid_outputs)} out of {len(outputs)} prompts")
     
@@ -437,7 +439,7 @@ if __name__ == "__main__":
     parser.add_argument('--model_names', type=str, default="meta-llama/Llama-2-7b-hf")
     parser.add_argument('--max_seq_len', type=int, default=1024)
     parser.add_argument('--max_batch_size', type=int, default=4)
-    parser.add_argument('--data_path', type=str, default="/home/nudt/lirui/vllm_speculative/examples/data")
+    parser.add_argument('--data_path', type=str, default="/home/hello/lirui/vllm_speculative/examples/data")
     parser.add_argument('--dataset', choices=['GSM8K', 'CSQA',"AQuA"],default="GSM8K")
     parser.add_argument('--out_path', type=str, default="output/singlemodel")
     parser.add_argument('--max_gen_len', type=int, default=2000)
@@ -458,7 +460,7 @@ if __name__ == "__main__":
     # ]
     # prompts = [TokensPrompt(prompt_token_ids=prompt_token_ids) for prompt, prompt_token_ids, _ in meta_prompts][:2]
     # meta_prompts = generate_meta_prompts(tokenizer)
-    model_name = "/data/model/Llama-3.1-8B"#"/data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B"
+    model_name = "/data/model/llama70bgptq"#"/data/model/lmsysvicuna-13b-v1.3"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     datasets = []
     # datasets.append(sample_sharegpt_requests("/data/sharegpt.json", 56, tokenizer))
@@ -480,13 +482,14 @@ if __name__ == "__main__":
     # llm = LLM(model=model_name,max_model_len=10156, enforce_eager=True)
     llm = LLM(
             model=model_name,
-            # speculative_model="alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B",
-            max_model_len=10156,
-            # num_speculative_tokens=num_speculative_tokens,
+            #speculative_model="[ngram]",#"alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B",
+            quantization='gptq',
+            max_model_len=2048,
+            #num_speculative_tokens=num_speculative_tokens,
             # spec_decoding_acceptance_method="typical_acceptance_sampler",
             # typical_acceptance_sampler_posterior_alpha=typical_acceptance_sampler_posterior_alpha,
             # typical_acceptance_sampler_posterior_threshold=typical_acceptance_sampler_posterior_threshold,
-            # ngram_prompt_lookup_max=4,
+            #ngram_prompt_lookup_max=4,
             enforce_eager=True
         )
     # llm = None
@@ -503,8 +506,8 @@ if __name__ == "__main__":
     # wrong_indexs_1024 = [2,7,8,12,13,15,20,21,23,41,43,44,46]
     # wrong_indexs_4096 = wrong_indexs
     index_buckets = {
-        "bucket1": [ 4, 7,  13, 29,  43, 46],     # [21]
-         "bucket2": [2, 8, 12, 21, 37],    # [4, 12]
+        # "bucket1": [ 4, 7,  13, 29,  43, 46],     # [21]
+        #  "bucket2": [2, 8, 12, 21, 37],    # [4, 12]
         # "bucket3": indexs3,    # [7]
         "default": []          # All other indices
     }
@@ -568,8 +571,8 @@ if __name__ == "__main__":
                 bucket_data["wrong_indices"].append(i)
                 results[i]["answer_correct"] = False
                 results[i]["answer_correct_reason"] = true_answer
-                if bucket_name == "default":  # Only print default bucket wrong answers
-                    print(f"Wrong answer in bucket {bucket_name}, index {i}:", results[i])
+                # if bucket_name == "default":  # Only print default bucket wrong answers
+                #     print(f"Wrong answer in bucket {bucket_name}, index {i}:", results[i])
     
     # Print summary
     print(f"Total correct answers: {right} out of {sum(len(b['prompts']) for b in buckets.values())}")

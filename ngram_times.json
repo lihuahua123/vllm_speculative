@@ -1,0 +1,1178 @@
+[
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 1,
+    "elapse_time": 0.018511838329081633
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 2,
+    "elapse_time": 0.013478795812709098
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 4,
+    "elapse_time": 0.007823968103146665
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 8,
+    "elapse_time": 0.005578504484526965
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 1,
+    "elapse_time": 0.015558501652308872
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 2,
+    "elapse_time": 0.013044398665804216
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 4,
+    "elapse_time": 0.00778285699998033
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 8,
+    "elapse_time": 0.005211429985202088
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 1,
+    "elapse_time": 0.015498250844527264
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 2,
+    "elapse_time": 0.013055153073572585
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 4,
+    "elapse_time": 0.007500885787168386
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 8,
+    "elapse_time": 0.005213010554410973
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 1,
+    "elapse_time": 0.01550727669073611
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 2,
+    "elapse_time": 0.013067736610629205
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 4,
+    "elapse_time": 0.007506998511852246
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 8,
+    "elapse_time": 0.005242484540355449
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 1,
+    "elapse_time": 0.015519205404787647
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 2,
+    "elapse_time": 0.013074982429528462
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 4,
+    "elapse_time": 0.007515491185030101
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 8,
+    "elapse_time": 0.005250476525754345
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 1,
+    "elapse_time": 0.015529099289251834
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 2,
+    "elapse_time": 0.013083574523685106
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 4,
+    "elapse_time": 0.007530030763544742
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 8,
+    "elapse_time": 0.005260478623059331
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 1,
+    "elapse_time": 0.015541168135039661
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 2,
+    "elapse_time": 0.013100151007859865
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 4,
+    "elapse_time": 0.007538978239936286
+  },
+  {
+    "num_speculative_tokens": 1,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 8,
+    "elapse_time": 0.0052710161403733856
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 1,
+    "elapse_time": 0.014990327796157525
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 2,
+    "elapse_time": 0.012624888013966076
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 4,
+    "elapse_time": 0.007275654523858527
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 8,
+    "elapse_time": 0.005555576596941267
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 1,
+    "elapse_time": 0.014616811518766442
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 2,
+    "elapse_time": 0.012137059533633645
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 4,
+    "elapse_time": 0.006537519077554134
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 8,
+    "elapse_time": 0.0052580152239118305
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 1,
+    "elapse_time": 0.014631458204619738
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 2,
+    "elapse_time": 0.0121443948535137
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 4,
+    "elapse_time": 0.006492725480789257
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 8,
+    "elapse_time": 0.005251496568018077
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 1,
+    "elapse_time": 0.014637119916020607
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 2,
+    "elapse_time": 0.01215591791676422
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 4,
+    "elapse_time": 0.006713306169374295
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 8,
+    "elapse_time": 0.005244813451961595
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 1,
+    "elapse_time": 0.014647361210414342
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 2,
+    "elapse_time": 0.012163404410569826
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 4,
+    "elapse_time": 0.006725045459530365
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 8,
+    "elapse_time": 0.005256059413053552
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 1,
+    "elapse_time": 0.01466725797069316
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 2,
+    "elapse_time": 0.012175488547195771
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 4,
+    "elapse_time": 0.006736554805701378
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 8,
+    "elapse_time": 0.005266077664433693
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 1,
+    "elapse_time": 0.014670836195653798
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 2,
+    "elapse_time": 0.012184181423969449
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 4,
+    "elapse_time": 0.006897592996534013
+  },
+  {
+    "num_speculative_tokens": 2,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 8,
+    "elapse_time": 0.005274252404971999
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 1,
+    "elapse_time": 0.01454589707510812
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 2,
+    "elapse_time": 0.011889029000459786
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 4,
+    "elapse_time": 0.007528579348071491
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 8,
+    "elapse_time": 0.005242119419331453
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 1,
+    "elapse_time": 0.014412860481106505
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 2,
+    "elapse_time": 0.011853466274610452
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 4,
+    "elapse_time": 0.0075032668656082515
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 8,
+    "elapse_time": 0.004582946933045679
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 1,
+    "elapse_time": 0.014421263519598514
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 2,
+    "elapse_time": 0.011857988706522559
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 4,
+    "elapse_time": 0.007510395411631507
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 8,
+    "elapse_time": 0.0045926422975501235
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 1,
+    "elapse_time": 0.014427095529984455
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 2,
+    "elapse_time": 0.01186937338170193
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 4,
+    "elapse_time": 0.0075206702919367934
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 8,
+    "elapse_time": 0.0045849798163589165
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 1,
+    "elapse_time": 0.01443606104169573
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 2,
+    "elapse_time": 0.011874150026483867
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 4,
+    "elapse_time": 0.007532124270760053
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 8,
+    "elapse_time": 0.00459343112244898
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 1,
+    "elapse_time": 0.014450058645131637
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 2,
+    "elapse_time": 0.011890426419134771
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 4,
+    "elapse_time": 0.007542954519461681
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 8,
+    "elapse_time": 0.004602986355217136
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 1,
+    "elapse_time": 0.01446681801153689
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 2,
+    "elapse_time": 0.011898320556063005
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 4,
+    "elapse_time": 0.007554486182063677
+  },
+  {
+    "num_speculative_tokens": 3,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 8,
+    "elapse_time": 0.004613346372331892
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 1,
+    "elapse_time": 0.01517647918389768
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 2,
+    "elapse_time": 0.011950114548018302
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 4,
+    "elapse_time": 0.007040530019461826
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 8,
+    "elapse_time": 0.005360937118530274
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 1,
+    "elapse_time": 0.01520176615033831
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 2,
+    "elapse_time": 0.011965959230055945
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 4,
+    "elapse_time": 0.007524353350508269
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 8,
+    "elapse_time": 0.005277704122115155
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 1,
+    "elapse_time": 0.015208659853254045
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 2,
+    "elapse_time": 0.0119736224694959
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 4,
+    "elapse_time": 0.007235688620833989
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 8,
+    "elapse_time": 0.005506759954958546
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 1,
+    "elapse_time": 0.015211523795614437
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 2,
+    "elapse_time": 0.011982343926414707
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 4,
+    "elapse_time": 0.007263198283046343
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 8,
+    "elapse_time": 0.005514427301835041
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 1,
+    "elapse_time": 0.015227151403621752
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 2,
+    "elapse_time": 0.011993029140147502
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 4,
+    "elapse_time": 0.007274561583713333
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 8,
+    "elapse_time": 0.0055254615083032725
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 1,
+    "elapse_time": 0.015232853986779038
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 2,
+    "elapse_time": 0.01200295698003438
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 4,
+    "elapse_time": 0.007287156525381368
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 8,
+    "elapse_time": 0.00553664577250578
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 1,
+    "elapse_time": 0.015269846818885024
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 2,
+    "elapse_time": 0.012100940999172463
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 4,
+    "elapse_time": 0.00729453196457777
+  },
+  {
+    "num_speculative_tokens": 4,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 8,
+    "elapse_time": 0.005547798507067622
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 1,
+    "elapse_time": 0.015125056675502232
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 2,
+    "elapse_time": 0.011791749707531853
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 4,
+    "elapse_time": 0.006531005222085528
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 8,
+    "elapse_time": 0.0048077277747952205
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 1,
+    "elapse_time": 0.015141527993338448
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 2,
+    "elapse_time": 0.011748658369768305
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 4,
+    "elapse_time": 0.005689595547897556
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 8,
+    "elapse_time": 0.004321687464811364
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 1,
+    "elapse_time": 0.015153544289725167
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 2,
+    "elapse_time": 0.011759219485502515
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 4,
+    "elapse_time": 0.0055440910054609105
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 8,
+    "elapse_time": 0.004326886157600247
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 1,
+    "elapse_time": 0.015163857596261161
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 2,
+    "elapse_time": 0.011769785866000299
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 4,
+    "elapse_time": 0.005531702561401078
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 8,
+    "elapse_time": 0.004339089880184252
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 1,
+    "elapse_time": 0.015171321557492626
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 2,
+    "elapse_time": 0.011778577269063763
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 4,
+    "elapse_time": 0.005517199141154357
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 8,
+    "elapse_time": 0.004346629551478794
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 1,
+    "elapse_time": 0.015179702213832311
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 2,
+    "elapse_time": 0.011784121065109687
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 4,
+    "elapse_time": 0.005524714411152483
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 8,
+    "elapse_time": 0.004354452405657087
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 1,
+    "elapse_time": 0.015191165768370336
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 2,
+    "elapse_time": 0.011796807641110586
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 4,
+    "elapse_time": 0.005534046351627151
+  },
+  {
+    "num_speculative_tokens": 5,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 8,
+    "elapse_time": 0.0043636833891576654
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 1,
+    "elapse_time": 0.015131123211919045
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 2,
+    "elapse_time": 0.01180496576832672
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 4,
+    "elapse_time": 0.0072932842218480405
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 8,
+    "elapse_time": 0.005248633014912508
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 1,
+    "elapse_time": 0.01514957486366739
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 2,
+    "elapse_time": 0.01175911870288548
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 4,
+    "elapse_time": 0.007347827556573949
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 8,
+    "elapse_time": 0.0053673736416563695
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 1,
+    "elapse_time": 0.015165319248121612
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 2,
+    "elapse_time": 0.011769026987936219
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 4,
+    "elapse_time": 0.007334655212565056
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 8,
+    "elapse_time": 0.004976763238712233
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 1,
+    "elapse_time": 0.015178533476226184
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 2,
+    "elapse_time": 0.011782208451713298
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 4,
+    "elapse_time": 0.007345720490008169
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 8,
+    "elapse_time": 0.005053512028285435
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 1,
+    "elapse_time": 0.015183999587078483
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 2,
+    "elapse_time": 0.011792486774432547
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 4,
+    "elapse_time": 0.007351676999675154
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 8,
+    "elapse_time": 0.005062463137568259
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 1,
+    "elapse_time": 0.015201973428531568
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 2,
+    "elapse_time": 0.011804698017493407
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 4,
+    "elapse_time": 0.007365266576197475
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 8,
+    "elapse_time": 0.005074193526287468
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 1,
+    "elapse_time": 0.01520341561765087
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 2,
+    "elapse_time": 0.011809759711617551
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 4,
+    "elapse_time": 0.007371784386476634
+  },
+  {
+    "num_speculative_tokens": 6,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 8,
+    "elapse_time": 0.005082510150208765
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 1,
+    "elapse_time": 0.015147682112090442
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 2,
+    "elapse_time": 0.011816296291652161
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 4,
+    "elapse_time": 0.007638340030236267
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 1,
+    "batch_size": 8,
+    "elapse_time": 0.005391566607416892
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 1,
+    "elapse_time": 0.015166668989220445
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 2,
+    "elapse_time": 0.011769997208652436
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 4,
+    "elapse_time": 0.007209889414186162
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 2,
+    "batch_size": 8,
+    "elapse_time": 0.004930916611029177
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 1,
+    "elapse_time": 0.015183523723057339
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 2,
+    "elapse_time": 0.011789272260214628
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 4,
+    "elapse_time": 0.007243490614597266
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 3,
+    "batch_size": 8,
+    "elapse_time": 0.0049239063262939455
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 1,
+    "elapse_time": 0.015193384520861566
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 2,
+    "elapse_time": 0.0117944008920471
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 4,
+    "elapse_time": 0.007251084980806468
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 4,
+    "batch_size": 8,
+    "elapse_time": 0.004932638285111408
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 1,
+    "elapse_time": 0.015205964263604611
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 2,
+    "elapse_time": 0.011809021892607775
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 4,
+    "elapse_time": 0.007264521449663063
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 5,
+    "batch_size": 8,
+    "elapse_time": 0.0049439694930096065
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 1,
+    "elapse_time": 0.01521192472808215
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 2,
+    "elapse_time": 0.011816834801755117
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 4,
+    "elapse_time": 0.007270981067729787
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 6,
+    "batch_size": 8,
+    "elapse_time": 0.004952188219342913
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 1,
+    "elapse_time": 0.015222862788609097
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 2,
+    "elapse_time": 0.011830599150071008
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 4,
+    "elapse_time": 0.007279883911259367
+  },
+  {
+    "num_speculative_tokens": 7,
+    "ngram_prompt_lookup_max": 7,
+    "batch_size": 8,
+    "elapse_time": 0.0049648824030039266
+  }
+]

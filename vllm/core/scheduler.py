@@ -1602,6 +1602,7 @@ class Scheduler:
         # Convert to float value before appending
         metric_value = float(speculative_metrics[0])
         self.speculative_metrics_cache.append(metric_value)
+        # print("speculative_metrics_cache",self.speculative_metrics_cache)
         best_batch = None #len(self.running)
         if self.smart_spec is not None:
             self.smart_spec.prev_alphas = self.speculative_metrics_cache
@@ -1983,6 +1984,9 @@ class Scheduler:
 
         return best_batch, best_proposed_lengths
 
+    def set_num_lookahead_slots(self,num_lookahead_slots):
+        self.scheduler_config.num_lookahead_slots = num_lookahead_slots
+    
     def _get_num_lookahead_slots(self, is_prefill: bool,
                                  enable_chunking: bool) -> int:
         """The number of slots to allocate per sequence per step, beyond known
@@ -2010,7 +2014,6 @@ class Scheduler:
                 return self.scheduler_config.num_lookahead_slots + 1
             else:
                 return 0
-        history = [0,0.0000,0.6000,0.6000,0.0000,0.4000,0.4000,1.0000,1.0000,1.0000,0.6000,0.4000,0.8000,1.0000,0.4000,0.8000,0.4000,0.4000,0.8000,0.8000,0.6000,0.6000,0.6000,0.6000,0.8000,1.0000,0.6000,0.8000,1.0000,1.0000,0.8000,0.6000,0.6000,1.0000,0.6000,0.6000,1.0000,1.0000,0.4000,0.4000,0.4000,0.6000,0.8000,0.6000,0.6000,0.8000,0.8000,0.6000,1.0000,1.0000,1.0000,1.0000,0.8000,0.6000,0.8000,0.6000,0.6000,1.0000,0.8000,0.2000,0.6000,0.8000,0.6000,0.4000,0.8000,0.4000,0.6000,0.4000,0.8000,0.6000,0.6000,0.6000,0.6000,0.6000,0.6000,0.6000,0.4000,0.6000,0.4000,0.4000,0.2000,0.6000,1.0000,1.0000,0.6000,0.8000,1.0000,0.6000,0.6000,0.8000,0.6000,0.8000,0.8000,0.8000,0.8000,0.6000,0.4000,0.0000,0.0000,0.4000,0.0000,0.6000,0.2000,0.8000,0.6000,0.8000,0.4000,0.4000,0.6000,0.6000,0.0000,0.4000,0.4000,1.0000,1.0000,1.0000,0.6000,0.4000,0.8000,1.0000,0.4000,0.8000,0.4000,0.4000,0.8000,0.8000,0.6000,0.6000,0.6000,0.6000,0.8000,1.0000,0.6000,0.8000,1.0000,1.0000,0.8000,0.6000,0.6000,1.0000,0.6000,0.6000,1.0000,1.0000,0.4000,0.4000,0.4000,0.6000,0.8000,0.6000,0.6000,0.8000,0.8000,0.6000,1.0000,1.0000,1.0000,1.0000,0.8000,0.6000,0.8000,0.6000,0.6000,1.0000,0.8000,0.2000,0.6000,0.8000,0.6000,0.4000,0.8000,0.4000,0.6000,0.4000,0.8000,0.6000,0.6000,0.6000,0.6000,0.6000,0.6000,0.6000,0.4000,0.6000,0.4000,0.4000,0.2000,0.6000,1.0000,1.0000,0.6000,0.8000,1.0000,0.6000,0.6000,0.8000,0.6000,0.8000,0.8000,0.8000,0.8000,0.6000,0.4000,0.0000,0.0000,0.4000,0.0000,0.6000,0.2000,0.8000,0.6000,0.8000]
         
         # if len(self.speculative_metrics_cache) > 0 and len(self.speculative_metrics_cache) < len(history):
         #     num_lookahead_slots = int(5 * history[len(self.speculative_metrics_cache)]) + 1

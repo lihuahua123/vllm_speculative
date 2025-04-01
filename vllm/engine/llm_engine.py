@@ -423,7 +423,8 @@ class LLMEngine:
             'current_load': 0,
             'last_update_time': time.time(),
             'update_interval': 5.0,  # Update load metrics every 5 seconds
-            'high_load_threshold': 5,  # Threshold for high load
+            'high_load_threshold': 2,  # Threshold for high load
+            'high_load_threshold2': 2,  # Threshold for high load2
             'is_high_load': False
         }
         
@@ -2213,6 +2214,7 @@ class LLMEngine:
         # Determine if we're in high load
         was_high_load = self.request_load_tracker['is_high_load']
         is_high_load = current_load > self.request_load_tracker['high_load_threshold']
+        is_high_load2 = current_load > self.request_load_tracker['high_load_threshold2']
         self.request_load_tracker['is_high_load'] = is_high_load
         
         # Log changes in load status
@@ -2224,12 +2226,13 @@ class LLMEngine:
         if is_high_load and not self.using_ngram_draft_model:
             self.switch_to_ngram_draft_model()
             self.has_loaded_neural_model = False
+            return
             # If load is back to normal and we're using ngram, switch back to neural
-        elif not is_high_load and self.using_ngram_draft_model and not self.has_loaded_neural_model:
+        if not is_high_load2 and self.using_ngram_draft_model and not self.has_loaded_neural_model:
             self.dec_and_load_neural_model()
             self.has_loaded_neural_model = True
             return
-        elif not is_high_load and self.using_ngram_draft_model and self.has_loaded_neural_model:
+        if not is_high_load2 and self.using_ngram_draft_model and self.has_loaded_neural_model:
             self.switch_to_neural_draft_model()
                 
     def switch_to_ngram_draft_model(self) -> None:

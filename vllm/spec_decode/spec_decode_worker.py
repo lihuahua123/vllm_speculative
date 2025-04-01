@@ -746,6 +746,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
                     seq_group_meta_with_hidden):
                 self.previous_hidden_states.update(hidden_states,
                                                    seq_group_meta_with_hidden)
+                # self.previous_hidden_states.prune(seq_group_meta_with_hidden)
 
         if not skip_proposer:
             # We prepare the prefill hidden states here so that there no
@@ -1399,16 +1400,16 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         
         # Get the necessary configuration from the current spec worker
         vllm_config = getattr(self.scorer_worker, "vllm_config", None)
-        if vllm_config is None:
-            logger.warning("Failed to get vllm_config from scorer_worker, creating a new one")
-            vllm_config = VllmConfig(self.scorer_worker.model_config)
+        # if vllm_config is None:
+        #     logger.warning("Failed to get vllm_config from scorer_worker, creating a new one")
+        #     vllm_config = VllmConfig(self.scorer_worker.model_config)
         
-        # Create a copy of vllm_config to avoid modifying the original
-        vllm_config_copy = copy.deepcopy(vllm_config)
+        # # Create a copy of vllm_config to avoid modifying the original
+        # vllm_config_copy = copy.deepcopy(vllm_config)
         
-        # Create a speculative config if it doesn't exist
-        if vllm_config_copy.speculative_config is None:
-            vllm_config_copy.speculative_config = SpeculativeConfig()
+        # # Create a speculative config if it doesn't exist
+        # if vllm_config_copy.speculative_config is None:
+        #     vllm_config_copy.speculative_config = SpeculativeConfig()
         
         # Set ngram parameters
         ngram_prompt_lookup_min = 1
@@ -1416,7 +1417,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         
         # Create a new NGramWorker
         new_proposer_worker = vllm.spec_decode.ngram_worker.NGramWorker(
-            vllm_config=vllm_config_copy,
+            vllm_config=vllm_config,
             local_rank=self.rank,
             device_type=self.device.type,
         )
@@ -1507,6 +1508,10 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         
         logger.info("Successfully switched back to neural draft model")
         return True
+    
+    def set_ngram_prompt_lookup_window_size(self,ngram_prompt_lookup_min,ngram_prompt_lookup_max):
+        self.proposer_worker.set_ngram_window_size(ngram_prompt_lookup_min,ngram_prompt_lookup_max)
+    
 
 def split_num_cache_blocks_evenly(scorer_cache_block_size_bytes: int,
                                   proposer_cache_block_size_bytes: int,

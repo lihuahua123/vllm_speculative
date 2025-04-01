@@ -3190,3 +3190,25 @@ Traceback (most recent call last):
   File "/home/nudt/.conda/envs/vllm/lib/python3.11/subprocess.py", line 2047, in _wait
     time.sleep(delay)
 KeyboardInterrupt
+rm: 无法删除 'logs2/ngram5.log': 没有那个文件或目录
+INFO 03-30 12:12:15 [__init__.py:239] Automatically detected platform cuda.
+Processing dataset:   0%|          | 0/40 [00:00<?, ?it/s]Processing dataset: 100%|██████████| 40/40 [00:00<00:00, 683.58it/s]
+len datasets[ 0 ] 40
+Traceback (most recent call last):
+  File "/home/hello/lirui/vllm_speculative/examples/offline_inference/mlpspeculator_for_eagle.py", line 344, in <module>
+    llm = LLM(model=model_name,max_model_len=10156, enforce_eager=True)
+  File "/home/hello/lirui/vllm_speculative/vllm/utils.py", line 1037, in inner
+    return fn(*args, **kwargs)
+  File "/home/hello/lirui/vllm_speculative/vllm/entrypoints/llm.py", line 243, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+  File "/home/hello/lirui/vllm_speculative/vllm/engine/llm_engine.py", line 537, in from_engine_args
+    vllm_config = engine_args.create_engine_config(usage_context)
+  File "/home/hello/lirui/vllm_speculative/vllm/engine/arg_utils.py", line 1321, in create_engine_config
+    model_config = self.create_model_config()
+  File "/home/hello/lirui/vllm_speculative/vllm/engine/arg_utils.py", line 1162, in create_model_config
+    return ModelConfig(
+  File "/home/hello/lirui/vllm_speculative/vllm/config.py", line 390, in __init__
+    self.max_model_len = _get_and_verify_max_len(
+  File "/home/hello/lirui/vllm_speculative/vllm/config.py", line 2738, in _get_and_verify_max_len
+    raise ValueError(
+ValueError: User-specified max_model_len (10156) is greater than the derived max_model_len (max_position_embeddings=8192 or model_max_length=None in model's config.json). This may lead to incorrect model outputs or CUDA errors. To allow overriding this maximum, set the env var VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
