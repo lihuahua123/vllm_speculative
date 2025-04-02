@@ -423,8 +423,8 @@ class LLMEngine:
             'current_load': 0,
             'last_update_time': time.time(),
             'update_interval': 5.0,  # Update load metrics every 5 seconds
-            'high_load_threshold': 2,  # Threshold for high load
-            'high_load_threshold2': 2,  # Threshold for high load2
+            'high_load_threshold': 10,  # Threshold for high load
+            'high_load_threshold2': 10,  # Threshold for high load2
             'is_high_load': False
         }
         

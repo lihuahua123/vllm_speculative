@@ -21,6 +21,9 @@ from vllm.sequence import (Sequence, SequenceData, SequenceGroup,
                            SequenceGroupMetadataDelta, SequenceStage,
                            SequenceStatus)
 from vllm.utils import Device, PyObjectCache
+# Save speculative metrics cache to pkl file, overwriting each time
+import pickle
+import os
 
 logger = init_logger(__name__)
 
@@ -614,6 +617,10 @@ class Scheduler:
         #     self.smart_spec = SmartSpec(load('deepseek-aiDeepSeek-R1-Distill-Qwen-7B.pkl'), load('DeepSeek-R1-DRAFT-Qwen2.5-0.5B.pkl'), self.scheduler_config.num_lookahead_slots)
         # else:
         self.smart_spec = None
+        
+        
+        # Create directory if it doesn't exist
+        os.makedirs('logs', exist_ok=True)
 
     @property
     def next_cache_id(self):
@@ -1602,6 +1609,8 @@ class Scheduler:
         # Convert to float value before appending
         metric_value = float(speculative_metrics[0])
         self.speculative_metrics_cache.append(metric_value)
+        with open('logs/speculative_metrics.pkl', 'wb') as f:
+            pickle.dump(self.speculative_metrics_cache, f)
         # print("speculative_metrics_cache",self.speculative_metrics_cache)
         best_batch = None #len(self.running)
         if self.smart_spec is not None:

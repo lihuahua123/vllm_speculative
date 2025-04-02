@@ -616,7 +616,7 @@ class HuggingFaceAlpacaDataset(BenchmarkDataset):
             output_len = completion_len if dynamic_output else output_len
             assert isinstance(output_len, int) and output_len > 0
             if dynamic_output and not is_valid_sequence(
-                    prompt_len, completion_len):
+                    prompt_len, completion_len, max_prompt_len=6000):
                 continue
             mm_content = process_image(
                 item["image"]) if "image" in item else None
