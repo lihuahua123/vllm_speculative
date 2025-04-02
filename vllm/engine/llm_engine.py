@@ -1373,7 +1373,7 @@ class LLMEngine:
             >>>         break
         """
         # Update request load metrics to determine if we need to switch draft models
-        self.update_request_load()
+        # self.update_request_load()
         
         if self.parallel_config.pipeline_parallel_size > 1:
             raise NotImplementedError(

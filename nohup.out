@@ -3191,6 +3191,7 @@ Traceback (most recent call last):
     time.sleep(delay)
 KeyboardInterrupt
 rm: 无法删除 'logs2/ngram5.log': 没有那个文件或目录
+<<<<<<< HEAD
 INFO 03-30 12:12:15 [__init__.py:239] Automatically detected platform cuda.
 Processing dataset:   0%|          | 0/40 [00:00<?, ?it/s]Processing dataset: 100%|██████████| 40/40 [00:00<00:00, 683.58it/s]
 len datasets[ 0 ] 40
@@ -3212,3 +3213,5 @@ Traceback (most recent call last):
   File "/home/hello/lirui/vllm_speculative/vllm/config.py", line 2738, in _get_and_verify_max_len
     raise ValueError(
 ValueError: User-specified max_model_len (10156) is greater than the derived max_model_len (max_position_embeddings=8192 or model_max_length=None in model's config.json). This may lead to incorrect model outputs or CUDA errors. To allow overriding this maximum, set the env var VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
+=======
+>>>>>>> 76c878e7f208371495207c73975f1108cd408537

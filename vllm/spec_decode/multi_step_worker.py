@@ -48,6 +48,7 @@ class MultiStepWorker(ProposerWorkerBase, DelegateWorkerBase):
             max_proposal_len=self.max_model_len,
         )
 
+
     def set_include_gpu_probs_tensor(self) -> None:
         # Need include_gpu_probs_tensor for MultiStepWorker
         self.model_runner.model.sampler.include_gpu_probs_tensor = True

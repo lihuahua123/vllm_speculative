@@ -82,10 +82,16 @@ context_length = {
 context_length = 8000 #context_length["llama8b"] - 2000
 max_tokens = 4090
 num_speculative_tokens = 10
+
 def extract_numbers(text):
     """
+<<<<<<< HEAD
     Extract numbers from text using regex patterns.
     只适配DeepSeek-R1-Distill-Qwen-7B
+=======
+    提取文本中的数字
+    只能适配deepseek-aiDeepSeek-R1-Distill-Qwen-7B
+>>>>>>> 76c878e7f208371495207c73975f1108cd408537
     """
     pattern = r"\\boxed\{([^{}]*)\}"
     match = re.findall(pattern, text)
@@ -449,18 +455,7 @@ if __name__ == "__main__":
                        help="Number of samples to test. If None, use full dataset")
     args = parser.parse_args()
 
-    # template = (
-    #     "Below is an instruction that describes a task. Write a response "
-    #     "that appropriately completes the request.\n\n### Instruction:\n{}"
-    #     "\n\n### Response:\n")
-
-    # # Sample prompts.
-    # prompts = [
-    #     "Write about the president of the United States.",
-    # ]
-    # prompts = [TokensPrompt(prompt_token_ids=prompt_token_ids) for prompt, prompt_token_ids, _ in meta_prompts][:2]
-    # meta_prompts = generate_meta_prompts(tokenizer)
-    model_name = "/data/model/llama70bgptq"#"/data/model/lmsysvicuna-13b-v1.3"
+    model_name = "/data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     datasets = []
     # datasets.append(sample_sharegpt_requests("/data/sharegpt.json", 56, tokenizer))
