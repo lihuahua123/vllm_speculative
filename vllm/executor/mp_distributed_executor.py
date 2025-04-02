@@ -149,6 +149,7 @@ class MultiprocessingDistributedExecutor(DistributedExecutorBase):
         *args,
         async_run_tensor_parallel_workers_only: bool = False,
         max_concurrent_workers: Optional[int] = None,
+        need_worker_output: bool = True,
         **kwargs,
     ) -> List[Any]:
         """Runs the given method on all workers.
@@ -185,9 +186,12 @@ class MultiprocessingDistributedExecutor(DistributedExecutorBase):
         driver_worker_output = run_method(self.driver_worker, sent_method,
                                           args, kwargs)
 
-        # Get the results of the workers.
-        return [driver_worker_output
-                ] + [output.get() for output in worker_outputs]
+        if need_worker_output:
+            # Get the results of the workers.
+            return [driver_worker_output
+                    ] + [output.get() for output in worker_outputs]
+        else:
+            return [driver_worker_output]
 
     def check_health(self) -> None:
         """Raises an error if engine is unhealthy."""

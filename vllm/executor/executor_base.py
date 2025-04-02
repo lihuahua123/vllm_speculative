@@ -263,7 +263,7 @@ class ExecutorBase(ABC):
         return self.collective_rpc("get_proposer_worker_to_cpu")
     
     def get_speculative_metrics(self):
-        return self.collective_rpc("get_speculative_metrics")
+        return self.collective_rpc("get_speculative_metrics", need_worker_output=False)
     
     def update_typical_acceptance_threshold(self, new_threshold, new_alpha):
         return self.collective_rpc("update_typical_acceptance_threshold", kwargs=dict(new_threshold=new_threshold, new_alpha=new_alpha))
@@ -340,9 +340,10 @@ class DistributedExecutorBase(ExecutorBase):
     def collective_rpc(self,
                        method: Union[str, Callable],
                        timeout: Optional[float] = None,
+                       need_worker_output: bool = True,
                        args: Tuple = (),
                        kwargs: Optional[Dict] = None) -> List[Any]:
-        return self._run_workers(method, *args, **(kwargs or {}))
+        return self._run_workers(method, *args, **(kwargs or {}), need_worker_output=need_worker_output)
 
     @abstractmethod
     def _run_workers(
