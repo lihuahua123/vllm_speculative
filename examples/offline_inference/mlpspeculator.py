@@ -8,7 +8,7 @@ from typing import List
 import sys
 import os
 from transformers import AutoTokenizer, AutoConfig
-sys.path.append('/home/hello/lirui/vllm_speculative/')
+sys.path.append('/root/vllm_speculative/')
 from vllm.inputs import TokensPrompt
 from vllm import EngineArgs, LLMEngine, RequestOutput, SamplingParams
 from vllm.utils import FlexibleArgumentParser
@@ -445,7 +445,7 @@ if __name__ == "__main__":
     parser.add_argument('--model_names', type=str, default="meta-llama/Llama-2-7b-hf")
     parser.add_argument('--max_seq_len', type=int, default=1024)
     parser.add_argument('--max_batch_size', type=int, default=4)
-    parser.add_argument('--data_path', type=str, default="/home/hello/lirui/vllm_speculative/examples/data")
+    parser.add_argument('--data_path', type=str, default="/root/vllm_speculative/examples/data")
     parser.add_argument('--dataset', choices=['GSM8K', 'CSQA',"AQuA"],default="GSM8K")
     parser.add_argument('--out_path', type=str, default="output/singlemodel")
     parser.add_argument('--max_gen_len', type=int, default=2000)
@@ -455,7 +455,7 @@ if __name__ == "__main__":
                        help="Number of samples to test. If None, use full dataset")
     args = parser.parse_args()
 
-    model_name = "/data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B"
+    model_name = "/hy-tmp/lmsysvicuna-33b"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     datasets = []
     # datasets.append(sample_sharegpt_requests("/data/sharegpt.json", 56, tokenizer))
@@ -477,14 +477,14 @@ if __name__ == "__main__":
     # llm = LLM(model=model_name,max_model_len=10156, enforce_eager=True)
     llm = LLM(
             model=model_name,
-            #speculative_model="[ngram]",#"alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B",
-            quantization='gptq',
-            max_model_len=2048,
-            #num_speculative_tokens=num_speculative_tokens,
+            tensor_parallel_size=4,
+            speculative_model="[ngram]",#"alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B",
+            #max_model_len=2048,
+            num_speculative_tokens=num_speculative_tokens,
             # spec_decoding_acceptance_method="typical_acceptance_sampler",
             # typical_acceptance_sampler_posterior_alpha=typical_acceptance_sampler_posterior_alpha,
             # typical_acceptance_sampler_posterior_threshold=typical_acceptance_sampler_posterior_threshold,
-            #ngram_prompt_lookup_max=4,
+            ngram_prompt_lookup_max=4,
             enforce_eager=True
         )
     # llm = None

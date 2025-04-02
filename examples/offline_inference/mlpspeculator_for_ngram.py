@@ -6,7 +6,7 @@ from typing import List
 import sys
 import os
 from transformers import AutoTokenizer, AutoConfig
-sys.path.append('/home/hello/lirui/vllm_speculative/')
+sys.path.append('/root/vllm_speculative/')
 from vllm.inputs import TokensPrompt
 from vllm import EngineArgs, LLMEngine, RequestOutput, SamplingParams
 from vllm.utils import FlexibleArgumentParser

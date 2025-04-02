@@ -3215,3 +3215,10 @@ Traceback (most recent call last):
 ValueError: User-specified max_model_len (10156) is greater than the derived max_model_len (max_position_embeddings=8192 or model_max_length=None in model's config.json). This may lead to incorrect model outputs or CUDA errors. To allow overriding this maximum, set the env var VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
 =======
 >>>>>>> 76c878e7f208371495207c73975f1108cd408537
+INFO 04-02 10:33:08 [__init__.py:239] Automatically detected platform cuda.
+Traceback (most recent call last):
+  File "/root/vllm_speculative/examples/offline_inference/mlpspeculator.py", line 22, in <module>
+    from examples.utils_data import Gsm8k_dataset, CSQA_dataset, AQuA_dataset
+  File "/root/vllm_speculative/examples/utils_data.py", line 1, in <module>
+    import jsonlines
+ModuleNotFoundError: No module named 'jsonlines'

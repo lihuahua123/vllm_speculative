@@ -1400,10 +1400,10 @@ class LLMEngine:
         # This ensures that the scheduler is only called again when the current
         # batch has completed.
         if not self._has_remaining_steps(seq_group_metadata_list):
-            if self.scheduler_config.num_lookahead_slots > 0 and hasattr(self.model_executor, "get_speculative_metrics"):
-                speculative_metrics = self.model_executor.get_speculative_metrics()
-            else:
-                speculative_metrics = [0]
+            # if self.scheduler_config.num_lookahead_slots > 0 and hasattr(self.model_executor, "get_speculative_metrics"):
+            #     speculative_metrics = self.model_executor.get_speculative_metrics()
+            # else:
+            speculative_metrics = [0]
         # The scheduler is also skipped if a single request caused the last
         # engine step to fail, and the previous schedule needs to be rerun.
         if not self._has_remaining_steps(
