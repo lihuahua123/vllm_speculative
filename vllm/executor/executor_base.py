@@ -289,6 +289,8 @@ class ExecutorBase(ABC):
     def set_ngram_prompt_lookup_window_size(self,ngram_prompt_lookup_min,ngram_prompt_lookup_max):
         return self.collective_rpc("set_ngram_prompt_lookup_window_size", kwargs=dict(ngram_prompt_lookup_min=ngram_prompt_lookup_min,ngram_prompt_lookup_max=ngram_prompt_lookup_max))
     
+    def set_disable_by_batch_size(self,disable_by_batch_size):
+        return self.collective_rpc("set_disable_by_batch_size", kwargs=dict(disable_by_batch_size=disable_by_batch_size))
 class DistributedExecutorBase(ExecutorBase):
     """Abstract superclass of distributed executor implementations."""
 

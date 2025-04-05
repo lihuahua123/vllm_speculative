@@ -477,14 +477,14 @@ if __name__ == "__main__":
     # llm = LLM(model=model_name,max_model_len=10156, enforce_eager=True)
     llm = LLM(
             model=model_name,
-            #speculative_model="[ngram]",#"alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B",
-            quantization='gptq',
-            max_model_len=2048,
-            #num_speculative_tokens=num_speculative_tokens,
+            speculative_model="[ngram]",#"alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B",
+            # quantization='gptq',
+            # max_model_len=2048,
+            num_speculative_tokens=num_speculative_tokens,
             # spec_decoding_acceptance_method="typical_acceptance_sampler",
             # typical_acceptance_sampler_posterior_alpha=typical_acceptance_sampler_posterior_alpha,
             # typical_acceptance_sampler_posterior_threshold=typical_acceptance_sampler_posterior_threshold,
-            #ngram_prompt_lookup_max=4,
+            ngram_prompt_lookup_max=4,
             enforce_eager=True
         )
     # llm = None

@@ -154,7 +154,6 @@ class RejectionSampler(SpecDecodeStochasticBaseSampler):
                 draft_token_ids,
                 bonus_token_ids,
             )
-
         return output_token_ids
 
     def _batch_modified_rejection_sampling(

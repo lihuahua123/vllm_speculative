@@ -61,6 +61,7 @@ from vllm.utils import (Counter, Device, deprecate_kwargs,
                         resolve_obj_by_qualname, weak_bind)
 from vllm.version import __version__ as VLLM_VERSION
 from vllm.worker.model_runner_base import InputProcessingError
+from vllm.engine.threshold_optimizer import DraftModelSwitcher
 
 logger = init_logger(__name__)
 _LOCAL_LOGGING_INTERVAL_SEC = 5
@@ -423,8 +424,8 @@ class LLMEngine:
             'current_load': 0,
             'last_update_time': time.time(),
             'update_interval': 5.0,  # Update load metrics every 5 seconds
-            'high_load_threshold': 10,  # Threshold for high load
-            'high_load_threshold2': 10,  # Threshold for high load2
+            'high_load_threshold': 3,  # Threshold for high load
+            'high_load_threshold2': 3,  # Threshold for high load2
             'is_high_load': False
         }
         
@@ -441,6 +442,9 @@ class LLMEngine:
         # Flag to set when an input fails to process and the engine should run
         # the next step without re-scheduling.
         self._skip_scheduling_next_step = False
+
+        # 初始化优化器
+        # self.threshold_switcher = DraftModelSwitcher(self)
 
     def _initialize_kv_caches(self) -> None:
         """Initialize the KV cache in the worker(s).
@@ -1374,7 +1378,6 @@ class LLMEngine:
         """
         # Update request load metrics to determine if we need to switch draft models
         # self.update_request_load()
-        
         if self.parallel_config.pipeline_parallel_size > 1:
             raise NotImplementedError(
                 "Pipeline parallelism is only supported through AsyncLLMEngine "
@@ -1566,6 +1569,16 @@ class LLMEngine:
             logger.debug("Stopping remote worker execution loop.")
             self.model_executor.stop_remote_worker_execution_loop()
 
+        # 获取本次生成的token数
+        tokens_generated = 0
+        for output in ctx.request_outputs:
+            for o in output.outputs:
+                tokens_generated += len(o.token_ids)
+        # 记录到优化器
+        if not self.disable_switch_draft_model and hasattr(self, 'threshold_switcher'):
+            self.threshold_switcher.record_tokens(tokens_generated)
+            self.threshold_switcher.check_and_update()
+        
         return ctx.request_outputs
 
     def increase_block_number(self,virtual_engine):
@@ -2221,7 +2234,7 @@ class LLMEngine:
         if was_high_load != is_high_load:
             logger.info(f"Load status changed: {'high' if is_high_load else 'normal'} load "
                        f"with {current_load} active requests")
-        logger.info(f"current_load: {current_load},using_ngram_draft_model: {self.using_ngram_draft_model},has_loaded_neural_model: {self.has_loaded_neural_model}")    
+        # logger.info(f"current_load: {current_load},using_ngram_draft_model: {self.using_ngram_draft_model},has_loaded_neural_model: {self.has_loaded_neural_model}")    
         # If we detect high load and aren't using ngram, initialize it if needed
         if is_high_load and not self.using_ngram_draft_model:
             self.switch_to_ngram_draft_model()

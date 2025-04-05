@@ -1609,8 +1609,8 @@ class Scheduler:
         # Convert to float value before appending
         metric_value = float(speculative_metrics[0])
         self.speculative_metrics_cache.append(metric_value)
-        with open('logs/speculative_metrics.pkl', 'wb') as f:
-            pickle.dump(self.speculative_metrics_cache, f)
+        # with open('logs/speculative_metrics.pkl', 'wb') as f:
+        #     pickle.dump(self.speculative_metrics_cache, f)
         # print("speculative_metrics_cache",self.speculative_metrics_cache)
         best_batch = None #len(self.running)
         if self.smart_spec is not None:

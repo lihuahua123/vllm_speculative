@@ -564,7 +564,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
 
         self._maybe_disable_speculative_tokens(
             disable_all_speculation, execute_model_req.seq_group_metadata_list)
-
+        
         if no_spec:
             # if not self.vllm_config.speculative_config.disable_offload_proposer_worker and (execute_model_req.running_queue_size
             #     > self.disable_by_batch_size) and not self.proposer_worker_to_cpu:
@@ -720,11 +720,9 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         not called, meaning that the kv-cache in proposer for requests is not
         updated, so they cannot enable spec decode in the rest decoding.
         """
-
         sampler_output = self.scorer_worker.execute_model(execute_model_req)
         assert len(sampler_output) == 1
         sampler_output = sampler_output[0]
-
         # Store hidden states from target model execution, BxD.
         hidden_states = sampler_output.hidden_states
         if hidden_states is not None:
@@ -1512,6 +1510,8 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
     def set_ngram_prompt_lookup_window_size(self,ngram_prompt_lookup_min,ngram_prompt_lookup_max):
         self.proposer_worker.set_ngram_window_size(ngram_prompt_lookup_min,ngram_prompt_lookup_max)
     
+    def set_disable_by_batch_size(self,disable_by_batch_size):
+        self.disable_by_batch_size = disable_by_batch_size
 
 def split_num_cache_blocks_evenly(scorer_cache_block_size_bytes: int,
                                   proposer_cache_block_size_bytes: int,

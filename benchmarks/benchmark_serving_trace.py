@@ -152,7 +152,6 @@ def calculate_metrics(
     all_tpots: list[float] = []
     ttfts: list[float] = []
     e2els: list[float] = []
-    reqs_len = len(outputs)
     for i in range(len(outputs)):
         if outputs[i].success:
             output_len = outputs[i].output_tokens
@@ -214,7 +213,7 @@ def calculate_metrics(
         total_input=total_input,
         total_output=sum(actual_output_lens),
         request_throughput=completed / dur_s,
-        request_goodput=good_completed / reqs_len,
+        request_goodput=good_completed / dur_s,
         output_throughput=sum(actual_output_lens) / dur_s,
         total_token_throughput=(total_input + sum(actual_output_lens)) / dur_s,
         mean_ttft_ms=np.mean(ttfts or 0) *
@@ -412,7 +411,7 @@ async def benchmark(
     print("{:<40} {:<10.2f}".format("Request throughput (req/s):",
                                     metrics.request_throughput))
     if goodput_config_dict:
-        print("{:<40} {:<10.2f}".format("SLO Attainment (%):",
+        print("{:<40} {:<10.2f}".format("Request goodput (req/s):",
                                         metrics.request_goodput))
     print("{:<40} {:<10.2f}".format("Output token throughput (tok/s):",
                                     metrics.output_throughput))
@@ -884,7 +883,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--percentile-metrics",
         type=str,
-        default="ttft,tpot,itl,e2el",
+        default="ttft,tpot,itl",
         help="Comma-seperated list of selected metrics to report percentils. "
         "This argument specifies the metrics to report percentiles. "
         "Allowed metric names are \"ttft\", \"tpot\", \"itl\", \"e2el\". "

@@ -298,7 +298,6 @@ class TP1DraftModelRunner(ModelRunnerWrapperBase):
                 num_steps, 
                 **kwargs
             )
-
         # When num_steps == 1, we execute the fallback here for the GPU
         # advance_step, which runs prepare_inputs on CPU and for each spec
         # iteration invokes this function only once
