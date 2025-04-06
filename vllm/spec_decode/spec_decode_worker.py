@@ -502,7 +502,6 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         disable_all_speculation = self._should_disable_all_speculation(
             execute_model_req)
         num_lookahead_slots = execute_model_req.num_lookahead_slots
-        # print("num_lookahead_slotswakaka",num_lookahead_slots)
         all_prompt = True
         atleast_one_prompt = False
         all_zero_spec_tokens = True
@@ -529,8 +528,9 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         # We expect `num_speculative_tokens` to be None for prefills.
         no_spec = (num_lookahead_slots == 0 or disable_all_speculation
                    or all_zero_spec_tokens)
-
-        # Broadcast how many lookahead slots are scheduled for this step, and
+        # if no_spec or disable_all_speculation:
+        #     print("no_spec",no_spec,"disable_all_speculation",disable_all_speculation,"execute_model_req.running_queue_size",execute_model_req.running_queue_size)
+        # # Broadcast how many lookahead slots are scheduled for this step, and
         # whether all speculation is disabled, to all non-driver workers.
 
         # This is required as if the number of draft model runs changes
@@ -1389,7 +1389,10 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         if hasattr(self, 'using_ngram_draft_model') and self.using_ngram_draft_model:
             return True
         print("switch_draft_model_to_ngram, offload!!!x2")
+        begin_time = time.time()
         self.proposer_worker.model_runner.model.to("cpu",non_blocking=True)
+        end_time = time.time()
+        logger.info(f"Time taken to move to cpu: {end_time - begin_time} seconds")
         self.proposer_worker_to_cpu = True
 
         # Save current state of the proposer worker
@@ -1439,7 +1442,8 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         
         # Replace the old proposer worker with the new one
         self.proposer_worker = new_proposer_worker
-        
+        end_time = time.time()
+        logger.info(f"Time taken to switch draft model to NGramWorker: {end_time - begin_time} seconds")
         # Log the successful switch
         logger.info("Successfully switched draft model to NGramWorker with "
                    f"ngram_min={ngram_prompt_lookup_min}, ngram_max={ngram_prompt_lookup_max}")
@@ -1484,7 +1488,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         if not hasattr(self, 'old_proposer_worker') or self.old_proposer_worker is None:
             logger.error("No saved neural draft model found")
             return False
-        
+        begin_time = time.time()
         # Save current NGram worker to transfer any necessary state
         ngram_worker = self.proposer_worker
         
@@ -1503,8 +1507,8 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         self.old_proposer_worker = None
         self.using_ngram_draft_model = False
         self.proposer_worker_to_cpu = False
-        
-        logger.info("Successfully switched back to neural draft model")
+        end_time = time.time()
+        logger.info(f"Time taken to switch draft model to neural: {end_time - begin_time} seconds")
         return True
     
     def set_ngram_prompt_lookup_window_size(self,ngram_prompt_lookup_min,ngram_prompt_lookup_max):

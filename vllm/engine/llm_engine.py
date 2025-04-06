@@ -424,8 +424,8 @@ class LLMEngine:
             'current_load': 0,
             'last_update_time': time.time(),
             'update_interval': 5.0,  # Update load metrics every 5 seconds
-            'high_load_threshold': 3,  # Threshold for high load
-            'high_load_threshold2': 3,  # Threshold for high load2
+            'high_load_threshold': 10,  # Threshold for high load
+            'high_load_threshold2': 20,  # Threshold for high load2
             'is_high_load': False
         }
         
@@ -2234,18 +2234,19 @@ class LLMEngine:
         if was_high_load != is_high_load:
             logger.info(f"Load status changed: {'high' if is_high_load else 'normal'} load "
                        f"with {current_load} active requests")
-        # logger.info(f"current_load: {current_load},using_ngram_draft_model: {self.using_ngram_draft_model},has_loaded_neural_model: {self.has_loaded_neural_model}")    
+        # logger.info(f"current_load: {current_load},is_high_load: {is_high_load},is_high_load2: {is_high_load2}, using_ngram_draft_model: {self.using_ngram_draft_model},has_loaded_neural_model: {self.has_loaded_neural_model}")    
         # If we detect high load and aren't using ngram, initialize it if needed
-        if is_high_load and not self.using_ngram_draft_model:
+        if is_high_load2 and not self.using_ngram_draft_model:
             self.switch_to_ngram_draft_model()
             self.has_loaded_neural_model = False
+            self.using_ngram_draft_model = True
             return
             # If load is back to normal and we're using ngram, switch back to neural
         if not is_high_load2 and self.using_ngram_draft_model and not self.has_loaded_neural_model:
             self.dec_and_load_neural_model()
             self.has_loaded_neural_model = True
             return
-        if not is_high_load2 and self.using_ngram_draft_model and self.has_loaded_neural_model:
+        if not is_high_load and self.using_ngram_draft_model and self.has_loaded_neural_model:
             self.switch_to_neural_draft_model()
                 
     def switch_to_ngram_draft_model(self) -> None:
@@ -2259,7 +2260,6 @@ class LLMEngine:
         # Tell the model executor to switch models
         if hasattr(self.model_executor, 'switch_draft_model_to_ngram'):
             self.model_executor.switch_draft_model_to_ngram()
-            self.using_ngram_draft_model = True
         else:
             self.using_ngram_draft_model = False
             logger.warning("Model executor does not support switching to n-gram draft model")
