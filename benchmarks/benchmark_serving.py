@@ -692,7 +692,8 @@ def main(args: argparse.Namespace):
                     raise ValueError(
                         "Invalid metadata format. Please use KEY=VALUE format."
                     )
-
+        print(args.save_detailed)
+        args.save_detailed = False
         if not args.save_detailed:
             # Remove fields with too many data points
             for field in [
@@ -719,8 +720,9 @@ def main(args: argparse.Namespace):
         if args.result_filename:
             file_name = args.result_filename
         if args.result_dir:
+            os.makedirs(args.result_dir, exist_ok=True)
             file_name = os.path.join(args.result_dir, file_name)
-        with open(file_name, "w", encoding='utf-8') as outfile:
+        with open(file_name, "a", encoding='utf-8') as outfile:
             json.dump(result_json, outfile)
         save_to_pytorch_benchmark_format(args, result_json, file_name)
 

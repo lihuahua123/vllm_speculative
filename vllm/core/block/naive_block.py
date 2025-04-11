@@ -63,6 +63,8 @@ class NaiveBlockAllocator(BlockAllocator):
             # a block pool between allocators
             self._block_pool = block_pool
 
+        self.false_free_blocks_num = 0
+
     def allocate_immutable_block(self,
                                  prev_block: Optional[Block],
                                  token_ids: List[int],
@@ -197,6 +199,8 @@ class NaiveBlockAllocator(BlockAllocator):
         return forked_blocks
 
     def get_num_free_blocks(self) -> int:
+        if self.false_free_blocks_num > 0:
+            return self.false_free_blocks_num
         return len(self._free_block_indices)
 
     def get_num_total_blocks(self) -> int:

@@ -61,7 +61,6 @@ from vllm.utils import (Counter, Device, deprecate_kwargs,
                         resolve_obj_by_qualname, weak_bind)
 from vllm.version import __version__ as VLLM_VERSION
 from vllm.worker.model_runner_base import InputProcessingError
-from vllm.engine.threshold_optimizer import DraftModelSwitcher
 
 logger = init_logger(__name__)
 _LOCAL_LOGGING_INTERVAL_SEC = 5
@@ -418,23 +417,38 @@ class LLMEngine:
 
         self.seq_id_to_seq_group: Dict[str, SequenceGroupBase] = {}
         self.proposer_worker_to_cpu = False
-
+        self.disable_by_batch_size = self.vllm_config.speculative_config.disable_by_batch_size  if self.vllm_config.speculative_config else float("inf")
+        if self.disable_by_batch_size is not None and self.disable_by_batch_size != float("inf"):
+            self.disable_by_batch_size = self.disable_by_batch_size + 1
         # Track request load for draft model switching
         self.request_load_tracker = {
             'current_load': 0,
             'last_update_time': time.time(),
             'update_interval': 5.0,  # Update load metrics every 5 seconds
-            'high_load_threshold': 10,  # Threshold for high load
-            'high_load_threshold2': 20,  # Threshold for high load2
+            'high_load_threshold': self.disable_by_batch_size,  # Threshold for kv cache elastic
+            'high_load_threshold2': self.disable_by_batch_size,  # Threshold for prefetch
             'is_high_load': False
         }
         
         # Initialize state for draft model switching
         self.using_ngram_draft_model = False
+        
         self.has_loaded_neural_model = False
+        self.has_increased_block_number = False
+        self.has_decreased_block_number = False
+        self.has_offloaded_proposer_worker = False
+        self.disable_speculative_decoding = self.scheduler_config.num_lookahead_slots > 0
         if self.vllm_config.speculative_config:
             self.disable_switch_draft_model = self.vllm_config.speculative_config.disable_switch_draft_model
             self.disable_offload_proposer_worker = self.vllm_config.speculative_config.disable_offload_proposer_worker
+            
+            # Check if the current speculative model is ngram
+            if hasattr(self.vllm_config.speculative_config, 'speculative_model') and self.vllm_config.speculative_config.model == "ngram":
+                self.has_loaded_neural_model = False
+                self.using_ngram_draft_model = True
+            else:
+                self.has_loaded_neural_model = True
+                self.using_ngram_draft_model = False
         else:
             self.disable_switch_draft_model = True
             self.disable_offload_proposer_worker = True
@@ -442,9 +456,6 @@ class LLMEngine:
         # Flag to set when an input fails to process and the engine should run
         # the next step without re-scheduling.
         self._skip_scheduling_next_step = False
-
-        # 初始化优化器
-        # self.threshold_switcher = DraftModelSwitcher(self)
 
     def _initialize_kv_caches(self) -> None:
         """Initialize the KV cache in the worker(s).
@@ -1568,20 +1579,13 @@ class LLMEngine:
             # queued control plane messages, such as add/remove lora adapters.
             logger.debug("Stopping remote worker execution loop.")
             self.model_executor.stop_remote_worker_execution_loop()
-
-        # 获取本次生成的token数
-        tokens_generated = 0
-        for output in ctx.request_outputs:
-            for o in output.outputs:
-                tokens_generated += len(o.token_ids)
-        # 记录到优化器
-        if not self.disable_switch_draft_model and hasattr(self, 'threshold_switcher'):
-            self.threshold_switcher.record_tokens(tokens_generated)
-            self.threshold_switcher.check_and_update()
         
         return ctx.request_outputs
 
-    def increase_block_number(self,virtual_engine):
+    def increase_block_number(self):
+        if self.has_increased_block_number:
+            return
+        virtual_engine = 0
         start_time = time.time()
         self.proposer_worker_to_cpu = True
         # First, try to allocate more GPU memory through the model executor
@@ -1592,9 +1596,13 @@ class LLMEngine:
             self.scheduler[virtual_engine].block_manager.increase_gpu_blocks(increased_blocks)
             self.scheduler[virtual_engine].block_manager.increase_usable_gpu_blocks(increased_blocks)
         end_time = time.time()
+        self.has_increased_block_number = True
         print(f"Time taken to increase block number: {end_time - start_time} seconds")
         
-    def decrease_block_number(self,virtual_engine):
+    def decrease_block_number(self):
+        if self.has_decreased_block_number:
+            return
+        virtual_engine = 0
         start_time = time.time()
         increased_blocks = self.cache_config.num_virtual_blocks
         print(f"decrease block number@!!!!!{increased_blocks}")
@@ -1603,8 +1611,15 @@ class LLMEngine:
         self.scheduler[virtual_engine].block_manager.decrease_gpu_blocks(increased_blocks)
         self.scheduler[virtual_engine].block_manager.decrease_usable_gpu_blocks(increased_blocks)
         end_time = time.time()
+        self.has_decreased_block_number = True
         print(f"Time taken to decrease block number: {end_time - start_time} seconds")
-        
+
+    def set_disable_speculative_decoding(self,disable_speculative_decoding):
+        if self.disable_speculative_decoding == disable_speculative_decoding:
+            return
+        self.disable_speculative_decoding = disable_speculative_decoding
+        self.model_executor.set_disable_speculative_decoding(disable_speculative_decoding)
+
     def _abort_and_cache_schedule(
             self, request_id: str, virtual_engine: int,
             seq_group_metadata_list: List[SequenceGroupMetadata],
@@ -2211,50 +2226,50 @@ class LLMEngine:
 
         return sampling_params
 
-    def update_request_load(self) -> None:
-        """Update the request load metrics to determine if we should switch draft models."""
-        if self.disable_switch_draft_model:
-            return
-        current_time = time.time()
-        # if current_time - self.request_load_tracker['last_update_time'] < self.request_load_tracker['update_interval']:
-        #     return
+    # def update_request_load(self) -> None:
+    #     """Update the request load metrics to determine if we should switch draft models."""
+    #     if self.disable_switch_draft_model:
+    #         return
+    #     current_time = time.time()
+    #     # if current_time - self.request_load_tracker['last_update_time'] < self.request_load_tracker['update_interval']:
+    #     #     return
             
-        # Calculate current load (active requests)
-        current_load = self.get_num_running_requests()
-        self.request_load_tracker['current_load'] = current_load
-        self.request_load_tracker['last_update_time'] = current_time
+    #     # Calculate current load (active requests)
+    #     current_load = self.get_num_running_requests()
+    #     self.request_load_tracker['current_load'] = current_load
+    #     self.request_load_tracker['last_update_time'] = current_time
         
-        # Determine if we're in high load
-        was_high_load = self.request_load_tracker['is_high_load']
-        is_high_load = current_load > self.request_load_tracker['high_load_threshold']
-        is_high_load2 = current_load > self.request_load_tracker['high_load_threshold2']
-        self.request_load_tracker['is_high_load'] = is_high_load
+    #     # Determine if we're in high load
+    #     was_high_load = self.request_load_tracker['is_high_load']
+    #     is_high_load = current_load > self.request_load_tracker['high_load_threshold']
+    #     is_high_load2 = current_load > self.request_load_tracker['high_load_threshold2']
+    #     self.request_load_tracker['is_high_load'] = is_high_load
         
-        # Log changes in load status
-        if was_high_load != is_high_load:
-            logger.info(f"Load status changed: {'high' if is_high_load else 'normal'} load "
-                       f"with {current_load} active requests")
-        # logger.info(f"current_load: {current_load},is_high_load: {is_high_load},is_high_load2: {is_high_load2}, using_ngram_draft_model: {self.using_ngram_draft_model},has_loaded_neural_model: {self.has_loaded_neural_model}")    
-        # If we detect high load and aren't using ngram, initialize it if needed
-        if is_high_load2 and not self.using_ngram_draft_model:
-            self.switch_to_ngram_draft_model()
-            self.has_loaded_neural_model = False
-            self.using_ngram_draft_model = True
-            return
-            # If load is back to normal and we're using ngram, switch back to neural
-        if not is_high_load2 and self.using_ngram_draft_model and not self.has_loaded_neural_model:
-            self.dec_and_load_neural_model()
-            self.has_loaded_neural_model = True
-            return
-        if not is_high_load and self.using_ngram_draft_model and self.has_loaded_neural_model:
-            self.switch_to_neural_draft_model()
+    #     # Log changes in load status
+    #     if was_high_load != is_high_load:
+    #         logger.info(f"Load status changed: {'high' if is_high_load else 'normal'} load "
+    #                    f"with {current_load} active requests")
+    #     # logger.info(f"current_load: {current_load},is_high_load: {is_high_load},is_high_load2: {is_high_load2}, using_ngram_draft_model: {self.using_ngram_draft_model},has_loaded_neural_model: {self.has_loaded_neural_model}")    
+    #     # If we detect high load and aren't using ngram, initialize it if needed
+    #     if is_high_load and not self.using_ngram_draft_model:
+    #         self.switch_to_ngram_draft_model()
+    #         self.has_loaded_neural_model = False
+    #         self.using_ngram_draft_model = True
+    #         return
+    #         # If load is back to normal and we're using ngram, switch back to neural
+    #     if not is_high_load and self.using_ngram_draft_model and not self.has_loaded_neural_model:
+    #         self.dec_and_load_neural_model()
+    #         self.has_loaded_neural_model = True
+    #         self.switch_to_neural_draft_model()
+    #         return
+        
+    #     self.model_executor.set_disable_speculative_decoding(True)
                 
     def switch_to_ngram_draft_model(self) -> None:
         """Switch from neural draft model to n-gram draft model."""
         if self.using_ngram_draft_model:
             return  # Already using n-gram model
-        virtual_engine = 0
-        self.increase_block_number(virtual_engine)    
+            
         logger.info("Switching to n-gram draft model due to high load")
         
         # Tell the model executor to switch models
@@ -2264,11 +2279,17 @@ class LLMEngine:
             self.using_ngram_draft_model = False
             logger.warning("Model executor does not support switching to n-gram draft model")
     
-    def dec_and_load_neural_model(self) -> None:
-        """Decrease the block number and load the neural model."""
-        virtual_engine = 0
-        self.decrease_block_number(virtual_engine)
-        self.model_executor.load_neural_model_async()
+    def load_neural_model_async(self) -> None:
+        if not self.has_loaded_neural_model:    
+            self.model_executor.load_neural_model_async()
+            self.has_loaded_neural_model = True
+            self.has_offloaded_proposer_worker = False
+
+    def offload_proposer_worker(self) -> None:
+        if not self.has_offloaded_proposer_worker:
+            self.model_executor.offload_proposer_worker()
+            self.has_offloaded_proposer_worker = True
+            self.has_loaded_neural_model = False
             
     def switch_to_neural_draft_model(self) -> None:
         """Switch from n-gram draft model back to neural draft model."""
@@ -2282,6 +2303,20 @@ class LLMEngine:
             self.using_ngram_draft_model = False
         else:
             logger.warning("Model executor does not support switching to neural draft model")
+    
+    def try_scheduler(self) -> None:
+        virtual_engine = 0
+        cached_outputs = self.cached_scheduler_outputs[virtual_engine]
+        seq_group_metadata_list = cached_outputs.seq_group_metadata_list
+        if not self._has_remaining_steps(
+                seq_group_metadata_list
+        ) and not self._skip_scheduling_next_step:
+            self.scheduler[virtual_engine].block_manager.block_allocator.false_free_blocks_num = 0
+            self.scheduler[virtual_engine].block_manager.block_allocator.false_free_blocks_num = \
+                self.scheduler[virtual_engine].block_manager.block_allocator.get_num_free_blocks() + 100
+            scheduler_outputs = self.scheduler[virtual_engine].try_schedule()
+            self.scheduler[virtual_engine].block_manager.block_allocator.false_free_blocks_num = 0
+            return scheduler_outputs
 
 if envs.is_set("VLLM_USE_V1") and envs.VLLM_USE_V1:
     from vllm.v1.engine.llm_engine import LLMEngine as V1LLMEngine

@@ -291,6 +291,16 @@ class ExecutorBase(ABC):
     
     def set_disable_by_batch_size(self,disable_by_batch_size):
         return self.collective_rpc("set_disable_by_batch_size", kwargs=dict(disable_by_batch_size=disable_by_batch_size))
+    
+    def set_disable_speculative_decoding(self,disable_speculative_decoding):
+        return self.collective_rpc("set_disable_speculative_decoding", kwargs=dict(disable_speculative_decoding=disable_speculative_decoding))
+    
+    def get_disable_speculative_decoding(self):
+        return self.collective_rpc("get_disable_speculative_decoding")
+
+    def offload_proposer_worker(self):
+        return self.collective_rpc("offload_proposer_worker")
+    
 class DistributedExecutorBase(ExecutorBase):
     """Abstract superclass of distributed executor implementations."""
 

@@ -205,19 +205,14 @@ class MQLLMEngine:
         """Core busy loop of the LLMEngine."""
 
         while True:
-            update_request_load = False
             if not self.engine.has_unfinished_requests():
                 # Poll until there is work to do.
-                self.engine.update_request_load()
-                update_request_load = True
                 while self.input_socket.poll(timeout=POLLING_TIMEOUT_MS) == 0:
                     # When there's no work, check on engine health and send
                     # health status back to client
                     self._health_check()
                     self.engine.do_log_stats()
                     logger.debug("Waiting for new requests in engine loop.")
-            if not update_request_load:
-                self.engine.update_request_load()
 
             # Handle any input from the client.
             self.handle_new_input()

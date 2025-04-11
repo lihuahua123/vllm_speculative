@@ -299,7 +299,7 @@ class Scheduler(SchedulerInterface):
                     num_new_tokens = self.block_size
                     computed_blocks.pop()
                 num_new_tokens = min(num_new_tokens, token_budget)
-                assert num_new_tokens > 0
+                assert num_new_tokens > 0, f"num_new_tokens: {num_new_tokens}, token_budget: {token_budget},{request.num_tokens} - {num_computed_tokens}"
 
                 # Schedule encoder inputs.
                 (encoder_inputs_to_schedule, num_new_tokens,

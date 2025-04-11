@@ -144,8 +144,10 @@ class SchedulerOutputs:
     scheduled_seq_groups: GenericSequence[ScheduledSequenceGroup]
     # Number of prefill groups scheduled.
     num_prefill_groups: int
-    # Total number of batched tokens.
+    # Total number of batched tokens. for decoding, it is the number of tokens to process for next iteration.
     num_batched_tokens: int
+    # Total number of cached tokens.
+    num_cached_tokens: int
     # Blocks to swap in. List of CPU -> GPU block number.
     blocks_to_swap_in: List[Tuple[int, int]]
     # Blocks to swap out. List of GPU -> CPU block number.
@@ -1423,6 +1425,7 @@ class Scheduler:
             num_prefill_groups=num_prefill_groups,
             num_batched_tokens=budget.num_batched_tokens +
             budget.num_cached_tokens,
+            num_cached_tokens=budget.num_cached_tokens,
             blocks_to_swap_in=swapped_in.blocks_to_swap_in,
             blocks_to_swap_out=running_scheduled.blocks_to_swap_out,
             blocks_to_copy=blocks_to_copy,
@@ -1534,6 +1537,7 @@ class Scheduler:
             num_prefill_groups=num_prefill_groups,
             num_batched_tokens=budget.num_batched_tokens +
             budget.num_cached_tokens,
+            num_cached_tokens=budget.num_cached_tokens,
             blocks_to_swap_in=swapped_in.blocks_to_swap_in,
             blocks_to_swap_out=running_scheduled.blocks_to_swap_out,
             blocks_to_copy=running_scheduled.blocks_to_copy +
@@ -1607,8 +1611,9 @@ class Scheduler:
         # such as self.running, self.swapped, and self.waiting.
         
         # Convert to float value before appending
-        metric_value = float(speculative_metrics[0])
-        self.speculative_metrics_cache.append(metric_value)
+        if speculative_metrics is not None:
+            metric_value = float(speculative_metrics[0])
+            self.speculative_metrics_cache.append(metric_value)
         # with open('logs/speculative_metrics.pkl', 'wb') as f:
         #     pickle.dump(self.speculative_metrics_cache, f)
         # print("speculative_metrics_cache",self.speculative_metrics_cache)
@@ -2222,4 +2227,135 @@ class Scheduler:
     
     def set_stats(self,stats:Stats=None):
         self.stats = stats
+
+    def try_schedule(self) -> SchedulerOutputs:
+        """模拟使用给定预算进行调度，但不改变调度器的实际状态。
+            
+        Returns:
+            SchedulerOutputs: 包含调度结果的对象
+        """
+        # 保存原始状态
+        original_waiting = self.waiting.copy()
+        original_running = self.running.copy()
+        original_swapped = self.swapped.copy()
+        # 创建临时调度预算
+        temp_budget = SchedulingBudget(
+            token_budget=self.scheduler_config.max_num_batched_tokens,
+            max_num_seqs=self.scheduler_config.max_num_seqs,
+        )
+        
+        # 为临时运行队列中的序列组计算预算
+        for seq_group in original_running:
+            temp_budget.add_num_seqs(seq_group.request_id,
+                                  seq_group.get_max_num_running_seqs())
+        
+        # 获取当前LoRA请求ID集合（如果启用）
+        curr_loras = (set(
+            seq_group.lora_int_id for seq_group in original_running
+            if seq_group.lora_int_id > 0) if self.lora_enabled else None)
+        
+        # 临时存储调度结果
+        prefills = SchedulerPrefillOutputs.create_empty()
+        running_scheduled = SchedulerRunningOutputs.create_empty()
+        swapped_in = SchedulerSwappedInOutputs.create_empty()
+        
+        # 使用临时状态应用调度逻辑
+        self.waiting = original_waiting.copy()
+        self.running = original_running.copy()
+        self.swapped = original_swapped.copy()
+        
+        # 根据调度策略模拟调度
+        if self.scheduler_config.chunked_prefill_enabled:
+            # 模拟分块预填充调度
+            partial_prefill_metadata = PartialPrefillMetadata.from_queues(
+                running=self.running,
+                waiting=self.waiting,
+                scheduler_config=self.scheduler_config,
+            )
+            
+            # 首先调度运行中的请求
+            running_scheduled = self._schedule_running(
+                temp_budget,
+                curr_loras,
+                enable_chunking=True,
+                partial_prefill_metadata=partial_prefill_metadata,
+            )
+            
+            # 如果没有抢占，尝试调度已交换的请求
+            if len(running_scheduled.preempted) + len(running_scheduled.swapped_out) == 0:
+                swapped_in = self._schedule_swapped(temp_budget, curr_loras, enable_chunking=True)
+            
+            # 调度预填充请求
+            prefills = self._schedule_prefills(
+                temp_budget,
+                curr_loras,
+                enable_chunking=True,
+                partial_prefill_metadata=partial_prefill_metadata,
+            )
+        else:
+            # 模拟默认调度
+            if not self.swapped:
+                prefills = self._schedule_prefills(temp_budget, curr_loras, enable_chunking=False)
+            
+            if len(prefills.seq_groups) == 0:
+                running_scheduled = self._schedule_running(temp_budget, curr_loras, enable_chunking=False)
+                
+                if len(running_scheduled.preempted) + len(running_scheduled.swapped_out) == 0:
+                    swapped_in = self._schedule_swapped(temp_budget, curr_loras)
+        
+        # 恢复原始状态
+        self.waiting = original_waiting
+        self.running = original_running
+        self.swapped = original_swapped
+        
+        # 生成调度结果
+        scheduled_seq_groups = []
+        if self.scheduler_config.chunked_prefill_enabled:
+            # 按照分块预填充调度的顺序合并结果
+            scheduled_seq_groups = (prefills.seq_groups +
+                               running_scheduled.prefill_seq_groups +
+                               swapped_in.prefill_seq_groups +
+                               running_scheduled.decode_seq_groups +
+                               swapped_in.decode_seq_groups)
+            num_prefill_groups = (len(prefills.seq_groups) +
+                              len(swapped_in.prefill_seq_groups) +
+                              len(running_scheduled.prefill_seq_groups))
+        else:
+            # 按照默认调度的顺序合并结果
+            if len(prefills.seq_groups) > 0:
+                scheduled_seq_groups = prefills.seq_groups
+                scheduled_seq_groups.extend(running_scheduled.decode_seq_groups)
+            else:
+                scheduled_seq_groups = running_scheduled.decode_seq_groups
+            scheduled_seq_groups.extend(swapped_in.decode_seq_groups)
+            num_prefill_groups = len(prefills.seq_groups)
+        
+        # 合并复制和交换块
+        blocks_to_copy = running_scheduled.blocks_to_copy.copy()
+        blocks_to_copy.extend(swapped_in.blocks_to_copy)
+        
+        ignored_seq_groups = prefills.ignored_seq_groups.copy()
+        ignored_seq_groups.extend(swapped_in.infeasible_seq_groups)
+        
+        # 确定是否所有请求都是预填充
+        all_prefills = len(scheduled_seq_groups) == num_prefill_groups
+        num_lookahead_slots = (0 if
+                               (all_prefills
+                               and not self.scheduler_config.is_multi_step)
+                               else running_scheduled.num_lookahead_slots)
+        
+        # 创建并返回调度结果
+        return SchedulerOutputs(
+            scheduled_seq_groups=scheduled_seq_groups,
+            num_prefill_groups=num_prefill_groups,
+            num_batched_tokens=temp_budget.num_batched_tokens,
+            num_cached_tokens=temp_budget.num_cached_tokens,
+            blocks_to_swap_in=swapped_in.blocks_to_swap_in,
+            blocks_to_swap_out=running_scheduled.blocks_to_swap_out,
+            blocks_to_copy=blocks_to_copy,
+            ignored_seq_groups=ignored_seq_groups,
+            num_lookahead_slots=num_lookahead_slots,
+            running_queue_size=len(self.running),
+            preempted=(len(running_scheduled.preempted) + len(running_scheduled.swapped_out)),
+        )
 

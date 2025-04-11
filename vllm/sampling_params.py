@@ -563,6 +563,67 @@ class SamplingParams(
             f"guided_decoding={self.guided_decoding}, "
             f"extra_args={self.extra_args})")
 
+    def to_json(self) -> dict:
+        """将SamplingParams转换为JSON可序列化的字典。
+        
+        Returns:
+            包含采样参数的字典
+        """
+        # 基础参数
+        result = {
+            "n": self.n,
+            "presence_penalty": self.presence_penalty,
+            "frequency_penalty": self.frequency_penalty,
+            "repetition_penalty": self.repetition_penalty,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "top_k": self.top_k,
+            "min_p": self.min_p,
+            "ignore_eos": self.ignore_eos,
+            "max_tokens": self.max_tokens,
+            "min_tokens": self.min_tokens,
+            "detokenize": self.detokenize,
+            "skip_special_tokens": self.skip_special_tokens,
+            "spaces_between_special_tokens": self.spaces_between_special_tokens,
+            "include_stop_str_in_output": self.include_stop_str_in_output,
+        }
+        
+        # 有条件地添加可选参数
+        if self.best_of is not None:
+            result["best_of"] = self.best_of
+        
+        if self.seed is not None:
+            result["seed"] = self.seed
+            
+        if self.stop is not None:
+            result["stop"] = self.stop
+            
+        if self.stop_token_ids is not None:
+            result["stop_token_ids"] = list(self.stop_token_ids)
+            
+        if self.logprobs is not None:
+            result["logprobs"] = self.logprobs
+            
+        if self.prompt_logprobs is not None:
+            result["prompt_logprobs"] = self.prompt_logprobs
+            
+        if self.truncate_prompt_tokens is not None:
+            result["truncate_prompt_tokens"] = self.truncate_prompt_tokens
+            
+        if self.bad_words is not None:
+            result["bad_words"] = self.bad_words
+            
+        if self.logit_bias is not None:
+            result["logit_bias"] = {str(k): v for k, v in self.logit_bias.items()}
+            
+        if self.allowed_token_ids is not None:
+            result["allowed_token_ids"] = list(self.allowed_token_ids)
+        
+        # 特殊处理output_kind枚举
+        result["output_kind"] = self.output_kind.name
+        
+        return result
+
 
 class BeamSearchParams(
         msgspec.Struct,

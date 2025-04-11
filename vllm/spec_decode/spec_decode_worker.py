@@ -323,6 +323,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         self.generators = scorer_runner.get_generators(
         ) if scorer_runner else None
         self.disable_by_batch_size = disable_by_batch_size or float("inf")
+        self.disable_speculative_decoding = False
         self.spec_decode_sampler = spec_decode_sampler
         self._allow_zero_draft_token_step = allow_zero_draft_token_step
         self._enable_lm_head_weight_load = enable_lm_head_weight_load
@@ -605,7 +606,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         # When the batch size is too large, disable speculative decoding
         # to stop trading off throughput for latency.
         return (execute_model_req.running_queue_size
-                >= self.disable_by_batch_size)
+                >= self.disable_by_batch_size) or self.disable_speculative_decoding
 
     def _maybe_disable_speculative_tokens(
             self, disable_all_speculation: bool,
@@ -1384,33 +1385,24 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
     
     def clear_metrics(self):
         self.spec_decode_sampler.last_metrics = []
-        
-    def switch_draft_model_to_ngram(self):
-        if hasattr(self, 'using_ngram_draft_model') and self.using_ngram_draft_model:
-            return True
+    
+    def offload_proposer_worker(self):
         print("switch_draft_model_to_ngram, offload!!!x2")
         begin_time = time.time()
         self.proposer_worker.model_runner.model.to("cpu",non_blocking=True)
         end_time = time.time()
         logger.info(f"Time taken to move to cpu: {end_time - begin_time} seconds")
         self.proposer_worker_to_cpu = True
-
         # Save current state of the proposer worker
         old_proposer_worker = self.proposer_worker
         self.old_proposer_worker = old_proposer_worker
-        
+
+    def switch_draft_model_to_ngram(self):
+        if hasattr(self, 'using_ngram_draft_model') and self.using_ngram_draft_model:
+            return True
+        begin_time = time.time()
         # Get the necessary configuration from the current spec worker
         vllm_config = getattr(self.scorer_worker, "vllm_config", None)
-        # if vllm_config is None:
-        #     logger.warning("Failed to get vllm_config from scorer_worker, creating a new one")
-        #     vllm_config = VllmConfig(self.scorer_worker.model_config)
-        
-        # # Create a copy of vllm_config to avoid modifying the original
-        # vllm_config_copy = copy.deepcopy(vllm_config)
-        
-        # # Create a speculative config if it doesn't exist
-        # if vllm_config_copy.speculative_config is None:
-        #     vllm_config_copy.speculative_config = SpeculativeConfig()
         
         # Set ngram parameters
         ngram_prompt_lookup_min = 1
@@ -1430,10 +1422,10 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         )
         
         # Transfer any necessary state from the old worker
-        if hasattr(old_proposer_worker, "_include_gpu_probs_tensor"):
+        if hasattr(self.old_proposer_worker, "_include_gpu_probs_tensor"):
             new_proposer_worker.set_include_gpu_probs_tensor()
         
-        if hasattr(old_proposer_worker, "_should_modify_greedy_probs_inplace"):
+        if hasattr(self.old_proposer_worker, "_should_modify_greedy_probs_inplace"):
             new_proposer_worker.set_should_modify_greedy_probs_inplace()
         
         # Initialize device and load model for the new worker
@@ -1516,6 +1508,17 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
     
     def set_disable_by_batch_size(self,disable_by_batch_size):
         self.disable_by_batch_size = disable_by_batch_size
+
+    def get_disable_by_batch_size(self):
+        return self.disable_by_batch_size
+    
+    def set_disable_speculative_decoding(self,disable_speculative_decoding):
+        self.disable_speculative_decoding = disable_speculative_decoding
+    
+    def get_disable_speculative_decoding(self):
+        return self.disable_speculative_decoding
+    
+    
 
 def split_num_cache_blocks_evenly(scorer_cache_block_size_bytes: int,
                                   proposer_cache_block_size_bytes: int,
