@@ -70,6 +70,18 @@ class Gsm8k_dataset(Dataset):
         Problem:
         {question}
         """
+        template = """Please solve the following problem. When you arrive at the final answer, please place it inside a \\boxed{{}} environment.
+
+        For example:
+        Q: What is 2 + 3?
+        A: To find the sum of 2 and 3, I add these numbers together.
+        2 + 3 = 5
+        Therefore, the answer is \\boxed{{5}}.
+
+        Problem:
+        Q: {question}
+        A: 
+        """
         return template.format(question=question)
 
     def tokenize(self,test_dict,big_output_pre,tokenizer):

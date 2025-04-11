@@ -103,12 +103,14 @@ class MultiprocExecutor(Executor):
         # NOTE: If the args are heterogeneous, then we pack them into a list,
         # and unpack them in the method of every worker, because every worker
         # knows their own rank.
+        print(f"method: {method}, args: {args}, kwargs: {kwargs}")
         try:
             if isinstance(method, str):
                 send_method = method
             else:
                 send_method = cloudpickle.dumps(
                     method, protocol=pickle.HIGHEST_PROTOCOL)
+
             self.rpc_broadcast_mq.enqueue((send_method, args, kwargs))
 
             responses = [None] * self.world_size
@@ -117,7 +119,7 @@ class MultiprocExecutor(Executor):
                                              ) if timeout is not None else None
                 status, result = w.worker_response_mq.dequeue(
                     timeout=dequeue_timeout)
-
+                print(f"status: {status}, result: {result}")
                 if status != WorkerProc.ResponseStatus.SUCCESS:
                     if isinstance(result, Exception):
                         raise result
