@@ -9,3 +9,9 @@ curl --noproxy "*" -X POST "http://localhost:8000/v1/chat/completions" \
 			}
 		]
 	}'
+
+curl --noproxy "*" -X POST "http://localhost:8000/speculative_action" \
+	-H "Content-Type: application/json" \
+	--data '{
+		"action": 0
+	}'

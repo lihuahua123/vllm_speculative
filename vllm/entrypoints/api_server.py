@@ -51,6 +51,24 @@ async def generate(request: Request) -> Response:
     request_dict = await request.json()
     return await _generate(request_dict, raw_request=request)
 
+@app.post("/speculative_action")
+async def change_speculative_action(request: Request) -> Response:
+    """Generate completion for the request.
+
+    The request should be a JSON object with the following fields:
+    - prompt: the prompt to use for the generation.
+    - stream: whether to stream the results or not.
+    - other fields: the sampling parameters (See `SamplingParams` for details).
+    """
+    request_dict = await request.json()
+    action = request_dict.pop("action")
+    save_action_time_history = request_dict.pop("save_action_time_history", False)
+    profile = request_dict.pop("profile", False)
+    file_name = request_dict.pop("file_name", None)
+    strategy = request_dict.pop("strategy", None)
+    assert engine is not None
+    engine.change_speculative_action(action,strategy,save_action_time_history, profile,file_name)
+    return Response(status_code=200)
 
 @with_cancellation
 async def _generate(request_dict: dict, raw_request: Request) -> Response:

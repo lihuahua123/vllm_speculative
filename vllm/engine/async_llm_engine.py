@@ -36,7 +36,8 @@ from vllm.sequence import ExecuteModelRequest
 from vllm.transformers_utils.tokenizer import AnyTokenizer
 from vllm.usage.usage_lib import UsageContext
 from vllm.utils import Device, deprecate_kwargs, weak_bind
-
+from vllm.engine.ilp_integration import ILPAction
+from vllm.engine.ilp_integration import ILPOptimizationManager
 logger = init_logger(__name__)
 ENGINE_ITERATION_TIMEOUT_S = envs.VLLM_ENGINE_ITERATION_TIMEOUT_S
 
@@ -265,6 +266,10 @@ class _AsyncLLMEngine(LLMEngine):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.ilp_manager = ILPOptimizationManager(
+            engine=self
+        )
+        self.strategy = "daspec"
 
     async def step_async(
         self, virtual_engine: int
@@ -299,7 +304,7 @@ class _AsyncLLMEngine(LLMEngine):
             (seq_group_metadata_list, scheduler_outputs,
              allow_async_output_proc
              ) = self.scheduler[virtual_engine].schedule()
-
+            
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
 
@@ -344,6 +349,21 @@ class _AsyncLLMEngine(LLMEngine):
                 # We use ExecuteModelRequest to pass the last sampled_token_ids
                 # to each of the non-last PP stages for in-place prepare_input.
                 last_sampled_token_ids=last_sampled_token_ids)
+            if self.strategy == "daspec":
+                if len(seq_group_metadata_list) > 25:
+                    self.set_disable_speculative_decoding(True)
+                # self.ilp_manager.step(scheduler_outputs)
+            # FIXME
+            if self.disable_speculative_decoding:
+                for seq_group in seq_group_metadata_list:
+                    seq_group.skip_neural_net_proposer_step_num += 1
+            elif not self.disable_speculative_decoding and self.ilp_manager.optimizer.last_action == ILPAction.USE_SMALL_MODEL_1:
+                for seq_group in seq_group_metadata_list:
+                    if seq_group.skip_neural_net_proposer_step_num > 100: 
+                        # prefill 太费时间了
+                        seq_group.num_speculative_tokens = 0
+                    else:
+                        seq_group.skip_neural_net_proposer_step_num = 0
 
             if allow_async_output_proc:
                 execute_model_req.async_callback = self.async_callbacks[
@@ -680,7 +700,7 @@ class AsyncLLMEngine(EngineClient):
             usage_context=usage_context,
             stat_loggers=stat_loggers,
             disable_log_stats=engine_args.disable_log_stats,
-            disable_log_requests=engine_args.disable_log_requests,
+            disable_log_requests=False,
         )
 
     @property
@@ -753,7 +773,7 @@ class AsyncLLMEngine(EngineClient):
             self._background_loop_unshielded = None
         self.background_loop = None
 
-    async def engine_step(self, virtual_engine: int) -> bool:
+    async def engine_step(self, virtual_engine: int) -> Tuple[bool, List[Union[RequestOutput, PoolingRequestOutput]]]:
         """Kick the engine to process the waiting requests.
 
         Returns True if there are in-progress requests."""
@@ -789,7 +809,7 @@ class AsyncLLMEngine(EngineClient):
             all_finished = all(request_output.finished
                                for request_output in request_outputs)
 
-        return not all_finished
+        return not all_finished, request_outputs
 
     def process_request_outputs(self, request_outputs) -> bool:
         # Put the outputs into the corresponding streams.
@@ -1230,6 +1250,12 @@ class AsyncLLMEngine(EngineClient):
 
     async def add_lora(self, lora_request: LoRARequest) -> None:
         self.engine.add_lora(lora_request)
+
+    def change_speculative_action(self, action:int,strategy= None, save_action_time_history:bool=False, profile:bool=False,file_name:str=None):
+        """Change the speculative action."""
+        if strategy is not None:
+            self.engine.strategy = strategy
+        self.engine.ilp_manager.change_speculative_action(action,save_action_time_history, profile,file_name)
 
 
 # TODO(v1): Remove this class proxy when V1 goes default.

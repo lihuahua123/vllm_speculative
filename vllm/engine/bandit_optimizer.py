@@ -4,13 +4,15 @@ import time
 import logging
 from typing import Dict, List, Tuple, Optional, Any
 from enum import Enum
+import joblib
+import torch
 
 logger = logging.getLogger(__name__)
 
 class BanditAction(Enum):
-    """Actions that the bandit optimizer can take"""
-    SWITCH_TO_NGRAM = 0
-    SWITCH_TO_NEURAL = 1
+    """Bandit优化器可以采取的行动"""
+    SWITCH_TO_NEURAL = 0 
+    SWITCH_TO_NGRAM = 1
     DISABLE_SPEC_DECODING = 2
 
 class ThresholdSwitcher:
@@ -18,14 +20,12 @@ class ThresholdSwitcher:
     def __init__(self, 
                  window_size: int = 5,
                  high_threshold: float = 40.0,  # tokens/s
-                 low_threshold: float = 20.0,   # tokens/s
-                 cooldown_period: float = 10.0):  # seconds
+                 low_threshold: float = 20.0):   # tokens/s
         self.token_history: List[int] = []
         self.timestamp_history: List[float] = []
         self.window_size = window_size
         self.high_threshold = high_threshold
         self.low_threshold = low_threshold
-        self.cooldown_period = cooldown_period
         self.last_switch_time = 0.0
     
     def record_tokens(self, tokens_generated: int) -> None:
@@ -56,10 +56,6 @@ class ThresholdSwitcher:
         throughput = self.get_current_throughput()
         current_time = time.time()
         
-        # Don't switch if in cooldown period
-        if current_time - self.last_switch_time < self.cooldown_period:
-            return None
-            
         if throughput > self.high_threshold:
             self.last_switch_time = current_time
             return BanditAction.SWITCH_TO_NGRAM
@@ -69,219 +65,261 @@ class ThresholdSwitcher:
         
         return None
 
-class MultiArmedBanditOptimizer:
-    """A UCB-based multi-armed bandit optimizer for dynamic model switching."""
+class BanditOptimizer:
+    """基于Multi-armed Bandit的动态模型切换优化器。
+    
+    此优化器使用UCB（Upper Confidence Bound）算法来动态选择最佳的推测采样方法：
+    1. 在神经模型和n-gram模型之间切换
+    2. 必要时禁用推测解码
+    
+    优化器会考虑吞吐量和内存使用情况，以及接受率等指标来做出决策。
+    """
     
     def __init__(self, 
-                 exploration_weight: float = 2.0,
+                 llm_engine,
                  reward_window_size: int = 10,
                  min_samples_per_arm: int = 3,
-                 cooldown_period: float = 30.0,  # seconds
                  throughput_weight: float = 0.7,
-                 memory_weight: float = 0.3):
-        # Initialize counts for each arm
-        self.counts = {
-            BanditAction.SWITCH_TO_NGRAM: 0,
-            BanditAction.SWITCH_TO_NEURAL: 0,
-            BanditAction.DISABLE_SPEC_DECODING: 0
-        }
+                 memory_weight: float = 0.3,
+                 min_acceptable_throughput: float = 10.0):
         
-        # Initialize reward history for each arm
-        self.reward_history = {
-            BanditAction.SWITCH_TO_NGRAM: [],
-            BanditAction.SWITCH_TO_NEURAL: [],
-            BanditAction.DISABLE_SPEC_DECODING: []
-        }
+        self.llm_engine = llm_engine
+        # 创建动作列表
+        self.actions = [
+            BanditAction.SWITCH_TO_NEURAL,
+            BanditAction.SWITCH_TO_NGRAM,
+            BanditAction.DISABLE_SPEC_DECODING
+        ]
         
-        # Running metrics
-        self.throughput_history = []
+        # 初始化每个动作的计数
+        self.counts = {action: 0 for action in self.actions}
+        
+        # 初始化每个动作的奖励历史
+        self.reward_history = {action: [] for action in self.actions}
+        
+        # 运行指标
         self.request_load_history = []
         self.memory_usage_history = []
+        self.acceptance_rate_history = []
+        self.spec_length_history = []
         
-        # State tracking
-        self.last_action: Optional[BanditAction] = None
+        # 状态跟踪
+        self.last_action = None
         self.last_action_time = 0.0
-        self.baseline_throughput = None
         self.current_state = None
         
-        # Configuration
-        self.exploration_weight = exploration_weight
+        # 配置
         self.reward_window_size = reward_window_size
         self.min_samples_per_arm = min_samples_per_arm
-        self.cooldown_period = cooldown_period
         self.throughput_weight = throughput_weight
         self.memory_weight = memory_weight
+        self.min_acceptable_throughput = min_acceptable_throughput
         
-        # Current model state
+        # 当前模型状态
         self.using_ngram_model = False
         self.using_neural_model = False
         self.spec_decoding_disabled = False
-    
-    def record_metrics(self, throughput: float, request_load: int, memory_usage: float) -> None:
-        """Record current system metrics"""
-        self.throughput_history.append(throughput)
-        self.request_load_history.append(request_load)
-        self.memory_usage_history.append(memory_usage)
         
-        # Keep history bounded
-        if len(self.throughput_history) > self.reward_window_size:
-            self.throughput_history.pop(0)
-            self.request_load_history.pop(0)
-            self.memory_usage_history.pop(0)
+        # 探索权重 (UCB算法)
+        self.exploration_weight = 2.0
         
-        # Set baseline throughput if not set
-        if self.baseline_throughput is None and len(self.throughput_history) >= 3:
-            self.baseline_throughput = np.mean(self.throughput_history)
+        # 新增用于记录指标的动作历史
+        self.action_metrics_history = {action: {
+            "acceptance_rates": [],
+            "spec_lengths": [],
+            "throughputs": []  # 新增吞吐率历史记录
+        } for action in self.actions}
+
+        self.expected_rewards = {}
         
-        # Store current state for reward calculation
+    def record_metrics(self, 
+                      throughput: float, 
+                      acceptance_rate: Optional[float] = None,
+                      spec_length: Optional[int] = None) -> None:
+        """记录当前系统指标"""
+        # 记录推测解码指标（如果可用）
+        if acceptance_rate is not None:
+            self.acceptance_rate_history.append(acceptance_rate)
+        if spec_length is not None:
+            self.spec_length_history.append(spec_length)
+        
+        avg_acceptance_rate = sum(self.acceptance_rate_history)/len(self.acceptance_rate_history) if self.acceptance_rate_history else 0.0
+        
+        # 保持历史记录在有限范围内
+        if len(self.request_load_history) > self.reward_window_size:
+            if self.acceptance_rate_history:
+                self.acceptance_rate_history.pop(0)
+            if self.spec_length_history:
+                self.spec_length_history.pop(0)
+        
+        # 记录当前动作的指标
+        if self.last_action is not None:
+            # 为每个动作记录吞吐率
+            self.action_metrics_history[self.last_action]["throughputs"].append(throughput)
+            
+            if acceptance_rate is not None and spec_length is not None and self.last_action != BanditAction.DISABLE_SPEC_DECODING:
+                self.action_metrics_history[self.last_action]["acceptance_rates"].append(acceptance_rate)
+                self.action_metrics_history[self.last_action]["spec_lengths"].append(spec_length)
+            
+            # 保持历史记录在有限范围内
+            if len(self.action_metrics_history[self.last_action]["throughputs"]) > self.reward_window_size:
+                self.action_metrics_history[self.last_action]["throughputs"].pop(0)
+                
+            if self.last_action != BanditAction.DISABLE_SPEC_DECODING:
+                if len(self.action_metrics_history[self.last_action]["acceptance_rates"]) > self.reward_window_size:
+                    self.action_metrics_history[self.last_action]["acceptance_rates"].pop(0)
+                    self.action_metrics_history[self.last_action]["spec_lengths"].pop(0)
+
+        # 存储当前状态用于计算
         self.current_state = {
             "throughput": throughput,
-            "request_load": request_load,
-            "memory_usage": memory_usage
+            "acceptance_rate": avg_acceptance_rate,
+            "spec_length": spec_length if spec_length is not None else 0
         }
     
-    def _calculate_reward(self, current_throughput: float, memory_usage: float) -> float:
-        """Calculate reward based on throughput improvement and memory usage"""
-        # If no baseline, can't calculate reward
-        if self.baseline_throughput is None:
-            return 0.0
+    def _calculate_reward(self, 
+                          action: BanditAction, 
+                          acceptance_rate: float,
+                          spec_length: int,
+                          throughput: float) -> float:
+        """计算动作的奖励值
         
-        # Calculate throughput improvement
-        throughput_improvement = (current_throughput - self.baseline_throughput) / self.baseline_throughput
+        参数:
+            action: 要评估的动作
+            acceptance_rate: 推测被接受的比率 [0,1]
+            spec_length: 平均推测长度
+            throughput: 当前吞吐量(tokens/s)
+            
+        返回:
+            计算的奖励值
+        """
+        # 如果吞吐量低于最低可接受值，施加惩罚
+        throughput_penalty = 0.0
+        if throughput < self.min_acceptable_throughput:
+            throughput_penalty = (self.min_acceptable_throughput - throughput) * 0.5
         
-        # Penalize high memory usage (1.0 = full usage, 0.0 = no usage)
-        memory_efficiency = 1.0 - memory_usage
-        
-        # Combined reward
-        reward = (self.throughput_weight * throughput_improvement + 
-                  self.memory_weight * memory_efficiency)
+        # 根据不同动作计算奖励
+        if action == BanditAction.DISABLE_SPEC_DECODING:
+            # 禁用推测解码时只考虑吞吐量
+            reward = self.throughput_weight * throughput - throughput_penalty
+        else:
+            # 对于神经模型和n-gram模型，考虑吞吐量、接受率和推测长度
+            # 吞吐量是主要优化目标
+            throughput_reward = self.throughput_weight * throughput
+            
+            # 推测效率 = 接受率 * 推测长度
+            # 高接受率和长推测长度的组合能带来最大收益
+            spec_efficiency = acceptance_rate * spec_length
+            spec_reward = (1 - self.throughput_weight) * spec_efficiency
+            
+            # 神经模型通常有更高的接受率但可能更慢
+            if action == BanditAction.SWITCH_TO_NEURAL:
+                # 稍微提高神经模型的奖励，以平衡其更高的计算成本
+                model_bonus = 0.05 * throughput if acceptance_rate > 0.7 else 0.0
+                reward = throughput_reward + spec_reward + model_bonus - throughput_penalty
+            else:  # SWITCH_TO_NGRAM
+                # n-gram模型更快但接受率可能较低
+                # 仅当接受率合理时才给予奖励
+                model_bonus = 0.1 * throughput if acceptance_rate > 0.4 else 0.0
+                reward = throughput_reward + spec_reward + model_bonus - throughput_penalty
         
         return reward
     
-    def update_reward(self, new_throughput: float, new_memory_usage: float) -> None:
-        """Update reward for the last selected action"""
-        if self.last_action is None or self.current_state is None:
-            return
-        
-        reward = self._calculate_reward(new_throughput, new_memory_usage)
-        
-        # Update reward history
-        self.reward_history[self.last_action].append(reward)
-        
-        # Keep reward history bounded
-        if len(self.reward_history[self.last_action]) > self.reward_window_size:
-            self.reward_history[self.last_action].pop(0)
-        
-        # Log the reward
-        logger.info(f"Action {self.last_action.name} received reward: {reward:.4f}")
-        
-        # Update baseline as a moving average
-        if self.baseline_throughput is not None:
-            alpha = 0.3  # Weight for new observation
-            self.baseline_throughput = (1 - alpha) * self.baseline_throughput + alpha * new_throughput
-    
     def _get_ucb_value(self, action: BanditAction, total_count: int) -> float:
-        """Calculate the UCB value for an action"""
+        """计算一个动作的UCB值"""
         if self.counts[action] == 0:
-            return float('inf')
+            return float('inf')  # 未尝试过的动作有无限大的价值
         
-        # Calculate the average reward
-        reward_mean = np.mean(self.reward_history[action]) if self.reward_history[action] else 0.0
-        
-        # Calculate the exploration bonus
-        exploration_bonus = self.exploration_weight * math.sqrt(2 * math.log(total_count) / self.counts[action])
-        
-        return reward_mean + exploration_bonus
-    
-    def _has_min_samples(self) -> bool:
-        """Check if all arms have been tried the minimum number of times"""
-        return all(self.counts[action] >= self.min_samples_per_arm for action in BanditAction)
-    
-    def _select_action_by_state(self, request_load: int, memory_usage: float) -> BanditAction:
-        """Select action based on current system state when not enough samples are available"""
-        # High request load -> switch to ngram model
-        if request_load > 15:
-            return BanditAction.SWITCH_TO_NGRAM
-        
-        # High memory usage -> disable speculative decoding
-        if memory_usage > 0.9:
-            return BanditAction.DISABLE_SPEC_DECODING
-        
-        # Low request load and memory not full -> switch to neural model
-        if request_load < 10 and memory_usage < 0.8:
-            return BanditAction.SWITCH_TO_NEURAL
-        
-        # Default to disable speculative decoding as a middle ground
-        return BanditAction.DISABLE_SPEC_DECODING
-    
-    def select_action(self, throughput: float, request_load: int, memory_usage: float) -> Optional[BanditAction]:
-        """Select the best action based on current metrics"""
-        # Record current metrics
-        self.record_metrics(throughput, request_load, memory_usage)
-        
-        # Check if we're in cooldown period
-        current_time = time.time()
-        if self.last_action_time > 0 and current_time - self.last_action_time < self.cooldown_period:
-            logger.debug("In cooldown period, no action selected")
-            return None
-        
-        # If we don't have enough samples yet, use heuristic selection
-        if not self._has_min_samples():
-            action = self._select_action_by_state(request_load, memory_usage)
+        # 计算平均奖励
+        if self.reward_history[action]:
+            # 处理奖励可能是张量列表的情况
+            rewards = []
+            for r in self.reward_history[action]:
+                if isinstance(r, torch.Tensor):
+                    rewards.append(r.cpu().numpy())
+                else:
+                    rewards.append(r)
+            reward_mean = np.mean(rewards)
         else:
-            # Calculate UCB values for each arm
-            total_count = sum(self.counts.values())
-            ucb_values = {action: self._get_ucb_value(action, total_count) for action in BanditAction}
-            
-            # Select the arm with the highest UCB value
-            action = max(ucb_values, key=ucb_values.get)
-            
-            # Log UCB values
-            logger.debug(f"UCB values: {ucb_values}")
+            reward_mean = 0.0
         
-        # Check if the selected action is valid based on current state
-        if action == BanditAction.SWITCH_TO_NGRAM and self.using_ngram_model:
-            logger.debug("Already using ngram model, skipping action")
+        # 计算探索奖励
+        exploration_bonus = self.exploration_weight * math.sqrt(2 * math.log(total_count) / self.counts[action])
+        return reward_mean + exploration_bonus
+        
+    def _has_min_samples(self) -> bool:
+        """检查是否所有动作都已被尝试了最小次数"""
+        return all(self.counts[action] >= self.min_samples_per_arm for action in self.actions)
+    
+    def select_action(self) -> Optional[BanditAction]:
+        """基于当前指标选择最佳动作"""
+        # 检查是否在冷却期
+        current_time = time.time()
+        
+       
+            
+        # 如果我们没有足够的样本，使用探索-利用平衡(UCB)
+        if not self._has_min_samples():
+            logger.info("没有足够的样本,探索！")
+            # 计算每个动作的UCB值
+            total_count = sum(self.counts.values()) + 1  # 避免除零
+            ucb_values = {action: self._get_ucb_value(action, total_count) for action in self.actions}
+            print(ucb_values)
+            # 选择UCB值最高的动作
+            action = max(ucb_values, key=ucb_values.get)
+        else:
+            # 否则选择预期奖励最高的动作
+            logger.info("有足够的样本,选择预期奖励最高的动作")
+            action = max(self.expected_rewards, key=self.expected_rewards.get)
+        
+        # 检查选择的动作是否有效（不是当前已选择的状态）
+        if action == BanditAction.SWITCH_TO_NEURAL and self.using_neural_model:
+            logger.info("已经使用神经模型，跳过动作")
             return None
         
-        if action == BanditAction.SWITCH_TO_NEURAL and self.using_neural_model:
-            logger.debug("Already using neural model, skipping action")
+        if action == BanditAction.SWITCH_TO_NGRAM and self.using_ngram_model:
+            logger.info("已经使用n-gram模型，跳过动作")
             return None
         
         if action == BanditAction.DISABLE_SPEC_DECODING and self.spec_decoding_disabled:
-            logger.debug("Speculative decoding already disabled, skipping action")
+            logger.info("推测解码已禁用，跳过动作")
             return None
         
-        # Update state
+        # 更新状态
         self.last_action = action
         self.last_action_time = current_time
         self.counts[action] += 1
         
-        if action == BanditAction.SWITCH_TO_NGRAM:
-            self.using_ngram_model = True
-            self.using_neural_model = False
-            self.spec_decoding_disabled = False
-        elif action == BanditAction.SWITCH_TO_NEURAL:
-            self.using_ngram_model = False
-            self.using_neural_model = True
-            self.spec_decoding_disabled = False
-        elif action == BanditAction.DISABLE_SPEC_DECODING:
-            self.spec_decoding_disabled = True
         
-        logger.info(f"Selected action: {action}, counts: {self.counts[action]}")
+        logger.info(f"选择动作: {action.name}, 计数: {self.counts[action]}")
         return action
     
     def get_status(self) -> Dict[str, Any]:
-        """Get current status of the optimizer"""
+        """获取优化器的当前状态"""
+        
+        # 处理奖励历史中可能包含的张量
+        reward_means = {}
+        for action, rewards_list in self.reward_history.items():
+            if rewards_list:
+                processed_rewards = []
+                for r in rewards_list:
+                    if isinstance(r, torch.Tensor):
+                        processed_rewards.append(r.cpu().numpy())
+                    else:
+                        processed_rewards.append(r)
+                reward_means[action.name] = np.mean(processed_rewards)
+            else:
+                reward_means[action.name] = 0.0
+        
         return {
-            "counts": self.counts,
-            "reward_means": {
-                action.name: np.mean(rewards) if rewards else 0.0 
-                for action, rewards in self.reward_history.items()
+            "action_counts": {
+                action.name: self.counts[action]
+                for action in self.actions
             },
-            "current_throughput": self.throughput_history[-1] if self.throughput_history else 0.0,
-            "baseline_throughput": self.baseline_throughput,
+            "reward_means": reward_means,
             "last_action": self.last_action.name if self.last_action else None,
+            "exploration_strategy": self.exploration_weight,
+            "current_throughput": self.current_state["throughput"] if self.current_state else 0.0,
             "using_ngram_model": self.using_ngram_model,
             "using_neural_model": self.using_neural_model,
             "spec_decoding_disabled": self.spec_decoding_disabled

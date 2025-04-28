@@ -127,13 +127,13 @@ class SpecDecodeBaseSampler(nn.Module):
         # Fill the recovered token ids.
         output.mul_(~after_false_mask).add_(
             substitute_token_ids.mul(after_false_mask))
-
-        self.num_accepted_tokens += accepted.sum()
+        accepted_sum = accepted.sum()
+        self.num_accepted_tokens += accepted_sum
         self.num_emitted_tokens += (output_with_bonus_tokens != -1).sum()
         self.num_draft_tokens += batch_size * k
         # print("accepted.sum()",accepted.sum(),accepted)
         # print("batch_size , accepted.sum()",batch_size , accepted.sum())
-        self.ratio = accepted.sum() / (batch_size * k)
+        self.ratio = accepted_sum / (batch_size * k)
 
         return output_with_bonus_tokens
 

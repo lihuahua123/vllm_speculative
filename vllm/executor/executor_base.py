@@ -60,6 +60,7 @@ class ExecutorBase(ABC):
     def collective_rpc(self,
                        method: Union[str, Callable[..., _R]],
                        timeout: Optional[float] = None,
+                       need_worker_output: bool = True,
                        args: Tuple = (),
                        kwargs: Optional[Dict[str, Any]] = None) -> List[_R]:
         """
@@ -264,7 +265,7 @@ class ExecutorBase(ABC):
     
     def get_speculative_metrics(self):
         return self.collective_rpc("get_speculative_metrics", need_worker_output=False)
-    
+     
     def update_typical_acceptance_threshold(self, new_threshold, new_alpha):
         return self.collective_rpc("update_typical_acceptance_threshold", kwargs=dict(new_threshold=new_threshold, new_alpha=new_alpha))
 
@@ -300,6 +301,12 @@ class ExecutorBase(ABC):
 
     def offload_proposer_worker(self):
         return self.collective_rpc("offload_proposer_worker")
+    
+    def increase_cache_blocks(self,num_gpu_blocks: int) -> None:
+        return self.collective_rpc("increase_cache_blocks", kwargs=dict(num_gpu_blocks=num_gpu_blocks))
+    
+    def decrease_cache_blocks(self,num_gpu_blocks: int,block_migration_map=None) -> None:
+        return self.collective_rpc("decrease_cache_blocks", kwargs=dict(num_gpu_blocks=num_gpu_blocks,block_migration_map=block_migration_map))
     
 class DistributedExecutorBase(ExecutorBase):
     """Abstract superclass of distributed executor implementations."""

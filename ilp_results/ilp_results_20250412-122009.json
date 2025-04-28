@@ -1,0 +1,70 @@
+{
+  "training_metrics": {
+    "throughput_history": [],
+    "request_load_history": [],
+    "memory_usage_history": [],
+    "action_history": [],
+    "acceptance_rate_history": [],
+    "spec_length_history": []
+  },
+  "testing_results": [
+    {
+      "request_rate": 1.0,
+      "completed_requests": 15,
+      "total_tokens_generated": 2880,
+      "avg_latency": 4.194086360931396,
+      "throughput": 45.767721339808524,
+      "ilp_actions": [],
+      "initial_ilp_state": {
+        "current_model_index": -1
+      },
+      "final_ilp_state": {
+        "current_model_index": -1
+      }
+    },
+    {
+      "request_rate": 2.0,
+      "completed_requests": 14,
+      "total_tokens_generated": 2624,
+      "avg_latency": 4.536710841315133,
+      "throughput": 41.305335674715714,
+      "ilp_actions": [],
+      "initial_ilp_state": {
+        "current_model_index": -1
+      },
+      "final_ilp_state": {
+        "current_model_index": -1
+      }
+    },
+    {
+      "request_rate": 4.0,
+      "completed_requests": 12,
+      "total_tokens_generated": 2304,
+      "avg_latency": 5.044978658358256,
+      "throughput": 38.04926095340403,
+      "ilp_actions": [],
+      "initial_ilp_state": {
+        "current_model_index": -1
+      },
+      "final_ilp_state": {
+        "current_model_index": -1
+      }
+    },
+    {
+      "request_rate": 8.0,
+      "completed_requests": 12,
+      "total_tokens_generated": 2304,
+      "avg_latency": 5.275933603445689,
+      "throughput": 36.38544555733518,
+      "ilp_actions": [],
+      "initial_ilp_state": {
+        "current_model_index": -1
+      },
+      "final_ilp_state": {
+        "current_model_index": -1
+      }
+    }
+  ],
+  "best_rate": 1.0,
+  "best_throughput": 45.767721339808524
+}

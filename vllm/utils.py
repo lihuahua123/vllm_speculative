@@ -2232,6 +2232,21 @@ def bind_kv_cache(
         for ve, ve_kv_cache in enumerate(kv_cache):
             forward_ctx.kv_cache[ve] = ve_kv_cache[kv_cache_idx]
 
+def deblind_kv_cache(ctx: dict[str, Any],) -> None:
+    """
+    Deblind the kv cache.
+    """
+    from vllm.attention import AttentionType
+    layer_need_kv_cache = [
+        layer_name for layer_name in ctx
+        if (hasattr(ctx[layer_name], 'attn_type') and ctx[layer_name].attn_type
+            in (AttentionType.DECODER, AttentionType.ENCODER_DECODER))
+    ]
+    
+    for layer_name in layer_need_kv_cache:
+        forward_ctx = ctx[layer_name]
+        for ve, ve_kv_cache in enumerate(forward_ctx.kv_cache):
+            forward_ctx.kv_cache[ve] = None
 
 def run_method(obj: Any, method: Union[str, bytes, Callable], args: tuple[Any],
                kwargs: dict[str, Any]) -> Any:

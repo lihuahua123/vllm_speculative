@@ -1,0 +1,22 @@
+{
+  "training_metrics": {
+    "throughput_history": [],
+    "request_load_history": [],
+    "memory_usage_history": [],
+    "action_history": [
+      {
+        "action": "USE_SMALL_MODEL_1",
+        "time": 1744443581.2722366,
+        "metrics": {
+          "throughput": 5.732486912937688e-10,
+          "acceptance_rate": 0,
+          "spec_length": 4,
+          "time": 1744443581.2722204
+        }
+      },
+      {
+        "action": "USE_SMALL_MODEL_2",
+        "time": 1744443596.6803744,
+        "metrics": {
+          "throughput": 1768.4495536602649,
+          "acceptance_rate": 

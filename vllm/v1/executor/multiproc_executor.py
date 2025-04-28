@@ -95,6 +95,7 @@ class MultiprocExecutor(Executor):
     def collective_rpc(self,
                        method: Union[str, Callable],
                        timeout: Optional[float] = None,
+                       need_worker_output: bool = True,
                        args: tuple = (),
                        kwargs: Optional[dict] = None) -> list[Any]:
         start_time = time.monotonic()

@@ -1604,16 +1604,16 @@ class Scheduler:
         return no_single_seq
 
     def schedule(
-            self, speculative_metrics:None
+            self
     ) -> Tuple[List[SequenceGroupMetadata], SchedulerOutputs, bool]:
         # Schedule sequence groups.
         # This function call changes the internal states of the scheduler
         # such as self.running, self.swapped, and self.waiting.
         
         # Convert to float value before appending
-        if speculative_metrics is not None:
-            metric_value = float(speculative_metrics[0])
-            self.speculative_metrics_cache.append(metric_value)
+        # if speculative_metrics is not None:
+        #     metric_value = float(speculative_metrics[0])
+        #     self.speculative_metrics_cache.append(metric_value)
         # with open('logs/speculative_metrics.pkl', 'wb') as f:
         #     pickle.dump(self.speculative_metrics_cache, f)
         # print("speculative_metrics_cache",self.speculative_metrics_cache)

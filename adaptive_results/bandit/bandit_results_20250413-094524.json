@@ -1,0 +1,32 @@
+{
+  "training_metrics": {
+    "throughput_history": [],
+    "request_load_history": [],
+    "memory_usage_history": [],
+    "action_history": [
+      {
+        "action": "DISABLE_SPEC_DECODING",
+        "time": 1744508406.4799526,
+        "metrics": {
+          "throughput": 5.732273896105253e-10,
+          "acceptance_rate": 0,
+          "spec_length": 4,
+          "time": 1744508406.4799328
+        }
+      },
+      {
+        "action": "SWITCH_TO_NEURAL",
+        "time": 1744508409.5040205,
+        "metrics": {
+          "throughput": 2730.0714045535074,
+          "acceptance_rate": 0,
+          "spec_length": 4,
+          "time": 1744508409.504004
+        }
+      },
+      {
+        "action": "SWITCH_TO_NGRAM",
+        "time": 1744508412.6364894,
+        "metrics": {
+          "throughput": 648.5465806911675,
+          "acceptance_rate": 

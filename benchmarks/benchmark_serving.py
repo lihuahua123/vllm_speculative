@@ -35,7 +35,7 @@ from collections.abc import AsyncGenerator, Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
-
+from transformers import PreTrainedTokenizerFast
 import numpy as np
 from backend_request_func import (ASYNC_REQUEST_FUNCS, RequestFuncInput,
                                   RequestFuncOutput)
@@ -91,9 +91,10 @@ class BenchmarkMetrics:
 
 
 async def get_request(
-    input_requests: list[SampleRequest],
-    request_rate: float,
+    input_requests: list[SampleRequest] | list[list[SampleRequest]], 
+    request_rate: float | list[float],
     burstiness: float = 1.0,
+    enable_trace: bool = False,
 ) -> AsyncGenerator[SampleRequest, None]:
     """
     Asynchronously generates requests at a specified rate
@@ -113,25 +114,42 @@ async def get_request(
             in more bursty requests, while a higher burstiness value
             (burstiness > 1) results in a more uniform arrival of requests.
     """
-    input_requests: Iterable[SampleRequest] = iter(input_requests)
+    if enable_trace:
+        assert len(input_requests) == len(request_rate), f"input_requests: {len(input_requests)} != request_rate:  {len(request_rate)}"
+        for index, input_requst in enumerate(input_requests):
+            begin_time = time.time()
+            theta = 1.0 / (request_rate[index] * burstiness)
+            for request in input_requst:
+                yield request
+                # 按照QPS=1的速率生成请求间隔
+                if request_rate == float("inf"):
+                    # If the request rate is infinity, then we don't need to wait.
+                    continue
+                interval = np.random.gamma(shape=burstiness, scale=theta)
+                await asyncio.sleep(interval)
+            end_time = time.time()
+            print(f"generate {index} request {len(input_requst)},qps {request_rate[index]}, time cost: {end_time - begin_time}")
+        
+    else:
+        input_requests: Iterable[SampleRequest] = iter(input_requests)
 
-    # Calculate scale parameter theta to maintain the desired request_rate.
-    assert burstiness > 0, (
-        f"A positive burstiness factor is expected, but given {burstiness}.")
-    theta = 1.0 / (request_rate * burstiness)
+        # Calculate scale parameter theta to maintain the desired request_rate.
+        assert burstiness > 0, (
+            f"A positive burstiness factor is expected, but given {burstiness}.")
+        theta = 1.0 / (request_rate * burstiness)
 
-    for request in input_requests:
-        yield request
+        for request in input_requests:
+            yield request
 
-        if request_rate == float("inf"):
-            # If the request rate is infinity, then we don't need to wait.
-            continue
+            if request_rate == float("inf"):
+                # If the request rate is infinity, then we don't need to wait.
+                continue
 
-        # Sample the request interval from the gamma distribution.
-        # If burstiness is 1, it follows exponential distribution.
-        interval = np.random.gamma(shape=burstiness, scale=theta)
-        # The next request will be sent after the interval.
-        await asyncio.sleep(interval)
+            # Sample the request interval from the gamma distribution.
+            # If burstiness is 1, it follows exponential distribution.
+            interval = np.random.gamma(shape=burstiness, scale=theta)
+            # The next request will be sent after the interval.
+            await asyncio.sleep(interval)
 
 
 def calculate_metrics(
@@ -157,7 +175,7 @@ def calculate_metrics(
         if outputs[i].success:
             output_len = outputs[i].output_tokens
 
-            if output_len is None:
+            if output_len is None or output_len == 0:
                 # We use the tokenizer to count the number of output tokens
                 # for some serving backends instead of looking at
                 # len(outputs[i].itl) since multiple output tokens may be
@@ -243,6 +261,7 @@ def calculate_metrics(
     return metrics, actual_output_lens
 
 
+
 async def benchmark(
     backend: str,
     api_url: str,
@@ -262,6 +281,7 @@ async def benchmark(
     goodput_config_dict: dict[str, float],
     max_concurrency: Optional[int],
     lora_modules: Optional[Iterable[str]],
+    enable_trace: bool = False,
 ):
     if backend in ASYNC_REQUEST_FUNCS:
         request_func = ASYNC_REQUEST_FUNCS[backend]
@@ -347,32 +367,47 @@ async def benchmark(
                                       pbar=pbar)
 
     benchmark_start_time = time.perf_counter()
-    tasks: list[asyncio.Task] = []
-    async for request in get_request(input_requests, request_rate, burstiness):
-        prompt, prompt_len, output_len, mm_content = request.prompt, \
-            request.prompt_len, request.expected_output_len, \
-                request.multi_modal_data
-        req_model_id, req_model_name = model_id, model_name
-        if lora_modules:
-            req_lora_module = next(lora_modules)
-            req_model_id, req_model_name = req_lora_module, req_lora_module
+    begin_time = time.time()
+    
+    start_index = 300
+    # input_requests_list = [input_requests[start_index:start_index+18],input_requests[start_index+18:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:]]
+    # request_rate_list = [1,0.1,1,0.1]
+    outputs_list = []
+    request_rate_list = [1,1,10]
+    input_requests_list = [input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:]]
+    for index, one_input_requests in enumerate(input_requests_list):
+        tasks: list[asyncio.Task] = []
+        async for request in get_request(one_input_requests, request_rate_list[index], burstiness, enable_trace=False):
+            prompt, prompt_len, output_len, mm_content = request.prompt, \
+                request.prompt_len, request.expected_output_len, \
+                    request.multi_modal_data
+            req_model_id, req_model_name = model_id, model_name
+            if lora_modules:
+                req_lora_module = next(lora_modules)
+                req_model_id, req_model_name = req_lora_module, req_lora_module
 
-        request_func_input = RequestFuncInput(model=req_model_id,
-                                              model_name=req_model_name,
-                                              prompt=prompt,
-                                              api_url=api_url,
-                                              prompt_len=prompt_len,
-                                              output_len=output_len,
-                                              logprobs=logprobs,
-                                              multi_modal_content=mm_content,
-                                              ignore_eos=ignore_eos)
-        tasks.append(
-            asyncio.create_task(
-                limited_request_func(request_func_input=request_func_input,
-                                     pbar=pbar)))
-    outputs: list[RequestFuncOutput] = await asyncio.gather(*tasks)
-    # for index,output in enumerate(outputs):
-    #     print(f"request {index} output: {output.generated_text}")
+            request_func_input = RequestFuncInput(model=req_model_id,
+                                                model_name=req_model_name,
+                                                prompt=prompt,
+                                                api_url=api_url,
+                                                prompt_len=prompt_len,
+                                                output_len=output_len,
+                                                logprobs=logprobs,
+                                                multi_modal_content=mm_content,
+                                                ignore_eos=ignore_eos)
+            tasks.append(
+                asyncio.create_task(
+                    limited_request_func(request_func_input=request_func_input,
+                                        pbar=pbar)))
+        end_time = time.time()
+        print(f"send request time cost: {end_time - begin_time}")
+        begin_time = time.time()
+        outputs: list[RequestFuncOutput] = await asyncio.gather(*tasks)
+        outputs_list  += outputs
+        end_time = time.time()
+        print(f"receive response time cost: {end_time - begin_time}")
+    
+    
     if profile:
         print("Stopping profiler...")
         profile_input = RequestFuncInput(
@@ -391,10 +426,9 @@ async def benchmark(
         pbar.close()
 
     benchmark_duration = time.perf_counter() - benchmark_start_time
-
     metrics, actual_output_lens = calculate_metrics(
         input_requests=input_requests,
-        outputs=outputs,
+        outputs=outputs_list,
         dur_s=benchmark_duration,
         tokenizer=tokenizer,
         selected_percentile_metrics=selected_percentile_metrics,
@@ -668,6 +702,7 @@ def main(args: argparse.Namespace):
             goodput_config_dict=goodput_config_dict,
             max_concurrency=args.max_concurrency,
             lora_modules=args.lora_modules,
+            enable_trace=args.enable_trace,
         ))
 
     # Save config and results to json
@@ -1017,6 +1052,9 @@ if __name__ == "__main__":
                         help="A subset of LoRA module names passed in when "
                         "launching the server. For each request, the "
                         "script chooses a LoRA module at random.")
+    parser.add_argument("--enable-trace",
+                        action="store_true",
+                        help="Enable trace mode for the benchmark.")
 
     args = parser.parse_args()
 

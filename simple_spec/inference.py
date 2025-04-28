@@ -12,6 +12,7 @@ def sample_sharegpt_requests(
     tokenizer: PreTrainedTokenizerBase,
     fixed_output_len: Optional[int] = None,
     spec_len: Optional[int] = None,
+    begin_index: Optional[int] = None,
 ) -> List[Tuple[str, int, int, None]]:
     # Load the dataset.
     with open(dataset_path, encoding='utf-8') as f:
@@ -21,7 +22,8 @@ def sample_sharegpt_requests(
     # Only keep the first two turns of each conversation.
     dataset = [(data["conversations"][0]["value"],
                 data["conversations"][1]["value"]) for data in dataset]
-
+    if begin_index is not None:
+        dataset = dataset[begin_index:]
     # Shuffle the dataset.
     # random.shuffle(dataset)
 
@@ -49,7 +51,6 @@ def sample_sharegpt_requests(
         filtered_dataset2.append((prompt, prompt_len, output_len, None))
         prompt_token_ids = prompt_token_ids[:-spec_len]
         filtered_dataset.append((tokenizer.decode(prompt_token_ids), len(prompt_token_ids), output_len, None))
-        print(len(prompt_token_ids),prompt_len)
     return filtered_dataset, filtered_dataset2
 
 

@@ -4,7 +4,7 @@ import copy
 from collections import defaultdict
 from functools import cached_property
 from typing import Any, Dict, List, Optional, Set, Tuple, Type
-
+import threading
 import torch
 import torch.nn as nn
 import time
@@ -50,9 +50,12 @@ from vllm.spec_decode.util import (Timer, create_logprobs_output,
                                    split_batch_by_proposal_len)
 from vllm.utils import resolve_obj_by_qualname
 from vllm.worker.worker_base import LoRANotSupportedWorkerBase, WorkerBase
-
+from concurrent.futures import ThreadPoolExecutor
+from vllm.sequence import SequenceStage
 logger = init_logger(__name__)
 
+# 创建全局线程池，用于异步任务
+_global_executor = ThreadPoolExecutor(max_workers=4)
 
 def create_spec_worker(*args, **kwargs) -> "SpecDecodeWorker":
     """Helper method that is the entrypoint for Executors which use
@@ -355,6 +358,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         self.proposer_worker_to_cpu = False
         self.need_decrease_block_number = False
         self.using_ngram_draft_model = False
+        self.stage_times = None
 
     def init_device(self) -> None:
         """Initialize both scorer and proposer models.
@@ -475,7 +479,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
                                             num_cpu_blocks=num_cpu_blocks)
         self.proposer_worker.initialize_cache(num_gpu_blocks=num_gpu_blocks,
                                               num_cpu_blocks=num_cpu_blocks)
-
+        
     def get_model(self) -> nn.Module:
         return self.scorer_worker.get_model()
 
@@ -502,6 +506,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         self._track_finished_requests(execute_model_req)
         disable_all_speculation = self._should_disable_all_speculation(
             execute_model_req)
+        # if disable_all_speculation:
         num_lookahead_slots = execute_model_req.num_lookahead_slots
         all_prompt = True
         atleast_one_prompt = False
@@ -567,28 +572,6 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
             disable_all_speculation, execute_model_req.seq_group_metadata_list)
         
         if no_spec:
-            # if not self.vllm_config.speculative_config.disable_offload_proposer_worker and (execute_model_req.running_queue_size
-            #     > self.disable_by_batch_size) and not self.proposer_worker_to_cpu:
-            #         print("offload!!!")
-            #         self.proposer_worker_to_cpu = True
-            #         if not self.using_ngram_draft_model:
-            #             print("offload!!!x1")
-            #             self.proposer_worker.model_runner.model.to("cpu",non_blocking=True)
-            #         disable_all_speculation = True
-            # elif not self.vllm_config.speculative_config.disable_offload_proposer_worker and execute_model_req.running_queue_size \
-            #     - self.disable_by_batch_size > 1 and execute_model_req.running_queue_size \
-            #     - self.disable_by_batch_size < 3 and self.proposer_worker_to_cpu:
-            #     if not self.using_ngram_draft_model:
-            #         print("decrease memory for proposal worker!!!x1")
-            #         self.proposer_worker_to_cpu = True
-            #         self.need_decrease_block_number = True
-            #     disable_all_speculation = True
-            # elif not self.vllm_config.speculative_config.disable_offload_proposer_worker and execute_model_req.running_queue_size \
-            #     <= self.disable_by_batch_size and self.need_decrease_block_number and self.proposer_worker_to_cpu:
-            #     print("prefetch load to gpu!!!x1")     
-            #     self.proposer_worker_to_cpu = False   
-            #     self.proposer_worker.model_runner.model.to("cuda",non_blocking=True)
-            #     disable_all_speculation = True
             return self._run_no_spec(execute_model_req,
                                      skip_proposer=disable_all_speculation)
         return self._run_speculative_decoding_step(execute_model_req,
@@ -721,7 +704,16 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         not called, meaning that the kv-cache in proposer for requests is not
         updated, so they cannot enable spec decode in the rest decoding.
         """
-        sampler_output = self.scorer_worker.execute_model(execute_model_req)
+        with Timer() as scoring_timer:
+            stage = None
+            context_length = 0
+            for req in execute_model_req.seq_group_metadata_list:
+                for key, value in req.seq_data.items():
+                   stage = value.stage
+                   if stage == SequenceStage.PREFILL:
+                       context_length += value.get_prompt_len()
+            stage = stage.value
+            sampler_output = self.scorer_worker.execute_model(execute_model_req)
         assert len(sampler_output) == 1
         sampler_output = sampler_output[0]
         # Store hidden states from target model execution, BxD.
@@ -746,17 +738,18 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
                 self.previous_hidden_states.update(hidden_states,
                                                    seq_group_meta_with_hidden)
                 # self.previous_hidden_states.prune(seq_group_meta_with_hidden)
-
+        draft_prefill_timer = None
         if not skip_proposer:
             # We prepare the prefill hidden states here so that there no
             # additional complexity in worker for spec_decode vs non_spec_decode
             # flow and execute_model doesn't need additional modifications.
-            execute_model_req.previous_hidden_states = \
-                prepare_prefill_hidden_states(
-                    sampler_output.prefill_hidden_states)
-            for i in range(self._num_spec_prefill_steps):
-                execute_model_req.spec_step_idx = i
-                self.proposer_worker.execute_model(execute_model_req)
+            with Timer() as draft_prefill_timer:
+                execute_model_req.previous_hidden_states = \
+                    prepare_prefill_hidden_states(
+                        sampler_output.prefill_hidden_states)
+                for i in range(self._num_spec_prefill_steps):
+                    execute_model_req.spec_step_idx = i
+                    self.proposer_worker.execute_model(execute_model_req)
 
         sampler_output_to_return = (self._serialize_sampler_output_no_logprobs(
             execute_model_req=execute_model_req, sampler_output=sampler_output)
@@ -768,6 +761,12 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         sampler_output.sampled_token_probs = None
         sampler_output.sampled_token_ids = None
         sampler_output.logprobs = None
+        if draft_prefill_timer is not None:
+            draft_time = draft_prefill_timer.elapsed_time_ms
+        else:
+            draft_time = 0
+        # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage
+        self.stage_times = (draft_time,scoring_timer.elapsed_time_ms,0,len(execute_model_req.seq_group_metadata_list),0,context_length,stage)
         return sampler_output_to_return
 
     def _run_non_driver_rank(self) -> bool:
@@ -832,12 +831,10 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         # Pass last hidden states from target model to proposer
         execute_model_req.previous_hidden_states = self.previous_hidden_states
         self.previous_hidden_states = None
-
         with Timer() as proposal_timer:
             # Generate proposals using draft worker.
             proposals = self.proposer_worker.get_spec_proposals(
                 execute_model_req, self._seq_with_bonus_token_in_last_step)
-
         if not self._allow_zero_draft_token_step and proposals.no_proposals:
             #TODO: Fix it #5814
             raise RuntimeError("Cannot handle cases where distributed draft "
@@ -850,7 +847,6 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
                 execute_model_req,
                 proposals,
             )
-
         _, (non_spec_seqs, non_spec_indices) = split_batch_by_proposal_len(
             execute_model_req.seq_group_metadata_list, proposals.proposal_lens)
         # With prefill chunking enabled, `non_spec_seqs` contains prefills too:
@@ -880,6 +876,9 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         stage_times = (proposal_timer.elapsed_time_ms / num_lookahead_slots,
                        scoring_timer.elapsed_time_ms,
                        verification_timer.elapsed_time_ms)
+        num_accepted_tokens = num_accepted_tokens.item()
+        # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage
+        self.stage_times = (proposal_timer.elapsed_time_ms,scoring_timer.elapsed_time_ms,verification_timer.elapsed_time_ms,len(execute_model_req.seq_group_metadata_list),num_accepted_tokens,0, SequenceStage.DECODE.value)
 
         return self._create_output_sampler_list(
             execute_model_req.seq_group_metadata_list,
@@ -1351,9 +1350,14 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         return self.need_decrease_block_number
     
     def get_speculative_metrics(self):
-        if hasattr(self.spec_decode_sampler, "ratio"):
-            return self.spec_decode_sampler.ratio
-        return 0
+        # if hasattr(self.spec_decode_sampler, "ratio"):
+        #     # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens
+        #     a = self.stage_times[4]/self.stage_times[3]
+        #     if isinstance(self.spec_decode_sampler.ratio, torch.Tensor): # 这个存的是上一次decode的，而a 是当前step的
+        #         self.spec_decode_sampler.ratio = self.spec_decode_sampler.ratio.item()
+        #     if self.spec_decode_sampler.ratio - a > 0.01:
+        #         logger.info(f"speculative_metrics ratio not match!!!!: {self.spec_decode_sampler.ratio} {a}")
+        return self.stage_times
     
     def update_typical_acceptance_threshold(self, new_threshold, new_alpha):
         self.spec_decode_sampler.update_posterior_threshold(new_threshold, new_alpha)
@@ -1387,20 +1391,38 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         self.spec_decode_sampler.last_metrics = []
     
     def offload_proposer_worker(self):
-        print("switch_draft_model_to_ngram, offload!!!x2")
+        if self.proposer_worker_to_cpu:
+            return
+        if not hasattr(self, 'old_proposer_worker') or self.old_proposer_worker is None:
+            if hasattr(self.proposer_worker, 'model_runner') and hasattr(self.proposer_worker.model_runner, 'model'):
+                self.old_proposer_worker = self.proposer_worker
+            else:
+                return
+
+        print("offload model to cpu!!!x2")
         begin_time = time.time()
-        self.proposer_worker.model_runner.model.to("cpu",non_blocking=True)
-        end_time = time.time()
-        logger.info(f"Time taken to move to cpu: {end_time - begin_time} seconds")
+        
+        def move_model_to_cpu():
+            try:
+                model = self.old_proposer_worker.model_runner.model
+                model.to("cpu", non_blocking=True)
+                logger.info(f"模型迁移到CPU完成，耗时: {time.time() - begin_time} 秒")
+            except Exception as e:
+                logger.error(f"模型迁移到CPU时发生错误: {str(e)}")
+        
+        # 使用全局线程池提交任务，不等待任务完成
+        _global_executor.submit(move_model_to_cpu)
+        
         self.proposer_worker_to_cpu = True
-        # Save current state of the proposer worker
-        old_proposer_worker = self.proposer_worker
-        self.old_proposer_worker = old_proposer_worker
+        logger.info(f"已启动异步线程将模型迁移到CPU")
 
     def switch_draft_model_to_ngram(self):
         if hasattr(self, 'using_ngram_draft_model') and self.using_ngram_draft_model:
             return True
         begin_time = time.time()
+        # 保存当前的 proposer_worker
+        old_proposer_worker = self.proposer_worker
+        self.old_proposer_worker = old_proposer_worker
         # Get the necessary configuration from the current spec worker
         vllm_config = getattr(self.scorer_worker, "vllm_config", None)
         
@@ -1446,9 +1468,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         return True
     
     def load_neural_model_async(self):
-        if not hasattr(self, 'using_ngram_draft_model') or not self.using_ngram_draft_model:
-            logger.info("Already using neural draft model, no switch needed")
-            return True
+        logger.info("load_neural_model_async!!!!!!!!!!!")
             
         if not hasattr(self, 'old_proposer_worker') or self.old_proposer_worker is None:
             logger.error("No saved neural draft model found")
@@ -1473,6 +1493,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         Returns:
             bool: True if successful, False otherwise
         """
+        logger.info("switch_draft_model_to_neural!!!!!!!!!!!")
         if not hasattr(self, 'using_ngram_draft_model') or not self.using_ngram_draft_model:
             logger.info("Already using neural draft model, no switch needed")
             return True
@@ -1517,6 +1538,17 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
     
     def get_disable_speculative_decoding(self):
         return self.disable_speculative_decoding
+
+    def increase_cache_blocks(self,num_gpu_blocks: int) -> None:
+        allocated = torch.cuda.memory_allocated() / (1024 * 1024 * 1024)  # 转换为GB
+        reserved = torch.cuda.memory_reserved() / (1024 * 1024 * 1024)
+        print(f"当前显存使用情况: 已分配 {allocated:.2f}GB, 已预留 {reserved:.2f}GB")
+        self.scorer_worker.increase_cache_blocks(num_gpu_blocks=num_gpu_blocks)
+        # self.proposer_worker.increase_cache_blocks(num_gpu_blocks=num_gpu_blocks)
+        
+    def decrease_cache_blocks(self,num_gpu_blocks: int,block_migration_map=None) -> None:
+        self.scorer_worker.decrease_cache_blocks(num_gpu_blocks=num_gpu_blocks,block_migration_map=block_migration_map)
+        # self.proposer_worker.decrease_cache_blocks(num_gpu_blocks=num_gpu_blocks)
     
     
 

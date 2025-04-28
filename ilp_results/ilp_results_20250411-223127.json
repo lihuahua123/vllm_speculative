@@ -1,0 +1,81 @@
+{
+  "training_metrics": {
+    "throughput_history": [],
+    "request_load_history": [],
+    "memory_usage_history": [],
+    "action_history": [
+      {
+        "action": "USE_SMALL_MODEL_1",
+        "time": 1744381634.7929556,
+        "metrics": {
+          "throughput": 5.732690485026574e-10,
+          "acceptance_rate": 0,
+          "spec_length": 4,
+          "time": 1744381634.7929342
+        }
+      }
+    ],
+    "acceptance_rate_history": [],
+    "spec_length_history": []
+  },
+  "testing_results": [
+    {
+      "request_rate": 1.0,
+      "completed_requests": 15,
+      "total_tokens_generated": 2880,
+      "avg_latency": 4.195614798863729,
+      "throughput": 45.75013753622208,
+      "ilp_actions": [],
+      "initial_ilp_state": {
+        "current_model_index": -1
+      },
+      "final_ilp_state": {
+        "current_model_index": 0
+      }
+    },
+    {
+      "request_rate": 2.0,
+      "completed_requests": 15,
+      "total_tokens_generated": 2880,
+      "avg_latency": 4.258764266967773,
+      "throughput": 45.073740403211616,
+      "ilp_actions": [],
+      "initial_ilp_state": {
+        "current_model_index": 0
+      },
+      "final_ilp_state": {
+        "current_model_index": 0
+      }
+    },
+    {
+      "request_rate": 4.0,
+      "completed_requests": 15,
+      "total_tokens_generated": 2880,
+      "avg_latency": 4.294488255182902,
+      "throughput": 44.69880895184455,
+      "ilp_actions": [],
+      "initial_ilp_state": {
+        "current_model_index": 0
+      },
+      "final_ilp_state": {
+        "current_model_index": 0
+      }
+    },
+    {
+      "request_rate": 8.0,
+      "completed_requests": 15,
+      "total_tokens_generated": 2880,
+      "avg_latency": 4.096841017405192,
+      "throughput": 46.854988160360406,
+      "ilp_actions": [],
+      "initial_ilp_state": {
+        "current_model_index": 0
+      },
+      "final_ilp_state": {
+        "current_model_index": 0
+      }
+    }
+  ],
+  "best_rate": 8.0,
+  "best_throughput": 46.854988160360406
+}

@@ -24,7 +24,7 @@ from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.sequence import (ExecuteModelRequest, IntermediateTensors,
                            SequenceGroupMetadata, SequenceGroupMetadataDelta)
 from vllm.utils import (GiB_bytes, MemorySnapshot, bind_kv_cache,
-                        memory_profiling)
+                        memory_profiling, deblind_kv_cache)
 from vllm.worker.cache_engine import CacheEngine
 from vllm.worker.enc_dec_model_runner import EncoderDecoderModelRunner
 from vllm.worker.model_runner import GPUModelRunnerBase, ModelRunner
@@ -321,6 +321,34 @@ class Worker(LocalOrDistributedWorkerBase):
                         self.parallel_config, self.device_config)
             for _ in range(self.parallel_config.pipeline_parallel_size)
         ]
+        self.gpu_cache = [
+            self.cache_engine[ve].gpu_cache
+            for ve in range(self.parallel_config.pipeline_parallel_size)
+        ]
+        bind_kv_cache(self.compilation_config.static_forward_context,
+                      self.gpu_cache)
+        
+    def increase_cache_blocks(self,num_gpu_blocks: int) -> None:
+        self.gpu_cache = None
+        deblind_kv_cache(self.compilation_config.static_forward_context)
+        for ve in range(self.parallel_config.pipeline_parallel_size):
+            allocated = torch.cuda.memory_allocated() / (1024 * 1024 * 1024)  # 转换为GB
+            reserved = torch.cuda.memory_reserved() / (1024 * 1024 * 1024)
+            print(f"当前显存使用情况: 已分配 {allocated:.2f}GB, 已预留 {reserved:.2f}GB")
+            self.cache_engine[ve].increase_gpu_blocks(num_gpu_blocks)
+        self.gpu_cache = [
+            self.cache_engine[ve].gpu_cache
+            for ve in range(self.parallel_config.pipeline_parallel_size)
+        ]
+        bind_kv_cache(self.compilation_config.static_forward_context,
+                      self.gpu_cache)
+
+    def decrease_cache_blocks(self,num_gpu_blocks: int, block_migration_map=None) -> None:
+        print(f"!!!decrease_cache_blocks: {num_gpu_blocks}, block_migration_map: {block_migration_map}")
+        self.gpu_cache = None
+        deblind_kv_cache(self.compilation_config.static_forward_context)
+        for ve in range(self.parallel_config.pipeline_parallel_size):
+            self.cache_engine[ve].decrease_gpu_blocks(num_gpu_blocks, block_migration_map)
         self.gpu_cache = [
             self.cache_engine[ve].gpu_cache
             for ve in range(self.parallel_config.pipeline_parallel_size)

@@ -1,0 +1,40 @@
+{
+  "training_metrics": {
+    "throughput_history": [],
+    "request_load_history": [],
+    "memory_usage_history": [],
+    "reward_history": []
+  },
+  "testing_results": [
+    {
+      "request_rate": 1.0,
+      "completed_requests": 12,
+      "total_tokens_generated": 2194,
+      "avg_latency": 5.250569840272267,
+      "throughput": 34.815081202916865
+    },
+    {
+      "request_rate": 2.0,
+      "completed_requests": 12,
+      "total_tokens_generated": 2194,
+      "avg_latency": 5.60374101003011,
+      "throughput": 32.62112502011369
+    },
+    {
+      "request_rate": 4.0,
+      "completed_requests": 12,
+      "total_tokens_generated": 2194,
+      "avg_latency": 6.247978150844574,
+      "throughput": 29.257983206470566
+    },
+    {
+      "request_rate": 8.0,
+      "completed_requests": 10,
+      "total_tokens_generated": 1731,
+      "avg_latency": 6.220271396636963,
+      "throughput": 27.82371766121034
+    }
+  ],
+  "best_throughput": 34.815081202916865,
+  "best_rate": 1.0
+}

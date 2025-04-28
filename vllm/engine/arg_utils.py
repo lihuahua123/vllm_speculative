@@ -219,8 +219,6 @@ class EngineArgs:
     calculate_kv_scales: Optional[bool] = None
 
     additional_config: Optional[Dict[str, Any]] = None
-    disable_switch_draft_model: bool = False
-    disable_offload_proposer_worker: bool = False
     enable_reasoning: Optional[bool] = None
     reasoning_parser: Optional[str] = None
     use_tqdm_on_load: bool = True
@@ -1092,22 +1090,6 @@ class EngineArgs:
             "Different platforms may support different configs. Make sure the "
             "configs are valid for the platform you are using. The input format"
             " is like '{\"config_key\":\"config_value\"}'")
-        
-        parser.add_argument(
-            "--disable-switch-draft-model",
-            action="store_true",  # This is important - it means the flag takes no value
-            default=False,
-            help="Disable the switch of draft model during speculative decoding. "
-            "This is useful when the draft model is a deepseek_mtp model that requires prefill "
-            "kv cache separately for each MTP layer.")
-        
-        parser.add_argument(
-            "--disable-offload-proposer-worker",
-            action="store_true",  # This is important - it means the flag takes no value
-            default=False,
-            help="Disable the offload of the proposer worker to CPU. "
-            "This is useful when the proposer worker is a deepseek_mtp model that requires prefill "
-            "kv cache separately for each MTP layer.")
 
         parser.add_argument(
             "--enable-reasoning",
@@ -1222,9 +1204,7 @@ class EngineArgs:
         target_model_config: ModelConfig,
         target_parallel_config: ParallelConfig,
         enable_chunked_prefill: bool,
-        disable_log_stats: bool,
-        disable_switch_draft_model: bool,
-        disable_offload_proposer_worker: bool,
+        disable_log_stats: bool
     ) -> Optional["SpeculativeConfig"]:
         """Initializes and returns a SpeculativeConfig object based on
         `speculative_config`.
@@ -1288,9 +1268,7 @@ class EngineArgs:
             "target_model_config": target_model_config,
             "target_parallel_config": target_parallel_config,
             "enable_chunked_prefill": enable_chunked_prefill,
-            "disable_log_stats": disable_log_stats,
-            "disable_switch_draft_model": disable_switch_draft_model,
-            "disable_offload_proposer_worker":disable_offload_proposer_worker,
+            "disable_log_stats": disable_log_stats
         })
         speculative_config = SpeculativeConfig.from_dict(
             self.speculative_config)
@@ -1391,9 +1369,7 @@ class EngineArgs:
             target_model_config=model_config,
             target_parallel_config=parallel_config,
             enable_chunked_prefill=self.enable_chunked_prefill,
-            disable_log_stats=self.disable_log_stats,
-            disable_switch_draft_model=self.disable_switch_draft_model,
-            disable_offload_proposer_worker=self.disable_offload_proposer_worker
+            disable_log_stats=self.disable_log_stats
         )
 
         # Reminder: Please update docs/source/features/compatibility_matrix.md

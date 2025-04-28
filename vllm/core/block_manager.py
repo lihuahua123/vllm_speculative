@@ -138,7 +138,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
             new_usable_blocks = 1  # 至少保留1个可用block
         
         self.num_usable_gpu_blocks = new_usable_blocks
-        print("self.num_usable_gpu_blocks reassigned decrease",self.num_usable_gpu_blocks)
+        print("self.num_usable_gpu_blocks reassigned: ",self.num_usable_gpu_blocks)
         self.watermark_blocks = int(self.watermark * self.num_usable_gpu_blocks)
 
     def can_allocate(self,

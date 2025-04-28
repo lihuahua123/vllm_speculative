@@ -428,6 +428,97 @@ async def async_request_openai_chat_completions(
     return output
 
 
+async def async_request_generate(
+    request_func_input: RequestFuncInput,
+    pbar: Optional[tqdm] = None,
+) -> RequestFuncOutput:
+    api_url = request_func_input.api_url
+    assert api_url.endswith("generate")
+
+    async with aiohttp.ClientSession(trust_env=False,
+                                     timeout=AIOHTTP_TIMEOUT) as session:
+        payload = {
+            "prompt": request_func_input.prompt,
+            "stream": True,
+            "temperature": 0.0,
+            "top_p": 1.0,
+            "max_tokens": request_func_input.output_len,
+        }
+        
+        if request_func_input.ignore_eos:
+            payload["ignore_eos"] = request_func_input.ignore_eos
+            
+        if request_func_input.extra_body:
+            payload.update(request_func_input.extra_body)
+            
+        output = RequestFuncOutput()
+        output.prompt_len = request_func_input.prompt_len
+
+        generated_text = ""
+        ttft = 0.0
+        st = time.perf_counter()
+        most_recent_timestamp = st
+        try:
+            async with session.post(url=api_url, json=payload, proxy=None) as response:
+                if response.status == 200:
+                    if payload.get("stream", False):
+                        # 处理流式响应
+                        async for chunk_bytes in response.content:
+                            chunk_bytes = chunk_bytes.strip()
+                            if not chunk_bytes:
+                                continue
+
+                            chunk = chunk_bytes.decode("utf-8")
+                            if chunk.startswith("data: "):
+                                chunk = chunk.removeprefix("data: ")
+
+                            try:
+                                data = json.loads(chunk)
+                                if "text" in data:
+                                    text_outputs = data["text"]
+                                    if isinstance(text_outputs, list) and text_outputs:
+                                        # 获取当前生成的文本片段
+                                        current_text = text_outputs[0]
+                                        timestamp = time.perf_counter()
+                                        
+                                        # 第一个token
+                                        if ttft == 0.0:
+                                            ttft = timestamp - st
+                                            output.ttft = ttft
+                                        # 解码阶段
+                                        else:
+                                            output.itl.append(timestamp - most_recent_timestamp)
+
+                                        most_recent_timestamp = timestamp
+                                        generated_text = current_text  # 使用最新返回的完整文本
+                            except json.JSONDecodeError:
+                                # 处理JSON解析错误
+                                output.error += f"JSON解析错误: {chunk}\n"
+                    else:
+                        # 处理非流式响应
+                        data = await response.json()
+                        if "text" in data:
+                            text_outputs = data["text"]
+                            if isinstance(text_outputs, list) and text_outputs:
+                                generated_text = text_outputs[0]
+                                output.ttft = time.perf_counter() - st
+                                
+                    output.generated_text = generated_text
+                    output.latency = time.perf_counter() - st
+                    output.success = True
+                else:
+                    output.error = f"HTTP错误: {response.status} - {response.reason or ''}"
+                    output.success = False
+        except Exception:
+            output.success = False
+            exc_info = sys.exc_info()
+            output.error = "".join(traceback.format_exception(*exc_info))
+
+    if pbar:
+        pbar.update(1)
+    return output
+
+
 def get_model(pretrained_model_name_or_path: str) -> str:
     if os.getenv('VLLM_USE_MODELSCOPE', 'False').lower() == 'true':
         from modelscope import snapshot_download
@@ -488,4 +579,5 @@ ASYNC_REQUEST_FUNCS = {
     "tensorrt-llm": async_request_trt_llm,
     "scalellm": async_request_openai_completions,
     "sglang": async_request_openai_completions,
+    "generate": async_request_generate,
 }

@@ -14,7 +14,7 @@ def main():
     parser.add_argument("--train_model", action="store_true", help="是否训练预测模型")
     parser.add_argument("--batch_sizes", type=int, nargs="+", default=[1, 2, 4, 8, 16, 32, 64, 128], 
                         help="要测试的batch大小列表")
-    parser.add_argument("--num_samples", type=int, default=200, help="从数据集中采样的请求数量")
+    parser.add_argument("--num_samples", type=int, default=3850, help="从数据集中采样的请求数量")
     args = parser.parse_args()
     
     # 确保输出目录存在
@@ -54,12 +54,13 @@ def main():
     # 训练预测模型
     if args.train_model:
         print(f"开始训练prefill性能预测模型")
-        model = PrefillPerformanceModel()
         
         try:
+            model = PrefillPerformanceModel()
             r2_score = model.train(big_perf_stats_path, big_model_save_path)
             print(f"big模型训练完成，R²得分: {r2_score:.3f}")
             print(f"big模型保存到: {big_model_save_path}")
+            model = PrefillPerformanceModel()
             r2_score = model.train(small_perf_stats_path, small_model_save_path)
             print(f"small模型训练完成，R²得分: {r2_score:.3f}")
             print(f"small模型保存到: {small_model_save_path}")

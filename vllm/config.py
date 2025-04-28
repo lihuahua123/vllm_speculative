@@ -1943,10 +1943,6 @@ class SpeculativeConfig:
                                             init=True)  # type: ignore
     draft_parallel_config: ParallelConfig = field(default=None,
                                                   init=True)  # type: ignore
-    
-    disable_switch_draft_model: bool = False
-    disable_offload_proposer_worker: bool = False
-    
 
     def compute_hash(self) -> str:
         """

@@ -49,6 +49,7 @@ class UniProcExecutor(ExecutorBase):
     def collective_rpc(self,
                        method: Union[str, Callable],
                        timeout: Optional[float] = None,
+                       need_worker_output: bool = True,
                        args: Tuple = (),
                        kwargs: Optional[Dict] = None) -> List[Any]:
         if kwargs is None:

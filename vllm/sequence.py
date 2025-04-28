@@ -986,7 +986,7 @@ class SequenceGroupMetadata(
     # Zero means speculative decoding is disabled for some reasons.
     # TODO: We should maintain this states out of the sequence group.
     num_speculative_tokens: Optional[int] = None
-
+    skip_neural_net_proposer_step_num: int = 0
     def __post_init__(self):
         if self.seq_data is not None and self.token_chunk_size is None:
             if self.is_prompt:
