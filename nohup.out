@@ -1,468 +1,0 @@
-INFO 04-11 20:06:50 [__init__.py:239] Automatically detected platform cuda.
-开始收集VLLM prefill性能数据，使用模型: /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B
-加载模型: /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B
-INFO 04-11 20:06:55 [config.py:585] This model supports multiple tasks: {'embed', 'classify', 'reward', 'score', 'generate'}. Defaulting to 'generate'.
-INFO 04-11 20:06:55 [llm_engine.py:241] Initializing a V0 LLM engine (v0.8.2.dev77+gf90d34b49) with config: model='/data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B', speculative_config=None, tokenizer='/data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, override_neuron_config=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=8432, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, disable_custom_all_reduce=False, quantization=None, enforce_eager=False, kv_cache_dtype=auto,  device_config=cuda, decoding_config=DecodingConfig(guided_decoding_backend='xgrammar', reasoning_backend=None), observability_config=ObservabilityConfig(show_hidden_metrics=False, otlp_traces_endpoint=None, collect_model_forward_time=False, collect_model_execute_time=False), seed=None, served_model_name=/data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B, num_scheduler_steps=1, multi_step_stream_outputs=True, enable_prefix_caching=None, chunked_prefill_enabled=False, use_async_output_proc=True, disable_mm_preprocessor_cache=False, mm_processor_kwargs=None, pooler_config=None, compilation_config={"splitting_ops":[],"compile_sizes":[],"cudagraph_capture_sizes":[256,248,240,232,224,216,208,200,192,184,176,168,160,152,144,136,128,120,112,104,96,88,80,72,64,56,48,40,32,24,16,8,4,2,1],"max_capture_size":256}, use_cached_outputs=False, 
-INFO 04-11 20:06:56 [cuda.py:293] Using Flash Attention backend.
-INFO 04-11 20:06:57 [parallel_state.py:967] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, TP rank 0
-INFO 04-11 20:06:57 [model_runner.py:1110] Starting to load model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B...
-Loading safetensors checkpoint shards:   0% Completed | 0/2 [00:00<?, ?it/s]
-Loading safetensors checkpoint shards:  50% Completed | 1/2 [00:00<00:00,  1.13it/s]
-Loading safetensors checkpoint shards: 100% Completed | 2/2 [00:01<00:00,  1.26it/s]
-Loading safetensors checkpoint shards: 100% Completed | 2/2 [00:01<00:00,  1.24it/s]
-
-INFO 04-11 20:06:58 [loader.py:429] Loading weights took 1.67 seconds
-INFO 04-11 20:06:59 [model_runner.py:1146] Model loading took 14.2717 GB and 1.742489 seconds
-INFO 04-11 20:07:00 [worker.py:274] Memory profiling takes 1.30 seconds
-INFO 04-11 20:07:00 [worker.py:274] the current vLLM instance can use total_gpu_memory (47.53GiB) x gpu_memory_utilization (0.90) = 42.78GiB
-INFO 04-11 20:07:00 [worker.py:274] model weights take 14.27GiB; non_torch_memory takes 0.06GiB; PyTorch activation peak memory takes 1.44GiB; the rest of the memory reserved for KV Cache is 27.00GiB.
-INFO 04-11 20:07:00 [executor_base.py:111] # cuda blocks: 31601, # CPU blocks: 4681
-INFO 04-11 20:07:00 [executor_base.py:116] Maximum concurrency for 8432 tokens per request: 59.96x
-INFO 04-11 20:07:02 [model_runner.py:1442] Capturing cudagraphs for decoding. This may lead to unexpected consequences if the model is not static. To run the model in eager mode, set 'enforce_eager=True' or use '--enforce-eager' in the CLI. If out-of-memory error occurs during cudagraph capture, consider decreasing `gpu_memory_utilization` or switching to eager mode. You can also reduce the `max_num_seqs` as needed to decrease memory usage.
-Capturing CUDA graph shapes:   0%|          | 0/35 [00:00<?, ?it/s]Capturing CUDA graph shapes:   3%|▎         | 1/35 [00:00<00:12,  2.65it/s]Capturing CUDA graph shapes:   6%|▌         | 2/35 [00:00<00:12,  2.70it/s]Capturing CUDA graph shapes:   9%|▊         | 3/35 [00:01<00:11,  2.72it/s]Capturing CUDA graph shapes:  11%|█▏        | 4/35 [00:01<00:11,  2.74it/s]Capturing CUDA graph shapes:  14%|█▍        | 5/35 [00:01<00:11,  2.73it/s]Capturing CUDA graph shapes:  17%|█▋        | 6/35 [00:02<00:10,  2.74it/s]Capturing CUDA graph shapes:  20%|██        | 7/35 [00:02<00:10,  2.75it/s]Capturing CUDA graph shapes:  23%|██▎       | 8/35 [00:02<00:09,  2.75it/s]Capturing CUDA graph shapes:  26%|██▌       | 9/35 [00:03<00:09,  2.77it/s]Capturing CUDA graph shapes:  29%|██▊       | 10/35 [00:03<00:09,  2.77it/s]Capturing CUDA graph shapes:  31%|███▏      | 11/35 [00:04<00:08,  2.77it/s]Capturing CUDA graph shapes:  34%|███▍      | 12/35 [00:04<00:08,  2.78it/s]Capturing CUDA graph shapes:  37%|███▋      | 13/35 [00:04<00:07,  2.77it/s]Capturing CUDA graph shapes:  40%|████      | 14/35 [00:05<00:07,  2.78it/s]Capturing CUDA graph shapes:  43%|████▎     | 15/35 [00:05<00:07,  2.79it/s]Capturing CUDA graph shapes:  46%|████▌     | 16/35 [00:05<00:06,  2.78it/s]Capturing CUDA graph shapes:  49%|████▊     | 17/35 [00:06<00:06,  2.82it/s]Capturing CUDA graph shapes:  51%|█████▏    | 18/35 [00:06<00:05,  2.83it/s]Capturing CUDA graph shapes:  54%|█████▍    | 19/35 [00:06<00:05,  2.85it/s]Capturing CUDA graph shapes:  57%|█████▋    | 20/35 [00:07<00:05,  2.86it/s]Capturing CUDA graph shapes:  60%|██████    | 21/35 [00:07<00:04,  2.86it/s]Capturing CUDA graph shapes:  63%|██████▎   | 22/35 [00:07<00:04,  2.87it/s]Capturing CUDA graph shapes:  66%|██████▌   | 23/35 [00:08<00:04,  2.87it/s]Capturing CUDA graph shapes:  69%|██████▊   | 24/35 [00:08<00:03,  2.87it/s]Capturing CUDA graph shapes:  71%|███████▏  | 25/35 [00:08<00:03,  2.87it/s]Capturing CUDA graph shapes:  74%|███████▍  | 26/35 [00:09<00:03,  2.88it/s]Capturing CUDA graph shapes:  77%|███████▋  | 27/35 [00:09<00:02,  2.89it/s]Capturing CUDA graph shapes:  80%|████████  | 28/35 [00:09<00:02,  2.91it/s]Capturing CUDA graph shapes:  83%|████████▎ | 29/35 [00:10<00:02,  2.92it/s]Capturing CUDA graph shapes:  86%|████████▌ | 30/35 [00:10<00:01,  2.92it/s]Capturing CUDA graph shapes:  89%|████████▊ | 31/35 [00:10<00:01,  2.91it/s]Capturing CUDA graph shapes:  91%|█████████▏| 32/35 [00:11<00:01,  2.92it/s]Capturing CUDA graph shapes:  94%|█████████▍| 33/35 [00:11<00:00,  2.91it/s]Capturing CUDA graph shapes:  97%|█████████▋| 34/35 [00:12<00:00,  2.93it/s]Capturing CUDA graph shapes: 100%|██████████| 35/35 [00:12<00:00,  2.91it/s]Capturing CUDA graph shapes: 100%|██████████| 35/35 [00:12<00:00,  2.83it/s]
-INFO 04-11 20:07:14 [model_runner.py:1570] Graph capturing finished in 12 secs, took 0.23 GiB
-INFO 04-11 20:07:14 [llm_engine.py:486] init engine (profile, create kv cache, warmup model) took 15.67 seconds
-16 num_usable_gpu_blocks 31601 31601
-从数据集 /data/sharegpt.json 采样 3850 个请求
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:00, 18.89it/s]测试不同batch大小:  50%|█████     | 4/8 [00:00<00:00, 10.92it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:02<00:01,  1.65it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:04<00:00,  1.11it/s]测试不同batch大小: 100%|██████████| 8/8 [00:06<00:00,  1.16s/it]测试不同batch大小: 100%|██████████| 8/8 [00:06<00:00,  1.23it/s]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:00, 10.39it/s]测试不同batch大小:  50%|█████     | 4/8 [00:00<00:00,  5.49it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:01<00:01,  2.07it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:03<00:01,  1.08it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:05<00:01,  1.27s/it]测试不同batch大小: 100%|██████████| 8/8 [00:08<00:00,  1.54s/it]测试不同batch大小: 100%|██████████| 8/8 [00:08<00:00,  1.01s/it]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:00, 20.31it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:04<00:01,  1.15it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:06<00:01,  1.12s/it]测试不同batch大小: 100%|██████████| 8/8 [00:08<00:00,  1.37s/it]测试不同batch大小: 100%|██████████| 8/8 [00:08<00:00,  1.08s/it]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  12%|█▎        | 1/8 [00:00<00:01,  5.24it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:01,  5.19it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:01,  4.76it/s]测试不同batch大小:  50%|█████     | 4/8 [00:00<00:01,  3.75it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:01<00:01,  2.05it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:03<00:01,  1.02it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:05<00:01,  1.30s/it]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.54s/it]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.03it/s]
-Token indices sequence length is longer than the specified maximum sequence length for this model (20449 > 16384). Running this sequence through the model will result in indexing errors
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:00, 13.48it/s]测试不同batch大小:  50%|█████     | 4/8 [00:00<00:00,  4.94it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:01<00:01,  2.23it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:03<00:01,  1.16it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:05<00:01,  1.17s/it]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.42s/it]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.07it/s]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  12%|█▎        | 1/8 [00:00<00:01,  6.87it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:01,  5.76it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:01,  3.75it/s]测试不同batch大小:  50%|█████     | 4/8 [00:01<00:01,  2.41it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:02<00:02,  1.28it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:04<00:02,  1.21s/it]测试不同batch大小:  88%|████████▊ | 7/8 [00:06<00:01,  1.50s/it]测试不同batch大小: 100%|██████████| 8/8 [00:09<00:00,  1.73s/it]测试不同batch大小: 100%|██████████| 8/8 [00:09<00:00,  1.14s/it]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  12%|█▎        | 1/8 [00:00<00:00,  9.72it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:00,  9.65it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:01,  4.81it/s]测试不同batch大小:  50%|█████     | 4/8 [00:01<00:01,  2.98it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:01<00:01,  1.97it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:03<00:01,  1.04it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:05<00:01,  1.29s/it]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.54s/it]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.03it/s]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:00, 19.48it/s]测试不同batch大小:  50%|█████     | 4/8 [00:00<00:00, 12.02it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:02<00:01,  1.92it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:04<00:00,  1.11it/s]测试不同batch大小: 100%|██████████| 8/8 [00:06<00:00,  1.23s/it]测试不同batch大小: 100%|██████████| 8/8 [00:06<00:00,  1.21it/s]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:00, 20.69it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:01<00:00,  3.59it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:03<00:00,  1.50it/s]测试不同batch大小: 100%|██████████| 8/8 [00:05<00:00,  1.02s/it]测试不同batch大小: 100%|██████████| 8/8 [00:05<00:00,  1.41it/s]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:00,  9.98it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:00,  5.90it/s]测试不同batch大小:  50%|█████     | 4/8 [00:00<00:01,  3.78it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:02<00:01,  1.65it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:04<00:02,  1.08s/it]测试不同batch大小:  88%|████████▊ | 7/8 [00:06<00:01,  1.41s/it]测试不同batch大小: 100%|██████████| 8/8 [00:08<00:00,  1.66s/it]测试不同batch大小: 100%|██████████| 8/8 [00:08<00:00,  1.06s/it]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:00,  6.17it/s]测试不同batch大小:  50%|█████     | 4/8 [00:00<00:01,  3.99it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:02<00:01,  1.64it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:04<00:02,  1.06s/it]测试不同batch大小:  88%|████████▊ | 7/8 [00:06<00:01,  1.39s/it]测试不同batch大小: 100%|██████████| 8/8 [00:08<00:00,  1.64s/it]测试不同batch大小: 100%|██████████| 8/8 [00:08<00:00,  1.09s/it]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:00, 18.07it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:01<00:01,  2.49it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:03<00:01,  1.28it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:05<00:01,  1.12s/it]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.39s/it]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.04it/s]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:00, 11.00it/s]测试不同batch大小:  50%|█████     | 4/8 [00:00<00:00,  4.85it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:01<00:00,  3.12it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:02<00:01,  1.71it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:04<00:01,  1.04s/it]测试不同batch大小: 100%|██████████| 8/8 [00:06<00:00,  1.39s/it]测试不同batch大小: 100%|██████████| 8/8 [00:06<00:00,  1.17it/s]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:00, 18.75it/s]测试不同batch大小:  50%|█████     | 4/8 [00:01<00:01,  3.19it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:02<00:01,  1.72it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:04<00:02,  1.03s/it]测试不同batch大小:  88%|████████▊ | 7/8 [00:06<00:01,  1.37s/it]测试不同batch大小: 100%|██████████| 8/8 [00:08<00:00,  1.64s/it]测试不同batch大小: 100%|██████████| 8/8 [00:08<00:00,  1.11s/it]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  12%|█▎        | 1/8 [00:00<00:01,  4.11it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:02,  2.73it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:01<00:03,  1.64it/s]测试不同batch大小:  50%|█████     | 4/8 [00:03<00:03,  1.08it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:04<00:03,  1.24s/it]测试不同batch大小:  75%|███████▌  | 6/8 [00:06<00:03,  1.52s/it]测试不同batch大小:  88%|████████▊ | 7/8 [00:08<00:01,  1.70s/it]测试不同batch大小: 100%|██████████| 8/8 [00:11<00:00,  1.86s/it]测试不同batch大小: 100%|██████████| 8/8 [00:11<00:00,  1.39s/it]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  12%|█▎        | 1/8 [00:00<00:01,  5.01it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:01,  4.16it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:01<00:01,  2.67it/s]测试不同batch大小:  50%|█████     | 4/8 [00:02<00:02,  1.42it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:04<00:03,  1.19s/it]测试不同batch大小:  75%|███████▌  | 6/8 [00:06<00:02,  1.50s/it]测试不同batch大小:  88%|████████▊ | 7/8 [00:08<00:01,  1.72s/it]测试不同batch大小: 100%|██████████| 8/8 [00:10<00:00,  1.90s/it]测试不同batch大小: 100%|██████████| 8/8 [00:10<00:00,  1.35s/it]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  12%|█▎        | 1/8 [00:00<00:00,  9.33it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:01,  5.47it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:01,  3.96it/s]测试不同batch大小:  50%|█████     | 4/8 [00:01<00:01,  3.33it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:02<00:01,  1.58it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:04<00:02,  1.07s/it]测试不同batch大小:  88%|████████▊ | 7/8 [00:06<00:01,  1.40s/it]测试不同batch大小: 100%|██████████| 8/8 [00:08<00:00,  1.65s/it]测试不同batch大小: 100%|██████████| 8/8 [00:08<00:00,  1.06s/it]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  12%|█▎        | 1/8 [00:00<00:01,  6.74it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:01,  4.59it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:01,  3.09it/s]测试不同batch大小:  50%|█████     | 4/8 [00:01<00:02,  1.92it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:03<00:02,  1.07it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:05<00:02,  1.32s/it]测试不同batch大小:  88%|████████▊ | 7/8 [00:07<00:01,  1.57s/it]测试不同batch大小: 100%|██████████| 8/8 [00:09<00:00,  1.77s/it]测试不同batch大小: 100%|██████████| 8/8 [00:09<00:00,  1.21s/it]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:00, 19.33it/s]测试不同batch大小:  50%|█████     | 4/8 [00:00<00:00,  9.07it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:02<00:01,  1.61it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:04<00:00,  1.01it/s]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.31s/it]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.11it/s]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:00, 12.80it/s]测试不同batch大小:  50%|█████     | 4/8 [00:00<00:00,  8.21it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00,  4.52it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:02<00:01,  1.62it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:04<00:01,  1.06s/it]测试不同batch大小: 100%|██████████| 8/8 [00:06<00:00,  1.40s/it]测试不同batch大小: 100%|██████████| 8/8 [00:06<00:00,  1.18it/s]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:00, 18.88it/s]测试不同batch大小:  50%|█████     | 4/8 [00:00<00:00, 10.42it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:03<00:01,  1.47it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:05<00:01,  1.03s/it]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.32s/it]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.09it/s]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  12%|█▎        | 1/8 [00:00<00:00,  9.55it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:01,  4.53it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:01,  3.37it/s]测试不同batch大小:  50%|█████     | 4/8 [00:01<00:01,  2.23it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:02<00:02,  1.38it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:04<00:02,  1.17s/it]测试不同batch大小:  88%|████████▊ | 7/8 [00:06<00:01,  1.47s/it]测试不同batch大小: 100%|██████████| 8/8 [00:09<00:00,  1.70s/it]测试不同batch大小: 100%|██████████| 8/8 [00:09<00:00,  1.13s/it]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:00,  6.99it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:01,  3.67it/s]测试不同batch大小:  50%|█████     | 4/8 [00:01<00:02,  1.83it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:03<00:02,  1.15it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:05<00:02,  1.24s/it]测试不同batch大小:  88%|████████▊ | 7/8 [00:07<00:01,  1.50s/it]测试不同batch大小: 100%|██████████| 8/8 [00:09<00:00,  1.70s/it]测试不同batch大小: 100%|██████████| 8/8 [00:09<00:00,  1.17s/it]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  12%|█▎        | 1/8 [00:00<00:00,  9.39it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:00,  6.80it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:01,  3.62it/s]测试不同batch大小:  50%|█████     | 4/8 [00:01<00:01,  2.67it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:02<00:02,  1.33it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:04<00:02,  1.19s/it]测试不同batch大小:  88%|████████▊ | 7/8 [00:06<00:01,  1.48s/it]测试不同batch大小: 100%|██████████| 8/8 [00:08<00:00,  1.69s/it]测试不同batch大小: 100%|██████████| 8/8 [00:08<00:00,  1.12s/it]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:00, 11.30it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:01<00:01,  2.71it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:03<00:01,  1.27it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:05<00:01,  1.14s/it]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.44s/it]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.01it/s]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  12%|█▎        | 1/8 [00:00<00:01,  6.64it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:01,  4.88it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:01,  3.43it/s]测试不同batch大小:  50%|█████     | 4/8 [00:01<00:01,  2.09it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:03<00:02,  1.09it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:05<00:02,  1.28s/it]测试不同batch大小:  88%|████████▊ | 7/8 [00:07<00:01,  1.53s/it]测试不同batch大小: 100%|██████████| 8/8 [00:09<00:00,  1.71s/it]测试不同batch大小: 100%|██████████| 8/8 [00:09<00:00,  1.17s/it]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  12%|█▎        | 1/8 [00:00<00:00,  9.64it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:01,  5.54it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:01,  4.10it/s]测试不同batch大小:  50%|█████     | 4/8 [00:01<00:01,  3.32it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:01<00:01,  2.52it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:03<00:01,  1.13it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:05<00:01,  1.27s/it]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.62s/it]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.02it/s]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:00, 19.79it/s]测试不同batch大小:  50%|█████     | 4/8 [00:00<00:00,  8.46it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:03<00:01,  1.46it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:05<00:01,  1.02s/it]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.31s/it]测试不同batch大小: 100%|██████████| 8/8 [00:07<00:00,  1.09it/s]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  12%|█▎        | 1/8 [00:00<00:00,  9.63it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:01,  4.96it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:01,  4.02it/s]测试不同batch大小:  50%|█████     | 4/8 [00:01<00:01,  3.51it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:02<00:02,  1.17it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:04<00:02,  1.27s/it]测试不同batch大小:  88%|████████▊ | 7/8 [00:07<00:01,  1.55s/it]测试不同batch大小: 100%|██████████| 8/8 [00:09<00:00,  1.77s/it]测试不同batch大小: 100%|██████████| 8/8 [00:09<00:00,  1.16s/it]
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  25%|██▌       | 2/8 [00:00<00:00,  7.05it/s]测试不同batch大小:  38%|███▊      | 3/8 [00:00<00:01,  4.20it/s]测试不同batch大小:  50%|█████     | 4/8 [00:01<00:02,  1.99it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:03<00:02,  1.04it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:05<00:02,  1.33s/it]测试不同batch大小:  88%|████████▊ | 7/8 [00:07<00:01,  1.58s/it]测试不同batch大小: 100%|██████████| 8/8 [00:09<00:00,  1.78s/it]测试不同batch大小: 100%|██████████| 8/8 [00:09<00:00,  1.23s/it]
-性能数据已保存到 ./perf_results/vllm_prefill_perf_stats_deepseek-aiDeepSeek-R1-Distill-Qwen-7B.json
-加载模型: /data/model/alamios_DeepSeek-R1-DRAFT-Qwen2.5-0.5B
-INFO 04-11 20:12:29 [config.py:585] This model supports multiple tasks: {'embed', 'classify', 'reward', 'score', 'generate'}. Defaulting to 'generate'.
-INFO 04-11 20:12:29 [llm_engine.py:241] Initializing a V0 LLM engine (v0.8.2.dev77+gf90d34b49) with config: model='/data/model/alamios_DeepSeek-R1-DRAFT-Qwen2.5-0.5B', speculative_config=None, tokenizer='/data/model/alamios_DeepSeek-R1-DRAFT-Qwen2.5-0.5B', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, override_neuron_config=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=8432, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, disable_custom_all_reduce=False, quantization=None, enforce_eager=False, kv_cache_dtype=auto,  device_config=cuda, decoding_config=DecodingConfig(guided_decoding_backend='xgrammar', reasoning_backend=None), observability_config=ObservabilityConfig(show_hidden_metrics=False, otlp_traces_endpoint=None, collect_model_forward_time=False, collect_model_execute_time=False), seed=None, served_model_name=/data/model/alamios_DeepSeek-R1-DRAFT-Qwen2.5-0.5B, num_scheduler_steps=1, multi_step_stream_outputs=True, enable_prefix_caching=None, chunked_prefill_enabled=False, use_async_output_proc=True, disable_mm_preprocessor_cache=False, mm_processor_kwargs=None, pooler_config=None, compilation_config={"splitting_ops":[],"compile_sizes":[],"cudagraph_capture_sizes":[256,248,240,232,224,216,208,200,192,184,176,168,160,152,144,136,128,120,112,104,96,88,80,72,64,56,48,40,32,24,16,8,4,2,1],"max_capture_size":256}, use_cached_outputs=False, 
-INFO 04-11 20:12:29 [cuda.py:293] Using Flash Attention backend.
-INFO 04-11 20:12:30 [model_runner.py:1110] Starting to load model /data/model/alamios_DeepSeek-R1-DRAFT-Qwen2.5-0.5B...
-Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
-Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  3.68it/s]
-Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  3.68it/s]
-
-INFO 04-11 20:12:30 [loader.py:429] Loading weights took 0.29 seconds
-INFO 04-11 20:12:30 [model_runner.py:1146] Model loading took 0.9265 GB and 0.334499 seconds
-INFO 04-11 20:12:30 [worker.py:274] Memory profiling takes 0.27 seconds
-INFO 04-11 20:12:30 [worker.py:274] the current vLLM instance can use total_gpu_memory (47.53GiB) x gpu_memory_utilization (0.90) = 42.78GiB
-INFO 04-11 20:12:30 [worker.py:274] model weights take 0.93GiB; non_torch_memory takes 0.00GiB; PyTorch activation peak memory takes 1.39GiB; the rest of the memory reserved for KV Cache is 40.46GiB.
-INFO 04-11 20:12:31 [executor_base.py:111] # cuda blocks: 220939, # CPU blocks: 21845
-INFO 04-11 20:12:31 [executor_base.py:116] Maximum concurrency for 8432 tokens per request: 419.24x
-INFO 04-11 20:12:31 [model_runner.py:1442] Capturing cudagraphs for decoding. This may lead to unexpected consequences if the model is not static. To run the model in eager mode, set 'enforce_eager=True' or use '--enforce-eager' in the CLI. If out-of-memory error occurs during cudagraph capture, consider decreasing `gpu_memory_utilization` or switching to eager mode. You can also reduce the `max_num_seqs` as needed to decrease memory usage.
-Capturing CUDA graph shapes:   0%|          | 0/35 [00:00<?, ?it/s]Capturing CUDA graph shapes:   3%|▎         | 1/35 [00:00<00:10,  3.13it/s]Capturing CUDA graph shapes:   6%|▌         | 2/35 [00:00<00:10,  3.18it/s]Capturing CUDA graph shapes:   9%|▊         | 3/35 [00:00<00:10,  3.19it/s]Capturing CUDA graph shapes:  11%|█▏        | 4/35 [00:01<00:09,  3.22it/s]Capturing CUDA graph shapes:  14%|█▍        | 5/35 [00:01<00:09,  3.23it/s]Capturing CUDA graph shapes:  17%|█▋        | 6/35 [00:01<00:08,  3.24it/s]Capturing CUDA graph shapes:  20%|██        | 7/35 [00:02<00:08,  3.25it/s]Capturing CUDA graph shapes:  23%|██▎       | 8/35 [00:02<00:08,  3.25it/s]Capturing CUDA graph shapes:  26%|██▌       | 9/35 [00:02<00:08,  3.25it/s]Capturing CUDA graph shapes:  29%|██▊       | 10/35 [00:03<00:07,  3.23it/s]Capturing CUDA graph shapes:  31%|███▏      | 11/35 [00:03<00:07,  3.23it/s]Capturing CUDA graph shapes:  34%|███▍      | 12/35 [00:03<00:07,  3.23it/s]Capturing CUDA graph shapes:  37%|███▋      | 13/35 [00:04<00:06,  3.23it/s]Capturing CUDA graph shapes:  40%|████      | 14/35 [00:04<00:06,  3.23it/s]Capturing CUDA graph shapes:  43%|████▎     | 15/35 [00:04<00:06,  3.23it/s]Capturing CUDA graph shapes:  46%|████▌     | 16/35 [00:04<00:05,  3.22it/s]Capturing CUDA graph shapes:  49%|████▊     | 17/35 [00:05<00:05,  3.21it/s]Capturing CUDA graph shapes:  51%|█████▏    | 18/35 [00:05<00:05,  3.22it/s]Capturing CUDA graph shapes:  54%|█████▍    | 19/35 [00:05<00:04,  3.22it/s]Capturing CUDA graph shapes:  57%|█████▋    | 20/35 [00:06<00:04,  3.22it/s]Capturing CUDA graph shapes:  60%|██████    | 21/35 [00:06<00:04,  3.22it/s]Capturing CUDA graph shapes:  63%|██████▎   | 22/35 [00:06<00:04,  3.21it/s]Capturing CUDA graph shapes:  66%|██████▌   | 23/35 [00:07<00:03,  3.22it/s]Capturing CUDA graph shapes:  69%|██████▊   | 24/35 [00:07<00:03,  3.24it/s]Capturing CUDA graph shapes:  71%|███████▏  | 25/35 [00:07<00:03,  3.18it/s]Capturing CUDA graph shapes:  74%|███████▍  | 26/35 [00:08<00:02,  3.18it/s]Capturing CUDA graph shapes:  77%|███████▋  | 27/35 [00:08<00:02,  3.19it/s]Capturing CUDA graph shapes:  80%|████████  | 28/35 [00:08<00:02,  3.18it/s]Capturing CUDA graph shapes:  83%|████████▎ | 29/35 [00:09<00:01,  3.20it/s]Capturing CUDA graph shapes:  86%|████████▌ | 30/35 [00:09<00:01,  3.22it/s]Capturing CUDA graph shapes:  89%|████████▊ | 31/35 [00:09<00:01,  3.22it/s]Capturing CUDA graph shapes:  91%|█████████▏| 32/35 [00:09<00:00,  3.23it/s]Capturing CUDA graph shapes:  94%|█████████▍| 33/35 [00:10<00:00,  3.24it/s]Capturing CUDA graph shapes:  97%|█████████▋| 34/35 [00:10<00:00,  3.24it/s]Capturing CUDA graph shapes: 100%|██████████| 35/35 [00:10<00:00,  3.23it/s]Capturing CUDA graph shapes: 100%|██████████| 35/35 [00:10<00:00,  3.22it/s]
-INFO 04-11 20:12:42 [model_runner.py:1570] Graph capturing finished in 11 secs, took 0.05 GiB
-INFO 04-11 20:12:42 [llm_engine.py:486] init engine (profile, create kv cache, warmup model) took 11.59 seconds
-16 num_usable_gpu_blocks 220939 220939
-从数据集 /data/sharegpt.json 采样 3850 个请求
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:00<00:00, 37.06it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 18.61it/s]
-1 decode_time: 0.0001976490020751953
-2 decode_time: 0.00010204315185546875
-4 decode_time: 9.679794311523438e-05
-8 decode_time: 0.00010323524475097656
-16 decode_time: 0.00021266937255859375
-32 decode_time: 0.0002803802490234375
-64 decode_time: 0.0002338886260986328
-128 decode_time: 0.0003082752227783203
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00, 46.92it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 14.95it/s]
-1 decode_time: 0.00031256675720214844
-2 decode_time: 0.0002219676971435547
-4 decode_time: 0.00011587142944335938
-8 decode_time: 0.00011992454528808594
-16 decode_time: 0.00016355514526367188
-32 decode_time: 0.0002980232238769531
-64 decode_time: 0.0002522468566894531
-128 decode_time: 0.0003077983856201172
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00, 38.07it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 15.12it/s]
-1 decode_time: 0.00021338462829589844
-2 decode_time: 0.0001437664031982422
-4 decode_time: 0.00011897087097167969
-8 decode_time: 0.00011014938354492188
-16 decode_time: 0.0002334117889404297
-32 decode_time: 0.0003185272216796875
-64 decode_time: 0.0002765655517578125
-128 decode_time: 0.0002715587615966797
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00, 47.10it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 15.81it/s]
-Token indices sequence length is longer than the specified maximum sequence length for this model (20449 > 16384). Running this sequence through the model will result in indexing errors
-1 decode_time: 0.00024247169494628906
-2 decode_time: 0.00012564659118652344
-4 decode_time: 0.0001652240753173828
-8 decode_time: 0.00011658668518066406
-16 decode_time: 0.00015211105346679688
-32 decode_time: 0.0002987384796142578
-64 decode_time: 0.0002491474151611328
-128 decode_time: 0.0002582073211669922
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:00<00:00, 29.51it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 16.20it/s]
-1 decode_time: 0.00024962425231933594
-2 decode_time: 0.00010633468627929688
-4 decode_time: 0.00010776519775390625
-8 decode_time: 0.00011992454528808594
-16 decode_time: 0.00017714500427246094
-32 decode_time: 0.00031375885009765625
-64 decode_time: 0.00030994415283203125
-128 decode_time: 0.0002486705780029297
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00, 36.19it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 14.45it/s]
-1 decode_time: 0.0001709461212158203
-2 decode_time: 0.0001621246337890625
-4 decode_time: 0.00021910667419433594
-8 decode_time: 0.0001304149627685547
-16 decode_time: 0.00019860267639160156
-32 decode_time: 0.00024271011352539062
-64 decode_time: 0.0003514289855957031
-128 decode_time: 0.0003714561462402344
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00, 46.09it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 16.12it/s]
-1 decode_time: 0.00016546249389648438
-2 decode_time: 0.00011873245239257812
-4 decode_time: 0.00011086463928222656
-8 decode_time: 0.00012445449829101562
-16 decode_time: 0.0002810955047607422
-32 decode_time: 0.00020885467529296875
-64 decode_time: 0.00029015541076660156
-128 decode_time: 0.0004405975341796875
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:00<00:00, 44.88it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 18.02it/s]
-1 decode_time: 0.00024771690368652344
-2 decode_time: 0.00010251998901367188
-4 decode_time: 0.00010180473327636719
-8 decode_time: 0.000102996826171875
-16 decode_time: 0.0001857280731201172
-32 decode_time: 0.0003516674041748047
-64 decode_time: 0.000408172607421875
-128 decode_time: 0.0003960132598876953
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:00<00:00, 33.60it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 21.19it/s]
-1 decode_time: 0.00032591819763183594
-2 decode_time: 0.00012803077697753906
-4 decode_time: 0.00011706352233886719
-8 decode_time: 0.00012183189392089844
-16 decode_time: 0.0002014636993408203
-32 decode_time: 0.00021910667419433594
-64 decode_time: 0.00032520294189453125
-128 decode_time: 0.0005183219909667969
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00, 44.63it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 14.48it/s]
-1 decode_time: 0.00022459030151367188
-2 decode_time: 0.00013971328735351562
-4 decode_time: 0.0001614093780517578
-8 decode_time: 0.00016427040100097656
-16 decode_time: 0.0002415180206298828
-32 decode_time: 0.0002779960632324219
-64 decode_time: 0.00027370452880859375
-128 decode_time: 0.00027251243591308594
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00, 34.97it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 13.98it/s]
-1 decode_time: 0.0004184246063232422
-2 decode_time: 0.0001385211944580078
-4 decode_time: 0.00016188621520996094
-8 decode_time: 0.00035762786865234375
-16 decode_time: 0.0005376338958740234
-32 decode_time: 0.0004572868347167969
-64 decode_time: 0.0005221366882324219
-128 decode_time: 0.00042176246643066406
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00, 48.36it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 16.58it/s]
-1 decode_time: 0.0003046989440917969
-2 decode_time: 0.0001373291015625
-4 decode_time: 0.0001499652862548828
-8 decode_time: 0.00019311904907226562
-16 decode_time: 0.000354766845703125
-32 decode_time: 0.0004837512969970703
-64 decode_time: 0.0005664825439453125
-128 decode_time: 0.00044846534729003906
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:00<00:00, 42.64it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 19.07it/s]
-1 decode_time: 0.00024056434631347656
-2 decode_time: 0.0001518726348876953
-4 decode_time: 0.00010895729064941406
-8 decode_time: 0.00011873245239257812
-16 decode_time: 0.00015234947204589844
-32 decode_time: 0.0002720355987548828
-64 decode_time: 0.0004222393035888672
-128 decode_time: 0.000370025634765625
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00, 39.53it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 13.93it/s]
-1 decode_time: 0.0002334117889404297
-2 decode_time: 0.00013446807861328125
-4 decode_time: 0.00010752677917480469
-8 decode_time: 0.000125885009765625
-16 decode_time: 0.00024199485778808594
-32 decode_time: 0.0003199577331542969
-64 decode_time: 0.0003101825714111328
-128 decode_time: 0.0004420280456542969
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  50%|█████     | 4/8 [00:00<00:00, 26.08it/s]测试不同batch大小:  88%|████████▊ | 7/8 [00:00<00:00, 13.35it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 11.95it/s]
-1 decode_time: 0.000274658203125
-2 decode_time: 0.00018310546875
-4 decode_time: 0.00013256072998046875
-8 decode_time: 0.00016045570373535156
-16 decode_time: 0.00023651123046875
-32 decode_time: 0.0002410411834716797
-64 decode_time: 0.000278472900390625
-128 decode_time: 0.0003178119659423828
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  50%|█████     | 4/8 [00:00<00:00, 35.67it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 10.00it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 11.21it/s]
-1 decode_time: 0.0002448558807373047
-2 decode_time: 0.00016951560974121094
-4 decode_time: 0.00020599365234375
-8 decode_time: 0.0001690387725830078
-16 decode_time: 0.000202178955078125
-32 decode_time: 0.00031256675720214844
-64 decode_time: 0.00034046173095703125
-128 decode_time: 0.0004153251647949219
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00, 40.79it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 16.30it/s]
-1 decode_time: 0.0004134178161621094
-2 decode_time: 0.0001285076141357422
-4 decode_time: 0.0001671314239501953
-8 decode_time: 0.0001361370086669922
-16 decode_time: 0.0002472400665283203
-32 decode_time: 0.00021505355834960938
-64 decode_time: 0.0004553794860839844
-128 decode_time: 0.00029754638671875
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00, 29.76it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 12.62it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 14.14it/s]
-1 decode_time: 0.0002560615539550781
-2 decode_time: 0.00012135505676269531
-4 decode_time: 0.00011992454528808594
-8 decode_time: 0.0001316070556640625
-16 decode_time: 0.0002875328063964844
-32 decode_time: 0.00035381317138671875
-64 decode_time: 0.0002942085266113281
-128 decode_time: 0.0003771781921386719
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:00<00:00, 37.26it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 17.52it/s]
-1 decode_time: 0.00030875205993652344
-2 decode_time: 0.0001308917999267578
-4 decode_time: 0.00010466575622558594
-8 decode_time: 0.00010418891906738281
-16 decode_time: 0.00015926361083984375
-32 decode_time: 0.0003046989440917969
-64 decode_time: 0.0002529621124267578
-128 decode_time: 0.00039458274841308594
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:00<00:00, 43.19it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 18.27it/s]
-1 decode_time: 0.0003287792205810547
-2 decode_time: 0.0001609325408935547
-4 decode_time: 0.00014328956604003906
-8 decode_time: 0.0001697540283203125
-16 decode_time: 0.00014352798461914062
-32 decode_time: 0.00020360946655273438
-64 decode_time: 0.00037550926208496094
-128 decode_time: 0.0004107952117919922
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:00<00:00, 33.44it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 16.80it/s]
-1 decode_time: 0.00041961669921875
-2 decode_time: 0.00010633468627929688
-4 decode_time: 0.00014853477478027344
-8 decode_time: 0.00012159347534179688
-16 decode_time: 0.00013637542724609375
-32 decode_time: 0.00030517578125
-64 decode_time: 0.0002932548522949219
-128 decode_time: 0.0004737377166748047
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00, 36.42it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 15.15it/s]
-1 decode_time: 0.00016188621520996094
-2 decode_time: 0.00011444091796875
-4 decode_time: 0.00011897087097167969
-8 decode_time: 0.00014019012451171875
-16 decode_time: 0.00024890899658203125
-32 decode_time: 0.0002608299255371094
-64 decode_time: 0.0003266334533691406
-128 decode_time: 0.00038051605224609375
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00, 29.85it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 13.00it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 14.53it/s]
-1 decode_time: 0.0002663135528564453
-2 decode_time: 0.00015592575073242188
-4 decode_time: 0.0001201629638671875
-8 decode_time: 0.00019860267639160156
-16 decode_time: 0.0001697540283203125
-32 decode_time: 0.0002086162567138672
-64 decode_time: 0.00033783912658691406
-128 decode_time: 0.0006306171417236328
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00, 34.07it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 15.13it/s]
-1 decode_time: 0.0003147125244140625
-2 decode_time: 0.00011849403381347656
-4 decode_time: 0.00013327598571777344
-8 decode_time: 0.00013971328735351562
-16 decode_time: 0.00017213821411132812
-32 decode_time: 0.00031685829162597656
-64 decode_time: 0.0002288818359375
-128 decode_time: 0.0003638267517089844
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:00<00:00, 30.34it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 14.25it/s]
-1 decode_time: 0.0002338886260986328
-2 decode_time: 0.00011110305786132812
-4 decode_time: 0.00016546249389648438
-8 decode_time: 0.00013184547424316406
-16 decode_time: 0.00024962425231933594
-32 decode_time: 0.000270843505859375
-64 decode_time: 0.0002582073211669922
-128 decode_time: 0.0002658367156982422
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00, 27.69it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 12.49it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 13.92it/s]
-1 decode_time: 0.00033092498779296875
-2 decode_time: 0.00011467933654785156
-4 decode_time: 0.00016736984252929688
-8 decode_time: 0.0001823902130126953
-16 decode_time: 0.000232696533203125
-32 decode_time: 0.0002644062042236328
-64 decode_time: 0.000301361083984375
-128 decode_time: 0.0002872943878173828
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:00<00:00, 33.10it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 17.11it/s]
-1 decode_time: 0.0002048015594482422
-2 decode_time: 0.00011754035949707031
-4 decode_time: 0.0001239776611328125
-8 decode_time: 0.00012540817260742188
-16 decode_time: 0.0002048015594482422
-32 decode_time: 0.00033926963806152344
-64 decode_time: 0.00024366378784179688
-128 decode_time: 0.0003979206085205078
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  75%|███████▌  | 6/8 [00:00<00:00, 34.48it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 17.90it/s]
-1 decode_time: 0.0002353191375732422
-2 decode_time: 0.00011086463928222656
-4 decode_time: 0.00013113021850585938
-8 decode_time: 0.00011563301086425781
-16 decode_time: 0.00020742416381835938
-32 decode_time: 0.0002930164337158203
-64 decode_time: 0.000331878662109375
-128 decode_time: 0.00035834312438964844
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00, 33.55it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 14.20it/s]
-1 decode_time: 0.0002932548522949219
-2 decode_time: 0.0001232624053955078
-4 decode_time: 0.00012254714965820312
-8 decode_time: 0.00020599365234375
-16 decode_time: 0.0001976490020751953
-32 decode_time: 0.00021123886108398438
-64 decode_time: 0.0002491474151611328
-128 decode_time: 0.00039649009704589844
-成功采样 128 个请求
-测试不同batch大小:   0%|          | 0/8 [00:00<?, ?it/s]测试不同batch大小:  62%|██████▎   | 5/8 [00:00<00:00, 28.34it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 11.97it/s]测试不同batch大小: 100%|██████████| 8/8 [00:00<00:00, 13.42it/s]
-1 decode_time: 0.0003364086151123047
-2 decode_time: 0.0001201629638671875
-4 decode_time: 0.0001766681671142578
-8 decode_time: 0.00014090538024902344
-16 decode_time: 0.0001976490020751953
-32 decode_time: 0.0002529621124267578
-64 decode_time: 0.00037980079650878906
-128 decode_time: 0.0002491474151611328
-性能数据已保存到 ./perf_results/vllm_prefill_perf_stats_alamios_DeepSeek-R1-DRAFT-Qwen2.5-0.5B.json
-开始训练prefill性能预测模型
-Model R² score: 0.900
-Model saved to ./perf_results/vllm_prefill_model_deepseek-aiDeepSeek-R1-Distill-Qwen-7B.pkl
-big模型训练完成，R²得分: 0.900
-big模型保存到: ./perf_results/vllm_prefill_model_deepseek-aiDeepSeek-R1-Distill-Qwen-7B.pkl
-Model R² score: 0.145
-Model saved to ./perf_results/vllm_prefill_model_alamios_DeepSeek-R1-DRAFT-Qwen2.5-0.5B.pkl
-small模型训练完成，R²得分: 0.145
-small模型保存到: ./perf_results/vllm_prefill_model_alamios_DeepSeek-R1-DRAFT-Qwen2.5-0.5B.pkl
-[rank0]:[W411 20:14:04.237598605 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
-compare.sh: 第 2 行： 398689 已杀死               python examples/adaptive_engine_example.py --strategy ilp --training-iterations 5 --results-dir adaptive_results --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B --gpu-memory-utilization 0.9 --speculative-model alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B --num-speculative-tokens 4 --enforce-eager --no-enable-prefix-caching --max-model-len 28432 --num_gpu_blocks_override 28845 --dataset-path /data/sharegpt.json &> a1.log
-compare.sh: 第 1 行： 401470 已杀死               python examples/adaptive_engine_example.py --training-iterations 5 --results-dir adaptive_results --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B --gpu-memory-utilization 0.9 --speculative-model alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B --num-speculative-tokens 4 --enforce-eager --no-enable-prefix-caching --max-model-len 28432 --compare-baseline --dataset-path /data/sharegpt.json &> a.log
-compare.sh: 第 2 行： 401936 已杀死               python examples/adaptive_engine_example.py --strategy ilp --training-iterations 5 --results-dir adaptive_results --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B --gpu-memory-utilization 0.9 --speculative-model alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B --num-speculative-tokens 4 --enforce-eager --no-enable-prefix-caching --max-model-len 28432 --num_gpu_blocks_override 28845 --dataset-path /data/sharegpt.json &> a1.log
-compare.sh: 第 1 行： 403163 已杀死               python examples/adaptive_engine_example.py --training-iterations 5 --results-dir adaptive_results --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B --gpu-memory-utilization 0.9 --speculative-model alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B --num-speculative-tokens 4 --enforce-eager --no-enable-prefix-caching --max-model-len 28432 --compare-baseline --dataset-path /data/sharegpt.json &> a.log
-compare.sh: 第 2 行： 403582 已杀死               python examples/adaptive_engine_example.py --strategy ilp --training-iterations 5 --results-dir adaptive_results --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B --gpu-memory-utilization 0.9 --speculative-model alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B --num-speculative-tokens 4 --enforce-eager --no-enable-prefix-caching --max-model-len 28432 --num_gpu_blocks_override 28845 --dataset-path /data/sharegpt.json &> a1.log
-compare.sh: 第 1 行： 415152 已杀死               python examples/adaptive_engine_example.py --run-api-server --run-benchmark --training-iterations 5 --results-dir adaptive_results --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B --gpu-memory-utilization 0.9 --speculative-model alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B --num-speculative-tokens 4 --enforce-eager --no-enable-prefix-caching --max-model-len 28432 --compare-baseline --dataset-path /data/sharegpt.json &> a.log
-compare.sh: 第 1 行： 415961 已杀死               python examples/adaptive_engine_example.py --run-api-server --run-benchmark --training-iterations 5 --results-dir adaptive_results --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B --gpu-memory-utilization 0.9 --speculative-model alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B --num-speculative-tokens 4 --enforce-eager --no-enable-prefix-caching --max-model-len 28432 --compare-baseline --dataset-path /data/sharegpt.json &> a.log
-compare.sh: 第 1 行： 418660 已杀死               python examples/adaptive_engine_example.py --run-api-server --run-benchmark --training-iterations 5 --results-dir adaptive_results --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B --gpu-memory-utilization 0.9 --speculative-model alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B --num-speculative-tokens 4 --enforce-eager --no-enable-prefix-caching --max-model-len 28432 --compare-baseline --dataset-path /data/sharegpt.json &> a.log
-compare.sh: 第 1 行： 419249 已杀死               python examples/adaptive_engine_example.py --run-api-server --run-benchmark --training-iterations 5 --results-dir adaptive_results --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B --gpu-memory-utilization 0.9 --speculative-model alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B --num-speculative-tokens 4 --enforce-eager --no-enable-prefix-caching --max-model-len 28432 --compare-baseline --dataset-path /data/sharegpt.json &> a.log
-compare.sh: 第 1 行： 419941 已杀死               python examples/adaptive_engine_example.py --run-api-server --run-benchmark --training-iterations 5 --results-dir adaptive_results --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B --gpu-memory-utilization 0.9 --speculative-model alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B --num-speculative-tokens 4 --enforce-eager --no-enable-prefix-caching --max-model-len 28432 --compare-baseline --dataset-path /data/sharegpt.json &> a.log
-compare.sh: 第 2 行： 425810 已杀死               python examples/adaptive_engine_example.py --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B --gpu-memory-utilization 0.9 --speculative-model alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B --num-speculative-tokens 4 --enforce-eager --no-enable-prefix-caching --max-model-len 28432 &> a.log
-compare.sh: 第 2 行： 426719 已杀死               python examples/adaptive_engine_example.py --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B --gpu-memory-utilization 0.9 --speculative-model alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B --num-speculative-tokens 4 --enforce-eager --no-enable-prefix-caching --max-model-len 28432 &> a.log
-INFO 04-14 22:19:44 [__init__.py:239] Automatically detected platform cuda.
-Token indices sequence length is longer than the specified maximum sequence length for this model (66077 > 16384). Running this sequence through the model will result in indexing errors
-Namespace(backend='generate', base_url=None, host='127.0.0.1', port=8000, endpoint='/generate', dataset_name='sharegpt', dataset_path='/data/sharegpt.json', max_concurrency=None, model='/data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B', tokenizer=None, use_beam_search=False, num_prompts=100, logprobs=None, request_rate=1.0, burstiness=1.0, seed=0, trust_remote_code=False, disable_tqdm=False, profile=False, save_result=False, save_detailed=False, metadata=None, result_dir=None, result_filename=None, ignore_eos=False, percentile_metrics='ttft,tpot,itl,e2el', metric_percentiles='99', goodput=None, sonnet_input_len=550, sonnet_output_len=150, sonnet_prefix_len=200, sharegpt_output_len=None, random_input_len=1024, random_output_len=128, random_range_ratio=1.0, random_prefix_len=0, hf_subset=None, hf_split=None, hf_output_len=None, tokenizer_mode='auto', served_model_name=None, lora_modules=None)
-Starting initial single prompt test run...
-Initial test run completed. Starting main benchmark run...
-Traffic request rate: 1.0
-Burstiness factor: 1.0 (Poisson process)
-Maximum request concurrency: None
-  0%|          | 0/100 [00:00<?, ?it/s]  1%|          | 1/100 [00:02<03:57,  2.40s/it]  2%|▏         | 2/100 [00:03<02:21,  1.45s/it]  3%|▎         | 3/100 [00:04<02:03,  1.27s/it]  4%|▍         | 4/100 [00:05<01:44,  1.09s/it]  5%|▌         | 5/100 [00:06<01:43,  1.09s/it]  6%|▌         | 6/100 [00:08<02:37,  1.67s/it]  7%|▋         | 7/100 [00:09<02:06,  1.36s/it]  8%|▊         | 8/100 [00:11<02:15,  1.48s/it]  9%|▉         | 9/100 [00:12<01:57,  1.29s/it] 11%|█         | 11/100 [00:12<01:15,  1.17it/s] 12%|█▏        | 12/100 [00:14<01:31,  1.04s/it] 13%|█▎        | 13/100 [00:17<02:05,  1.45s/it] 14%|█▍        | 14/100 [00:18<01:52,  1.31s/it] 15%|█▌        | 15/100 [00:18<01:28,  1.04s/it] 17%|█▋        | 17/100 [00:20<01:21,  1.02it/s] 18%|█▊        | 18/100 [00:20<01:08,  1.20it/s] 19%|█▉        | 19/100 [00:22<01:18,  1.03it/s] 20%|██        | 20/100 [00:28<03:07,  2.35s/it] 21%|██        | 21/100 [00:29<02:37,  1.99s/it] 22%|██▏       | 22/100 [00:29<01:54,  1.46s/it] 23%|██▎       | 23/100 [00:31<02:07,  1.65s/it] 24%|██▍       | 24/100 [00:32<01:43,  1.36s/it] 25%|██▌       | 25/100 [00:32<01:19,  1.06s/it] 26%|██▌       | 26/100 [00:34<01:38,  1.33s/it] 27%|██▋       | 27/100 [00:35<01:27,  1.20s/it] 28%|██▊       | 28/100 [00:36<01:21,  1.13s/it] 29%|██▉       | 29/100 [00:37<01:16,  1.07s/it] 30%|███       | 30/100 [00:37<00:58,  1.20it/s] 31%|███       | 31/100 [00:38<01:01,  1.12it/s] 32%|███▏      | 32/100 [00:39<01:02,  1.08it/s] 33%|███▎      | 33/100 [00:39<00:47,  1.41it/s] 34%|███▍      | 34/100 [00:41<01:13,  1.12s/it] 35%|███▌      | 35/100 [00:42<01:09,  1.06s/it] 36%|███▌      | 36/100 [00:42<00:52,  1.21it/s] 37%|███▋      | 37/100 [00:43<00:47,  1.33it/s] 38%|███▊      | 38/100 [00:44<00:47,  1.30it/s] 39%|███▉      | 39/100 [00:45<00:53,  1.14it/s] 41%|████      | 41/100 [00:48<01:02,  1.06s/it] 42%|████▏     | 42/100 [00:49<01:05,  1.12s/it] 43%|████▎     | 43/100 [00:50<00:58,  1.02s/it] 44%|████▍     | 44/100 [00:51<01:02,  1.12s/it] 45%|████▌     | 45/100 [00:51<00:48,  1.13it/s] 46%|████▌     | 46/100 [00:53<00:53,  1.01it/s] 47%|████▋     | 47/100 [00:53<00:49,  1.07it/s] 49%|████▉     | 49/100 [00:54<00:34,  1.48it/s] 50%|█████     | 50/100 [00:54<00:28,  1.77it/s] 51%|█████     | 51/100 [00:56<00:38,  1.27it/s] 52%|█████▏    | 52/100 [01:00<01:18,  1.63s/it] 53%|█████▎    | 53/100 [01:00<00:58,  1.24s/it] 55%|█████▌    | 55/100 [01:00<00:34,  1.30it/s] 57%|█████▋    | 57/100 [01:01<00:26,  1.63it/s] 58%|█████▊    | 58/100 [01:02<00:28,  1.48it/s] 59%|█████▉    | 59/100 [01:03<00:30,  1.33it/s] 61%|██████    | 61/100 [01:03<00:19,  2.01it/s] 62%|██████▏   | 62/100 [01:03<00:16,  2.34it/s] 63%|██████▎   | 63/100 [01:05<00:25,  1.47it/s] 64%|██████▍   | 64/100 [01:05<00:21,  1.67it/s] 65%|██████▌   | 65/100 [01:05<00:17,  2.00it/s] 66%|██████▌   | 66/100 [01:06<00:23,  1.47it/s] 68%|██████▊   | 68/100 [01:11<00:40,  1.28s/it] 69%|██████▉   | 69/100 [01:12<00:42,  1.36s/it] 70%|███████   | 70/100 [01:14<00:43,  1.44s/it] 71%|███████   | 71/100 [01:15<00:43,  1.49s/it] 72%|███████▏  | 72/100 [01:16<00:32,  1.16s/it] 73%|███████▎  | 73/100 [01:16<00:26,  1.02it/s] 74%|███████▍  | 74/100 [01:17<00:24,  1.08it/s] 75%|███████▌  | 75/100 [01:18<00:23,  1.08it/s] 76%|███████▌  | 76/100 [01:19<00:23,  1.02it/s] 78%|███████▊  | 78/100 [01:19<00:13,  1.62it/s] 79%|███████▉  | 79/100 [01:20<00:11,  1.88it/s] 80%|████████  | 80/100 [01:21<00:16,  1.19it/s] 82%|████████▏ | 82/100 [01:22<00:09,  1.88it/s] 83%|████████▎ | 83/100 [01:22<00:08,  1.98it/s] 85%|████████▌ | 85/100 [01:23<00:07,  2.03it/s] 86%|████████▌ | 86/100 [01:23<00:06,  2.15it/s] 87%|████████▋ | 87/100 [01:24<00:05,  2.45it/s] 88%|████████▊ | 88/100 [01:24<00:04,  2.69it/s] 89%|████████▉ | 89/100 [01:24<00:04,  2.41it/s] 90%|█████████ | 90/100 [01:26<00:05,  1.67it/s] 91%|█████████ | 91/100 [01:29<00:11,  1.29s/it] 92%|█████████▏| 92/100 [01:29<00:08,  1.03s/it] 94%|█████████▍| 94/100 [01:29<00:03,  1.50it/s] 95%|█████████▌| 95/100 [01:30<00:03,  1.60it/s] 97%|█████████▋| 97/100 [01:30<00:01,  2.36it/s] 98%|█████████▊| 98/100 [01:30<00:00,  2.79it/s] 99%|█████████▉| 99/100 [01:36<00:01,  1.61s/it]100%|██████████| 100/100 [01:42<00:00,  2.88s/it]100%|██████████| 100/100 [01:42<00:00,  1.03s/it]
-============ Serving Benchmark Result ============
-Successful requests:                     100       
-Benchmark duration (s):                  102.78    
-Total input tokens:                      23611     
-Total generated tokens:                  0         
-Request throughput (req/s):              0.97      
-Output token throughput (tok/s):         0.00      
-Total Token throughput (tok/s):          229.72    
----------------Time to First Token----------------
-Mean TTFT (ms):                          75.94     
-Median TTFT (ms):                        68.92     
-P99 TTFT (ms):                           159.15    
------Time per Output Token (excl. 1st token)------
-Mean TPOT (ms):                          0.00      
-Median TPOT (ms):                        0.00      
-P99 TPOT (ms):                           0.00      
----------------Inter-token Latency----------------
-Mean ITL (ms):                           48.03     
-Median ITL (ms):                         44.95     
-P99 ITL (ms):                            137.55    
-----------------End-to-end Latency----------------
-Mean E2EL (ms):                          3238.89   
-Median E2EL (ms):                        1710.07   
-P99 E2EL (ms):                           12343.87  
-==================================================
