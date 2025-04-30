@@ -304,7 +304,9 @@ class _AsyncLLMEngine(LLMEngine):
             (seq_group_metadata_list, scheduler_outputs,
              allow_async_output_proc
              ) = self.scheduler[virtual_engine].schedule()
-            
+            context_tokens = scheduler_outputs.num_cached_tokens
+            batch_tokens = scheduler_outputs.num_batched_tokens
+            # print("context_tokens: ",context_tokens,"batch_tokens: ",batch_tokens)
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
 
@@ -350,20 +352,25 @@ class _AsyncLLMEngine(LLMEngine):
                 # to each of the non-last PP stages for in-place prepare_input.
                 last_sampled_token_ids=last_sampled_token_ids)
             if self.strategy == "daspec":
-                if len(seq_group_metadata_list) > 25:
+                if len(seq_group_metadata_list) > 4:
                     self.set_disable_speculative_decoding(True)
+                # elif self.disable_speculative_decoding:
+                #     self.set_disable_speculative_decoding(False)
                 # self.ilp_manager.step(scheduler_outputs)
             # FIXME
-            if self.disable_speculative_decoding:
-                for seq_group in seq_group_metadata_list:
-                    seq_group.skip_neural_net_proposer_step_num += 1
-            elif not self.disable_speculative_decoding and self.ilp_manager.optimizer.last_action == ILPAction.USE_SMALL_MODEL_1:
-                for seq_group in seq_group_metadata_list:
-                    if seq_group.skip_neural_net_proposer_step_num > 100: 
-                        # prefill 太费时间了
-                        seq_group.num_speculative_tokens = 0
-                    else:
-                        seq_group.skip_neural_net_proposer_step_num = 0
+            # if self.disable_speculative_decoding:
+            #     for seq_group in self.scheduler[virtual_engine].running:
+            #         seq_group.skip_neural_net_proposer_step_num = 1
+            # elif seq_group_metadata_list:
+            #     skip_count = sum(1 for seq_group in seq_group_metadata_list if seq_group.skip_neural_net_proposer_step_num > 0)
+            #     if 0 < skip_count < len(seq_group_metadata_list):
+            #         for seq_group in seq_group_metadata_list:
+            #             if seq_group.skip_neural_net_proposer_step_num > 0:
+            #                 seq_group.num_speculative_tokens = 0
+            #             else:
+            #                 seq_group.skip_neural_net_proposer_step_num = 0
+            #     elif skip_count == len(seq_group_metadata_list):
+            #         self.set_disable_speculative_decoding(True)
 
             if allow_async_output_proc:
                 execute_model_req.async_callback = self.async_callbacks[
@@ -372,7 +379,8 @@ class _AsyncLLMEngine(LLMEngine):
             # Execute the model.
             outputs = await self.model_executor.execute_model_async(
                 execute_model_req)
-
+            if self.ilp_manager.profile:
+                self.ilp_manager.optimizer.record_metrics(self.ilp_manager._get_current_metrics())
             # we need to do this here so that last step's sampled_token_ids can
             # be passed to the next iteration for PP.
             if self.scheduler_config.is_multi_step:
@@ -432,7 +440,7 @@ class _AsyncLLMEngine(LLMEngine):
             if len(ctx.output_queue) > 0:
                 self._process_model_outputs(ctx=ctx)
             assert len(ctx.output_queue) == 0
-
+        
         return ctx.request_outputs
 
     async def stop_remote_worker_execution_loop_async(self) -> None:

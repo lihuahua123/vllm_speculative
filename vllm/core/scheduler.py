@@ -1731,6 +1731,7 @@ class Scheduler:
                         if scheduler_outputs.num_prefill_groups > 0 else None),
                     mm_processor_kwargs=seq_group.mm_processor_kwargs,
                     prompt_adapter_request=seq_group.prompt_adapter_request,
+                    skip_neural_net_proposer_step_num=seq_group.skip_neural_net_proposer_step_num,
                 )
             else:
                 # When SPMD mode is enabled, we only send delta data except for
@@ -1746,6 +1747,7 @@ class Scheduler:
                     do_sample=do_sample,
                     token_chunk_size=token_chunk_size,
                     computed_block_nums=common_computed_block_nums,
+                    skip_neural_net_proposer_step_num=seq_group.skip_neural_net_proposer_step_num,
                 )
             seq_group_metadata_list.append(seq_group_metadata)
 

@@ -34,7 +34,6 @@ def parse_args():
     parser.add_argument("--sub-strategy", type=str, default="ngram", 
                         choices=["ngram", "deep", "nospec", "daspec"], help="子策略名称")
     
-    
     return parser.parse_args()
 
 def start_server(model, host, port, strategy,sub_strategy):
@@ -59,7 +58,8 @@ def start_server(model, host, port, strategy,sub_strategy):
         "--enforce-eager",
         "--no-enable-prefix-caching",
         "--max-model-len", "3000",#"27432",
-        "--enable-chunked-prefill",
+        # "--enable-chunked-prefill",
+        # "--max_num_batched_tokens", "256",
         "--strategy", strategy,
     ]
     if strategy != "no-spec":
@@ -148,9 +148,9 @@ def main():
     sub_strategy = args.sub_strategy
     try:
         num_prompts = args.num_prompts
-        profile = False
-        save_action_time_history = False
-        file_name = "300"
+        profile = True
+        save_action_time_history = True
+        file_name = "300_new"
         # args.dataset_name = "alpaca"
         # args.dataset_path = "tatsu-lab/alpaca"
         for rate in args.request_rates:

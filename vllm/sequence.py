@@ -693,6 +693,7 @@ class SequenceGroup:
         self.priority = priority
 
         self.cached_request_output = None
+        self.skip_neural_net_proposer_step_num = 0
 
     @property
     def prompt(self) -> Optional[str]:
@@ -919,6 +920,7 @@ class SequenceGroupMetadataDelta(
     computed_block_nums: Optional[list[int]] = None
     state: Optional[SequenceGroupState] = msgspec.field(
         default_factory=lambda: SequenceGroupState())
+    skip_neural_net_proposer_step_num: int = 0
 
 
 class SequenceGroupMetadata(

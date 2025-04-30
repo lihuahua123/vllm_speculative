@@ -710,8 +710,8 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
             for req in execute_model_req.seq_group_metadata_list:
                 for key, value in req.seq_data.items():
                    stage = value.stage
-                   if stage == SequenceStage.PREFILL:
-                       context_length += value.get_prompt_len()
+                   
+                   context_length += value.get_len()
             stage = stage.value
             sampler_output = self.scorer_worker.execute_model(execute_model_req)
         assert len(sampler_output) == 1
@@ -827,7 +827,12 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
             # num_lookahead_slots = min(int(self.spec_decode_sampler.ratio * num_lookahead_slots) + 1, num_lookahead_slots)
             # execute_model_req.num_lookahead_slots = num_lookahead_slots
             # print(f"num_lookahead_slots: {num_lookahead_slots}")
-
+        context_length = 0
+        for req in execute_model_req.seq_group_metadata_list:
+            for key, value in req.seq_data.items():
+                stage = value.stage
+                if stage == SequenceStage.DECODE:
+                    context_length += value.get_len()
         # Pass last hidden states from target model to proposer
         execute_model_req.previous_hidden_states = self.previous_hidden_states
         self.previous_hidden_states = None
@@ -849,6 +854,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
             )
         _, (non_spec_seqs, non_spec_indices) = split_batch_by_proposal_len(
             execute_model_req.seq_group_metadata_list, proposals.proposal_lens)
+
         # With prefill chunking enabled, `non_spec_seqs` contains prefills too:
         # discard decodes that have already been processed by proposer.
         non_spec_indices = [
@@ -878,7 +884,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
                        verification_timer.elapsed_time_ms)
         num_accepted_tokens = num_accepted_tokens.item()
         # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage
-        self.stage_times = (proposal_timer.elapsed_time_ms,scoring_timer.elapsed_time_ms,verification_timer.elapsed_time_ms,len(execute_model_req.seq_group_metadata_list),num_accepted_tokens,0, SequenceStage.DECODE.value)
+        self.stage_times = (proposal_timer.elapsed_time_ms,scoring_timer.elapsed_time_ms,verification_timer.elapsed_time_ms,len(execute_model_req.seq_group_metadata_list),num_accepted_tokens,context_length, SequenceStage.DECODE.value)
 
         return self._create_output_sampler_list(
             execute_model_req.seq_group_metadata_list,
@@ -1351,12 +1357,12 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
     
     def get_speculative_metrics(self):
         # if hasattr(self.spec_decode_sampler, "ratio"):
-        #     # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens
         #     a = self.stage_times[4]/self.stage_times[3]
         #     if isinstance(self.spec_decode_sampler.ratio, torch.Tensor): # 这个存的是上一次decode的，而a 是当前step的
         #         self.spec_decode_sampler.ratio = self.spec_decode_sampler.ratio.item()
         #     if self.spec_decode_sampler.ratio - a > 0.01:
         #         logger.info(f"speculative_metrics ratio not match!!!!: {self.spec_decode_sampler.ratio} {a}")
+        # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage(prefill,decode)
         return self.stage_times
     
     def update_typical_acceptance_threshold(self, new_threshold, new_alpha):

@@ -40,7 +40,7 @@ class ILPOptimizationManager:
             llm_engine=self.engine,
             reward_window_size=throughput_window
         )
-        self.optimizer.load_action_time_history()
+        # self.optimizer.load_action_time_history()
         # Configure thresholds
         self.memory_threshold = memory_threshold
         
@@ -130,15 +130,15 @@ class ILPOptimizationManager:
     def _get_current_metrics(self) -> Dict[str, Any]:
         """Get current system metrics from the engine"""
         # Calculate throughput
-        current_time = time.time()
-        time_elapsed = current_time - self.last_check_time
+        # current_time = time.time()
+        # time_elapsed = current_time - self.last_check_time
         
-        throughput = 0.0
-        if time_elapsed > 0 and self.tokens_generated_since_last_check > 0:
-            throughput = self.tokens_generated_since_last_check / time_elapsed
-            self.last_throughput = throughput
-        else:
-            throughput = self.last_throughput
+        # throughput = 0.0
+        # if time_elapsed > 0 and self.tokens_generated_since_last_check > 0:
+        #     throughput = self.tokens_generated_since_last_check / time_elapsed
+        #     self.last_throughput = throughput
+        # else:
+        #     throughput = self.last_throughput
             
         # 更新自适应监控间隔
         # self._update_monitoring_interval(self.tokens_throughput_per_step)
@@ -151,25 +151,12 @@ class ILPOptimizationManager:
         accepted_tokens_length = stage_data[4]
         total_latency = stage_data[0]+stage_data[1]+stage_data[2]
         spec_length = self.engine.scheduler_config.num_lookahead_slots
-        aa = {
-            "throughput": throughput,
-            "acceptance_rate": acceptance_rate,
-            "spec_length": spec_length,
-            "time": current_time,
-            "proposal_time": stage_data[0],
-            "scoring_time": stage_data[1],
-            "verification_time": stage_data[2],
-            "total_latency": total_latency,
-            "accepted_tokens_length": accepted_tokens_length,
-            "batch_size": batch_size,
-            "context_length": stage_data[5],
-            "stage": stage_data[6]
-        }
+
         return {
-            "throughput": throughput,
+            #"throughput": throughput,
             "acceptance_rate": acceptance_rate,
             "spec_length": spec_length,
-            "time": current_time,
+            #"time": current_time,
             "proposal_time": stage_data[0],
             "scoring_time": stage_data[1],
             "verification_time": stage_data[2],

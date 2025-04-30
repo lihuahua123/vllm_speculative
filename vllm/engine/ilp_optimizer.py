@@ -10,6 +10,7 @@ import os
 import torch
 from collections import defaultdict
 import json
+import pickle
 logger = logging.getLogger(__name__)
 
 class ILPAction(Enum):
@@ -100,46 +101,46 @@ class ILPOptimizer:
         for action in self.actions:
             self.action_time_history[action.value] = {}
             # 预先初始化一些可能的batch size
-            for batch_size in range(1, 301):  # 假设batch size从1到300
+            for batch_size in range(1, 3):  # 假设batch size从1到300
                 self.action_time_history[action.value][batch_size] = {}
                 for i in range(2):
                     self.action_time_history[action.value][batch_size][i] = {
-                        "proposal_time": 0,
-                        "scoring_time": 0,
-                        "verification_time": 0,
-                        "acceptance_rate": 0,
+                        "proposal_time": [],
+                        "scoring_time": [],
+                        "verification_time": [],
+                        "acceptance_rate": [],
                         "total_num": 0,
-                        "total_latency": 0,
-                        "accepted_tokens_length": 0,
-                        "prefill_time": 0,
+                        "total_latency": [],
+                        "accepted_tokens_length": [],
+                        "prefill_time": [],
                         "prefill_total_num": 0,
-                        "context_length": 0
+                        "context_length": []
                 }
 
     def save_action_time_history(self,file_name=None):
         """Save action time history to file"""
-        for action in self.actions:
-            action = action.value
-            for batch_size in self.action_time_history[action]:
-                decode_total_num = self.action_time_history[action][batch_size][1]["total_num"] 
-                prefill_total_num = self.action_time_history[action][batch_size][0]["prefill_total_num"]
-                if decode_total_num > 0:
-                    self.action_time_history[action][batch_size][1]["proposal_time"]/=decode_total_num
-                    self.action_time_history[action][batch_size][1]["scoring_time"]/=decode_total_num
-                    self.action_time_history[action][batch_size][1]["verification_time"]/=decode_total_num
-                    self.action_time_history[action][batch_size][1]["acceptance_rate"]/=decode_total_num
-                    self.action_time_history[action][batch_size][1]["total_latency"]/=decode_total_num
-                    self.action_time_history[action][batch_size][1]["accepted_tokens_length"]/=decode_total_num
-                    self.action_time_history[action][batch_size][1]["total_num"] = 1
-                if prefill_total_num > 0:
-                    self.action_time_history[action][batch_size][0]["prefill_time"]/=prefill_total_num
-                    self.action_time_history[action][batch_size][0]["context_length"]/=prefill_total_num
-                    self.action_time_history[action][batch_size][0]["prefill_total_num"] = 1
+        # for action in self.actions:
+        #     action = action.value
+        #     for batch_size in self.action_time_history[action]:
+        #         decode_total_num = self.action_time_history[action][batch_size][1]["total_num"] 
+        #         prefill_total_num = self.action_time_history[action][batch_size][0]["prefill_total_num"]
+        #         if decode_total_num > 0:
+        #             self.action_time_history[action][batch_size][1]["proposal_time"]/=decode_total_num
+        #             self.action_time_history[action][batch_size][1]["scoring_time"]/=decode_total_num
+        #             self.action_time_history[action][batch_size][1]["verification_time"]/=decode_total_num
+        #             self.action_time_history[action][batch_size][1]["acceptance_rate"]/=decode_total_num
+        #             self.action_time_history[action][batch_size][1]["total_latency"]/=decode_total_num
+        #             self.action_time_history[action][batch_size][1]["accepted_tokens_length"]/=decode_total_num
+        #             self.action_time_history[action][batch_size][1]["total_num"] = 1
+        #         if prefill_total_num > 0:
+        #             self.action_time_history[action][batch_size][0]["prefill_time"]/=prefill_total_num
+        #             self.action_time_history[action][batch_size][0]["context_length"]/=prefill_total_num
+        #             self.action_time_history[action][batch_size][0]["prefill_total_num"] = 1
                     
         if file_name is not None:
+            print("save action_time_history to file",file_name,self.action_time_history)
             with open(file_name, "w") as f:
                 json.dump(self.action_time_history, f)
-            logger.info(f"save action_time_history to file")
         else:
             with open("action_time_history.json", "w") as f:
                 json.dump(self.action_time_history, f)
@@ -181,36 +182,32 @@ class ILPOptimizer:
         proposal_time = metrics["proposal_time"]
         acceptance_rate = metrics["acceptance_rate"]
         spec_length = metrics["spec_length"]
+        #print(self.last_action,metrics["batch_size"],metrics["stage"],metrics)
         if self.last_action == ILPAction.DISABLE_SPEC_DECODING:
             if metrics["stage"] == 2: 
                 self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["total_num"]+=1
-                self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["scoring_time"]+=metrics["scoring_time"]
+                self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["scoring_time"].append(metrics["scoring_time"])
+                self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["context_length"].append(metrics["context_length"])
             else:
-                self.action_time_history[self.last_action.value][metrics["batch_size"]][0]["prefill_time"] += metrics["scoring_time"]
-                self.action_time_history[self.last_action.value][metrics["batch_size"]][0]["context_length"] += metrics["context_length"]
+                self.action_time_history[self.last_action.value][metrics["batch_size"]][0]["prefill_time"].append(metrics["scoring_time"])
+                self.action_time_history[self.last_action.value][metrics["batch_size"]][0]["context_length"].append(metrics["context_length"])
                 self.action_time_history[self.last_action.value][metrics["batch_size"]][0]["prefill_total_num"]+=1
         else: 
             if metrics["stage"] == 2: #SequenceStage.DECODE.value:
                 # decode 而不包含prefill 
-                self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["proposal_time"]+=proposal_time
-                self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["total_latency"]+=metrics["total_latency"]
-                self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["accepted_tokens_length"]+=metrics["accepted_tokens_length"]
+                self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["proposal_time"].append(proposal_time)
+                self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["total_latency"].append(metrics["total_latency"])
+                self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["accepted_tokens_length"].append(metrics["accepted_tokens_length"])
                 self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["total_num"]+=1
-                self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["scoring_time"]+=metrics["scoring_time"]
-                self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["verification_time"]+=metrics["verification_time"]
-                self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["acceptance_rate"]+=acceptance_rate
+                self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["scoring_time"].append(metrics["scoring_time"])
+                self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["verification_time"].append(metrics["verification_time"])
+                self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["acceptance_rate"].append(acceptance_rate)
+                self.action_time_history[self.last_action.value][metrics["batch_size"]][1]["context_length"].append(metrics["context_length"])
             else:
-                self.action_time_history[self.last_action.value][metrics["batch_size"]][0]["prefill_time"] += proposal_time + metrics["scoring_time"]
-                self.action_time_history[self.last_action.value][metrics["batch_size"]][0]["context_length"] += metrics["context_length"]
+                self.action_time_history[self.last_action.value][metrics["batch_size"]][0]["prefill_time"].append(proposal_time + metrics["scoring_time"])
+                self.action_time_history[self.last_action.value][metrics["batch_size"]][0]["context_length"].append(metrics["context_length"])
                 self.action_time_history[self.last_action.value][metrics["batch_size"]][0]["prefill_total_num"]+=1
-
-        # Store current state for calculations
-        self.current_state = {
-            "proposal_time": proposal_time,
-            "acceptance_rate": acceptance_rate,
-            "spec_length": spec_length if spec_length is not None else 0
-        }
-    
+        
     def load_model(self, model_path_d: str, model_path_v: str) -> None:
         if self.t_d_model_trained and self.t_v_model_trained:
             return
