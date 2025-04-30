@@ -69,7 +69,7 @@ def start_server(model, host, port, strategy,sub_strategy):
         if sub_strategy == "ngram":
             exec_cmd.append("1")
         else:
-            exec_cmd.append("4")
+            exec_cmd.append("2")
     if strategy == "ilp":
         exec_cmd.append("--num_gpu_blocks_override")
         exec_cmd.append(str(num_gpu_blocks_override))
@@ -150,7 +150,7 @@ def main():
         num_prompts = args.num_prompts
         profile = True
         save_action_time_history = True
-        file_name = "300_new"
+        file_name = "300_new2"
         # args.dataset_name = "alpaca"
         # args.dataset_path = "tatsu-lab/alpaca"
         for rate in args.request_rates:

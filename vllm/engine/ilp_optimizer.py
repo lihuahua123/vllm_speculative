@@ -11,6 +11,7 @@ import torch
 from collections import defaultdict
 import json
 import pickle
+from collections import deque
 logger = logging.getLogger(__name__)
 
 class ILPAction(Enum):
@@ -77,6 +78,7 @@ class ILPOptimizer:
         self.last_action = ILPAction.USE_SMALL_MODEL_1
         self.last_action_time = 0.0
         self.current_state = None
+        self.history_max_len = 200
         
         # Configuration
         self.reward_window_size = reward_window_size # history window size
@@ -101,20 +103,20 @@ class ILPOptimizer:
         for action in self.actions:
             self.action_time_history[action.value] = {}
             # 预先初始化一些可能的batch size
-            for batch_size in range(1, 3):  # 假设batch size从1到300
+            for batch_size in range(1, 300):  # 假设batch size从1到300
                 self.action_time_history[action.value][batch_size] = {}
                 for i in range(2):
                     self.action_time_history[action.value][batch_size][i] = {
-                        "proposal_time": [],
-                        "scoring_time": [],
-                        "verification_time": [],
-                        "acceptance_rate": [],
+                        "proposal_time": deque(maxlen=self.history_max_len),
+                        "scoring_time": deque(maxlen=self.history_max_len),
+                        "verification_time": deque(maxlen=self.history_max_len),
+                        "acceptance_rate": deque(maxlen=self.history_max_len),
                         "total_num": 0,
-                        "total_latency": [],
-                        "accepted_tokens_length": [],
-                        "prefill_time": [],
+                        "total_latency": deque(maxlen=self.history_max_len),
+                        "accepted_tokens_length": deque(maxlen=self.history_max_len),
+                        "prefill_time": deque(maxlen=self.history_max_len),
                         "prefill_total_num": 0,
-                        "context_length": []
+                        "context_length": deque(maxlen=self.history_max_len)
                 }
 
     def save_action_time_history(self,file_name=None):
@@ -136,14 +138,20 @@ class ILPOptimizer:
         #             self.action_time_history[action][batch_size][0]["prefill_time"]/=prefill_total_num
         #             self.action_time_history[action][batch_size][0]["context_length"]/=prefill_total_num
         #             self.action_time_history[action][batch_size][0]["prefill_total_num"] = 1
-                    
+        # 将所有 deque 转换为 list
+        # 定义一个转换函数处理不可序列化的类型
+        def convert_to_serializable(obj):
+            if isinstance(obj, deque):
+                return list(obj)
+            raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+        
         if file_name is not None:
             logger.info(f"save action_time_history to file {file_name}")
             with open(file_name, "w") as f:
-                json.dump(self.action_time_history, f)
+                json.dump(self.action_time_history, f, default=convert_to_serializable)
         else:
             with open("action_time_history.json", "w") as f:
-                json.dump(self.action_time_history, f)
+                json.dump(self.action_time_history, f, default=convert_to_serializable)
             logger.info(f"save action_time_history to file action_time_history.json")
 
     def load_action_time_history(self):
