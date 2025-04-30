@@ -138,13 +138,13 @@ class ILPOptimizer:
         #             self.action_time_history[action][batch_size][0]["prefill_total_num"] = 1
                     
         if file_name is not None:
-            print("save action_time_history to file",file_name,self.action_time_history)
+            logger.info(f"save action_time_history to file {file_name}")
             with open(file_name, "w") as f:
                 json.dump(self.action_time_history, f)
         else:
             with open("action_time_history.json", "w") as f:
                 json.dump(self.action_time_history, f)
-            logger.info(f"save action_time_history to file")
+            logger.info(f"save action_time_history to file action_time_history.json")
 
     def load_action_time_history(self):
         def read_json(file_path):

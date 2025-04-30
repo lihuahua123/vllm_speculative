@@ -807,9 +807,9 @@ class FlashAttentionImpl(AttentionImpl):
                     softcap=logits_soft_cap,
                     out=prefill_output,
                     fa_version=self.vllm_flash_attn_version,
-                    q_descale=layer._q_scale.expand(descale_shape),
-                    k_descale=layer._k_scale.expand(descale_shape),
-                    v_descale=layer._v_scale.expand(descale_shape),
+                    # q_descale=layer._q_scale.expand(descale_shape),
+                    # k_descale=layer._k_scale.expand(descale_shape),
+                    # v_descale=layer._v_scale.expand(descale_shape),
                 )
             else:
                 # prefix-enabled attention
@@ -896,9 +896,9 @@ class FlashAttentionImpl(AttentionImpl):
                     softcap=logits_soft_cap,
                     out=decode_output.unsqueeze(1),
                     fa_version=self.vllm_flash_attn_version,
-                    q_descale=layer._q_scale.expand(descale_shape),
-                    k_descale=layer._k_scale.expand(descale_shape),
-                    v_descale=layer._v_scale.expand(descale_shape),
+                    # q_descale=layer._q_scale.expand(descale_shape),
+                    # k_descale=layer._k_scale.expand(descale_shape),
+                    # v_descale=layer._v_scale.expand(descale_shape),
                 )
         return output
 
