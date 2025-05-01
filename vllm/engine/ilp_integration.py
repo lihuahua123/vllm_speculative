@@ -60,10 +60,10 @@ class ILPOptimizationManager:
         self.last_batch_size = 0
         
     
-    def _collect_metrics(self):
+    def _collect_metrics(self,stage_data):
         """实际执行指标收集工作"""
         # 这里是原来set_record_metrics的核心逻辑
-        metrics = self._get_current_metrics()
+        metrics = self._get_current_metrics(stage_data)
         self.metrics = metrics
         self.optimizer.record_metrics(metrics)
         
@@ -127,7 +127,7 @@ class ILPOptimizationManager:
         self.tokens_generated_since_last_check += tokens_generated
         self.tokens_throughput_per_step = tokens_throughput_per_step
     
-    def _get_current_metrics(self) -> Dict[str, Any]:
+    def _get_current_metrics(self,stage_data) -> Dict[str, Any]:
         """Get current system metrics from the engine"""
         # Calculate throughput
         # current_time = time.time()
@@ -145,7 +145,7 @@ class ILPOptimizationManager:
         
         # Get speculative decoding metrics
         # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage
-        stage_data = self.engine.model_executor.get_speculative_metrics()[0]
+        
         acceptance_rate = stage_data[4]/stage_data[3]
         batch_size = stage_data[3]
         accepted_tokens_length = stage_data[4]
@@ -214,9 +214,9 @@ class ILPOptimizationManager:
         self.trigger_metrics_collection()
 
 
-    def step(self,scheduler_outputs) -> Optional[ILPAction]:
+    def step(self,scheduler_outputs,stage_data) -> Optional[ILPAction]:
         if self.profile:
-            self._collect_metrics()
+            self._collect_metrics(stage_data)
             return None
         if self.static_action is not None and self.static_action == self.optimizer.last_action:
             return None
@@ -275,15 +275,3 @@ class ILPOptimizationManager:
                 self.optimizer.save_action_time_history(file_name)
             self.static_action = None # 自由选择
             logger.info(f"Change speculative action to None")
-
-    def get_status(self) -> Dict[str, Any]:
-        """Get current status of optimization"""
-        metrics = self._get_current_metrics()
-        
-        return {
-            "current_metrics": metrics,
-            "optimizer_status": self.optimizer.get_status(),
-            "last_action": self.optimizer.last_action.name if self.optimizer.last_action else None,
-            "action_in_progress": self.action_in_progress,
-            "tried_actions": [a.name for a in self.tried_actions],
-        } 

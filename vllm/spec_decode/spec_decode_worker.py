@@ -765,8 +765,8 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
             draft_time = draft_prefill_timer.elapsed_time_ms
         else:
             draft_time = 0
-        # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage
-        self.stage_times = (draft_time,scoring_timer.elapsed_time_ms,0,len(execute_model_req.seq_group_metadata_list),0,context_length,stage)
+        # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposal_length
+        self.stage_times = (draft_time,scoring_timer.elapsed_time_ms,0,len(execute_model_req.seq_group_metadata_list),0,context_length,stage,0)
         return sampler_output_to_return
 
     def _run_non_driver_rank(self) -> bool:
@@ -883,8 +883,8 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
                        scoring_timer.elapsed_time_ms,
                        verification_timer.elapsed_time_ms)
         num_accepted_tokens = num_accepted_tokens.item()
-        # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage
-        self.stage_times = (proposal_timer.elapsed_time_ms,scoring_timer.elapsed_time_ms,verification_timer.elapsed_time_ms,len(execute_model_req.seq_group_metadata_list),num_accepted_tokens,context_length, SequenceStage.DECODE.value)
+        # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposal_length
+        self.stage_times = (proposal_timer.elapsed_time_ms,scoring_timer.elapsed_time_ms,verification_timer.elapsed_time_ms,len(execute_model_req.seq_group_metadata_list),num_accepted_tokens,context_length, SequenceStage.DECODE.value,execute_model_req.num_lookahead_slots)
 
         return self._create_output_sampler_list(
             execute_model_req.seq_group_metadata_list,

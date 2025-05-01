@@ -270,6 +270,7 @@ class _AsyncLLMEngine(LLMEngine):
             engine=self
         )
         self.strategy = "daspec"
+        self.stage_data = None
 
     async def step_async(
         self, virtual_engine: int
@@ -299,14 +300,11 @@ class _AsyncLLMEngine(LLMEngine):
         # This ensures that the scheduler is only called again when the current
         # batch has completed.
         if not self._has_remaining_steps(seq_group_metadata_list):
-
+            # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage
             # Schedule iteration
             (seq_group_metadata_list, scheduler_outputs,
              allow_async_output_proc
-             ) = self.scheduler[virtual_engine].schedule()
-            context_tokens = scheduler_outputs.num_cached_tokens
-            batch_tokens = scheduler_outputs.num_batched_tokens
-            # print("context_tokens: ",context_tokens,"batch_tokens: ",batch_tokens)
+             ) = self.scheduler[virtual_engine].schedule(self.stage_data)
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
 
@@ -379,8 +377,9 @@ class _AsyncLLMEngine(LLMEngine):
             # Execute the model.
             outputs = await self.model_executor.execute_model_async(
                 execute_model_req)
+            self.stage_data = self.model_executor.get_speculative_metrics()[0]
             if self.ilp_manager.profile:
-                self.ilp_manager.optimizer.record_metrics(self.ilp_manager._get_current_metrics())
+                self.ilp_manager.optimizer.record_metrics(self.ilp_manager._get_current_metrics(self.stage_data))
             # we need to do this here so that last step's sampled_token_ids can
             # be passed to the next iteration for PP.
             if self.scheduler_config.is_multi_step:
