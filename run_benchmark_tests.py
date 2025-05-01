@@ -77,8 +77,8 @@ def start_server(model, host, port, strategy,sub_strategy):
     server_process = subprocess.Popen(exec_cmd, env=my_env)
     # 等待服务器启动
     print("等待服务器启动...")
-    time.sleep(40)  # 给服务器一些启动时间
-    
+    time.sleep(60)
+   
     return server_process
 
 def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts, 

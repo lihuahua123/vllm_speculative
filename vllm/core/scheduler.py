@@ -262,6 +262,7 @@ class SmartSpec:
         if proposed_length == 0:
             return batch_size/self.model.predict([[context_length, batch_size]])[0]
         alpha = self.moving_average()
+        print("alpha",alpha)
         generated_length = batch_size * self.estimate_generated_length(alpha, proposed_length)
         execution_time = self.estimate_batch_execution_time(context_length,batch_size,proposed_length)
         return generated_length / execution_time
@@ -271,15 +272,17 @@ class SmartSpec:
         优化推测长度，选择最大化goodput的长度。
         :param batch_size: 批处理大小。
         :return: 最优的推测长度。
-        # NO need? 还得看能不能装下
         """
         best_goodput = -1
         best_length = 0
+        kk = []
         for k in range(0, self.max_proposed_length + 1):
             goodput = self.goodput_estimation(context_length,batch_size, k)
+            kk.append((goodput,k))
             if goodput > best_goodput:
                 best_goodput = goodput
                 best_length = k
+        print("kk",batch_size,kk)
         return best_length
 @dataclass
 class SchedulerRunningOutputs:
@@ -617,10 +620,10 @@ class Scheduler:
         
         self.speculative_metrics = None
         self.speculative_metrics_cache = []
-        if self.scheduler_config.num_lookahead_slots > 0:
-            self.smart_spec = SmartSpec(load('DeepSeek-R1-Qwen2.5-0.5B.pkl'), load('DeepSeek-R1-DRAFT-Qwen2.5-0.5B.pkl'), self.scheduler_config.num_lookahead_slots)
-        else:
-            self.smart_spec = None
+        # if self.scheduler_config.num_lookahead_slots > 0:
+        #     self.smart_spec = SmartSpec(load('DeepSeek-R1-Qwen2.5-0.5B-Verify_LR.pkl'), load('DeepSeek-R1-DRAFT-Qwen2.5-0.5B_LR.pkl'), self.scheduler_config.num_lookahead_slots)
+        # else:
+        self.smart_spec = None
         
         
         # Create directory if it doesn't exist
@@ -1621,8 +1624,10 @@ class Scheduler:
         if self.smart_spec is not None and len(self.running) > 0:
             self.smart_spec.prev_alphas = self.speculative_metrics_cache
             best_batch, best_proposed_lengths = self.smart_spec_schedule()
-            # self.scheduler_config.num_lookahead_slots = best_proposed_lengths
-            best_batch = None
+            self.scheduler_config.num_lookahead_slots = best_proposed_lengths
+            if self.scheduler_config.num_lookahead_slots == 0:
+                print("zero!",len(self.running)) 
+            # best_batch = None
         
         scheduler_start_time = time.perf_counter()
         scheduler_outputs: SchedulerOutputs = self._schedule(best_batch)
@@ -1976,24 +1981,25 @@ class Scheduler:
         return passed_delay
     
     def smart_spec_schedule(self):
-        batch_candidates = [] 
-        for i in range(1, len(self.running) + 1):
-            batch_candidates.append(i)
+        # batch_candidates = [] 
+        # for i in range(1, len(self.running) + 1):
+        #     batch_candidates.append(i)
         best_goodput = -1
         best_proposed_lengths = self.scheduler_config.num_lookahead_slots
         best_batch = None
 
-        for batch_size in batch_candidates:
-            context_length = 0
-            for i in range(batch_size):
-                context_length += self.running[i].first_seq.get_len()
-            proposed_length = self.smart_spec.optimize_proposed_length(context_length,batch_size)
-            goodput = self.smart_spec.goodput_estimation(context_length,batch_size, proposed_length)
+        #for batch_size in batch_candidates:
+        batch_size = len(self.running)
+        context_length = 0
+        for i in range(batch_size):
+            context_length += self.running[i].first_seq.get_len()
+        proposed_length = self.smart_spec.optimize_proposed_length(context_length,batch_size)
+        goodput = self.smart_spec.goodput_estimation(context_length,batch_size, proposed_length)
 
-            if goodput > best_goodput:
-                best_goodput = goodput
-                best_proposed_lengths = proposed_length
-                best_batch = batch_size
+        
+        best_goodput = goodput
+        best_proposed_lengths = proposed_length
+        best_batch = batch_size
 
         return best_batch, best_proposed_lengths
 
