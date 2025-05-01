@@ -620,10 +620,11 @@ class Scheduler:
         
         self.speculative_metrics = None
         self.speculative_metrics_cache = []
-        # if self.scheduler_config.num_lookahead_slots > 0:
-        #     self.smart_spec = SmartSpec(load('DeepSeek-R1-Qwen2.5-0.5B-Verify_LR.pkl'), load('DeepSeek-R1-DRAFT-Qwen2.5-0.5B_LR.pkl'), self.scheduler_config.num_lookahead_slots)
-        # else:
-        self.smart_spec = None
+        if self.scheduler_config.num_lookahead_slots > 0:
+            # self.smart_spec = SmartSpec(load('DeepSeek-R1-Qwen2.5-0.5B-Verify_RF.pkl'), load('DeepSeek-R1-DRAFT-Qwen2.5-0.5B_RF.pkl'), self.scheduler_config.num_lookahead_slots)
+            self.smart_spec = SmartSpec(load('DeepSeek-R1-Qwen2.5-0.5B-Verify_LR.pkl'), load('DeepSeek-R1-DRAFT-Qwen2.5-0.5B_LR.pkl'), self.scheduler_config.num_lookahead_slots)
+        else:
+            self.smart_spec = None
         
         
         # Create directory if it doesn't exist
