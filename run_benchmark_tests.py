@@ -33,10 +33,13 @@ def parse_args():
                         choices=["baseline", "ilp", "no-spec"], help="策略名称")
     parser.add_argument("--sub-strategy", type=str, default="ngram", 
                         choices=["ngram", "deep", "nospec", "daspec"], help="子策略名称")
+    parser.add_argument("--speculative-len", type=int, default=1, help="speculative长度")
+    parser.add_argument("--draft-model", type=str, default="", help="draft模型")
+    parser.add_argument("--profile",action="store_true", help="是否开启profile")
     
     return parser.parse_args()
 
-def start_server(model, host, port, strategy,sub_strategy):
+def start_server(model, host, port, strategy,sub_strategy,draft_model,speculative_len=1):
     """启动vLLM服务器"""
     print(f"正在启动vLLM服务器，模型: {model}, 地址: {host}:{port}...")
     
@@ -64,12 +67,12 @@ def start_server(model, host, port, strategy,sub_strategy):
     ]
     if strategy != "no-spec":
         exec_cmd.append("--speculative-model")
-        exec_cmd.append("/data/model/alamios_DeepSeek-R1-DRAFT-Qwen2.5-0.5B")
+        exec_cmd.append(draft_model)
         exec_cmd.append("--num-speculative-tokens")
         if sub_strategy == "ngram":
             exec_cmd.append("1")
         else:
-            exec_cmd.append("4")
+            exec_cmd.append(str(speculative_len))
     if strategy == "ilp":
         exec_cmd.append("--num_gpu_blocks_override")
         exec_cmd.append(str(num_gpu_blocks_override))
@@ -144,13 +147,17 @@ def main():
     args = parse_args()
     
     # 启动服务器
-    server_process = start_server(args.model, args.host, args.port, args.strategy,args.sub_strategy)
+    server_process = start_server(args.model, args.host, args.port, args.strategy,args.sub_strategy,args.draft_model,args.speculative_len)
     sub_strategy = args.sub_strategy
     try:
         num_prompts = args.num_prompts
-        profile = False
-        save_action_time_history = False
-        file_name = "300_new1"
+        if args.profile:
+            profile = True
+            save_action_time_history = True
+        else:
+            profile = False
+            save_action_time_history = False
+        file_name = f"300_new{args.speculative_len}"
         # args.dataset_name = "alpaca"
         # args.dataset_path = "tatsu-lab/alpaca"
         for rate in args.request_rates:

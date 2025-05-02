@@ -56,7 +56,7 @@ class ILPOptimizationManager:
         self.action_interval = 30
         self.static_action = None
         self.profile = False
-
+        self.static = False
         self.last_batch_size = 0
         
     
@@ -171,6 +171,8 @@ class ILPOptimizationManager:
     def _execute_action(self, action: ILPAction, static=False) -> bool:
         """Execute the selected action on the engine"""
         # Handle small model actions
+        self.static = static
+        virtual_engine = 0
         if action in [ILPAction.USE_SMALL_MODEL_1, ILPAction.USE_SMALL_MODEL_2]:
             model_index = action.value
             model_name = f"small_model_{model_index+1}"
@@ -181,6 +183,7 @@ class ILPOptimizationManager:
                 if static:
                     self.engine.decrease_block_number()
                     self.engine.load_neural_model_async()
+                    self.engine.scheduler[virtual_engine].smart_spec = None
                 self.engine.switch_to_neural_draft_model()
                 self.engine.set_disable_speculative_decoding(False)
             elif action == ILPAction.USE_SMALL_MODEL_2:
@@ -188,6 +191,7 @@ class ILPOptimizationManager:
                 self.engine.switch_to_ngram_draft_model()
                 # 先转移再offload TODO: proposer KV cache offload
                 if static:
+                    self.engine.scheduler[virtual_engine].smart_spec = None
                     self.engine.offload_proposer_worker()
                     self.engine.increase_block_number()
                 
@@ -200,6 +204,7 @@ class ILPOptimizationManager:
             logger.info("ILP optimizer: Disabling speculative decoding")
             self.engine.set_disable_speculative_decoding(True)
             if static:
+                self.engine.scheduler[virtual_engine].smart_spec = None
                 self.engine.offload_proposer_worker()
                 self.engine.increase_block_number()
             self.optimizer.current_model_index = -1  # No speculative decoding

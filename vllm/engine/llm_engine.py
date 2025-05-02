@@ -427,7 +427,7 @@ class LLMEngine:
         
         # Initialize state for draft model switching
         self.using_ngram_draft_model = False
-        self.disable_speculative_decoding = self.scheduler_config.num_lookahead_slots > 0
+        self.disable_speculative_decoding = self.scheduler_config.num_lookahead_slots <= 0
         if self.vllm_config.speculative_config:
             # Check if the current speculative model is ngram
             if hasattr(self.vllm_config.speculative_config, 'speculative_model') and self.vllm_config.speculative_config.model == "ngram":
@@ -2280,8 +2280,9 @@ class LLMEngine:
         print(f"Time taken to decrease block number: {end_time - start_time} seconds")
 
     def set_disable_speculative_decoding(self,disable_speculative_decoding):
-        self.disable_speculative_decoding = disable_speculative_decoding
-        self.model_executor.set_disable_speculative_decoding(disable_speculative_decoding)
+        if self.disable_speculative_decoding != disable_speculative_decoding:
+            self.disable_speculative_decoding = disable_speculative_decoding
+            self.model_executor.set_disable_speculative_decoding(disable_speculative_decoding)
 
 if envs.is_set("VLLM_USE_V1") and envs.VLLM_USE_V1:
     from vllm.v1.engine.llm_engine import LLMEngine as V1LLMEngine

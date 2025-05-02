@@ -300,11 +300,16 @@ class _AsyncLLMEngine(LLMEngine):
         # This ensures that the scheduler is only called again when the current
         # batch has completed.
         if not self._has_remaining_steps(seq_group_metadata_list):
-            # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage
+            # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposed_length
             # Schedule iteration
             (seq_group_metadata_list, scheduler_outputs,
-             allow_async_output_proc
+             allow_async_output_proc, need_disable_spec
              ) = self.scheduler[virtual_engine].schedule(self.stage_data)
+            if not self.ilp_manager.static:
+                if need_disable_spec:
+                    self.set_disable_speculative_decoding(True)
+                else:
+                    self.set_disable_speculative_decoding(False)
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
 

@@ -836,9 +836,9 @@ class FlashAttentionImpl(AttentionImpl):
                     softcap=logits_soft_cap,
                     out=prefill_output,
                     fa_version=self.vllm_flash_attn_version,
-                    q_descale=layer._q_scale.expand(descale_shape),
-                    k_descale=layer._k_scale.expand(descale_shape),
-                    v_descale=layer._v_scale.expand(descale_shape),
+                    # q_descale=layer._q_scale.expand(descale_shape),
+                    # k_descale=layer._k_scale.expand(descale_shape),
+                    # v_descale=layer._v_scale.expand(descale_shape),
                 )
 
         if decode_meta := attn_metadata.decode_metadata:
@@ -871,9 +871,9 @@ class FlashAttentionImpl(AttentionImpl):
                     block_table=decode_meta.block_tables,
                     out=decode_output,
                     fa_version=self.vllm_flash_attn_version,
-                    q_descale=layer._q_scale.expand(descale_shape),
-                    k_descale=layer._k_scale.expand(descale_shape),
-                    v_descale=layer._v_scale.expand(descale_shape),
+                    # q_descale=layer._q_scale.expand(descale_shape),
+                    # k_descale=layer._k_scale.expand(descale_shape),
+                    # v_descale=layer._v_scale.expand(descale_shape),
                 )
             else:
                 # Use flash_attn_with_kvcache for normal decoding.
