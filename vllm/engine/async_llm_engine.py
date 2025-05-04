@@ -305,11 +305,13 @@ class _AsyncLLMEngine(LLMEngine):
             (seq_group_metadata_list, scheduler_outputs,
              allow_async_output_proc, need_disable_spec
              ) = self.scheduler[virtual_engine].schedule(self.stage_data)
-            if not self.ilp_manager.static:
+            if not self.ilp_manager.static and not scheduler_outputs.is_empty() and scheduler_outputs.num_prefill_groups == 0:
                 if need_disable_spec:
                     self.set_disable_speculative_decoding(True)
                 else:
                     self.set_disable_speculative_decoding(False)
+                self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
+
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
 
@@ -354,26 +356,28 @@ class _AsyncLLMEngine(LLMEngine):
                 # We use ExecuteModelRequest to pass the last sampled_token_ids
                 # to each of the non-last PP stages for in-place prepare_input.
                 last_sampled_token_ids=last_sampled_token_ids)
-            if self.strategy == "daspec":
-                if len(seq_group_metadata_list) > 4:
-                    self.set_disable_speculative_decoding(True)
-                # elif self.disable_speculative_decoding:
-                #     self.set_disable_speculative_decoding(False)
-                # self.ilp_manager.step(scheduler_outputs)
+
             # FIXME
-            # if self.disable_speculative_decoding:
-            #     for seq_group in self.scheduler[virtual_engine].running:
-            #         seq_group.skip_neural_net_proposer_step_num = 1
-            # elif seq_group_metadata_list:
-            #     skip_count = sum(1 for seq_group in seq_group_metadata_list if seq_group.skip_neural_net_proposer_step_num > 0)
-            #     if 0 < skip_count < len(seq_group_metadata_list):
-            #         for seq_group in seq_group_metadata_list:
-            #             if seq_group.skip_neural_net_proposer_step_num > 0:
-            #                 seq_group.num_speculative_tokens = 0
-            #             else:
-            #                 seq_group.skip_neural_net_proposer_step_num = 0
-            #     elif skip_count == len(seq_group_metadata_list):
-            #         self.set_disable_speculative_decoding(True)
+            if not self.ilp_manager.static:
+                if self.scheduler[virtual_engine].has_new_request:
+                    self.has_new_request = True
+                if self.has_new_request and self.disable_speculative_decoding and scheduler_outputs.num_prefill_groups == 0:
+                    
+                    for seq_group in self.scheduler[virtual_engine].running:
+                        seq_group.skip_neural_net_proposer_step_num += 1
+                    self.has_new_request = False
+                elif seq_group_metadata_list and self.has_been_disabled_speculative_decoding:
+                    skip_count = sum(1 for seq_group in seq_group_metadata_list if seq_group.skip_neural_net_proposer_step_num > 0)
+                    if 0 < skip_count < len(seq_group_metadata_list):
+                        for seq_group in seq_group_metadata_list:
+                            if seq_group.skip_neural_net_proposer_step_num > 100:
+                                seq_group.num_speculative_tokens = 0
+                            else:
+                                seq_group.skip_neural_net_proposer_step_num = 0
+                    elif skip_count == len(seq_group_metadata_list):
+                        self.set_disable_speculative_decoding(True)
+                    elif skip_count == 0:
+                        self.has_been_disabled_speculative_decoding = False
 
             if allow_async_output_proc:
                 execute_model_req.async_callback = self.async_callbacks[

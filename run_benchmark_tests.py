@@ -80,7 +80,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     server_process = subprocess.Popen(exec_cmd, env=my_env)
     # 等待服务器启动
     print("等待服务器启动...")
-    time.sleep(60)
+    time.sleep(20)
    
     return server_process
 
