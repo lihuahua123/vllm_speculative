@@ -287,7 +287,7 @@ class SmartSpec:
         """
         if proposed_length == 0:
             # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposed_length
-            time_predict = self.model.predict([[context_length, batch_size]])[0]
+            time_predict = min(speculative_metrics[1],self.model.predict([[context_length, batch_size]])[0])
             last_real_time = speculative_metrics[1]
             #print("proposed_length = 0 scoring time_predict",time_predict,"last_real_time",last_real_time)
             return batch_size/time_predict
