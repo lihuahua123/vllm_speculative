@@ -32,7 +32,7 @@ def parse_args():
     parser.add_argument("--strategy", type=str, default="baseline", 
                         choices=["baseline", "ilp", "no-spec"], help="策略名称")
     parser.add_argument("--sub-strategy", type=str, default="ngram", 
-                        choices=["ngram", "deep", "nospec", "daspec"], help="子策略名称")
+                        choices=["ngram", "deep", "nospec", "daspec", "smart_spec"], help="子策略名称")
     parser.add_argument("--speculative-len", type=int, default=1, help="speculative长度")
     parser.add_argument("--draft-model", type=str, default="", help="draft模型")
     parser.add_argument("--profile",action="store_true", help="是否开启profile")
@@ -43,7 +43,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     """启动vLLM服务器"""
     print(f"正在启动vLLM服务器，模型: {model}, 地址: {host}:{port}...")
     
-    num_gpu_blocks_override = 4800 #28845
+    num_gpu_blocks_override = 2140 #4800 #28845
 
     # 设置环境变量
     my_env = os.environ.copy()
@@ -56,7 +56,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
         "--host", host,
         "--port", str(port),
         "--model", model,
-        "--gpu-memory-utilization", "0.85",
+        "--gpu-memory-utilization", "0.75", # 0.65 跑不起来
         # "--ngram_prompt_lookup_max", "4",
         "--enforce-eager",
         "--no-enable-prefix-caching",
@@ -223,6 +223,20 @@ def main():
                     result_dir=args.result_dir,
                     strategy=args.strategy,
                     text="DASpec"
+                )
+            if sub_strategy == "smart_spec":
+                send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"daspec_{file_name}.json")
+                run_benchmark(
+                    host=args.host,
+                    port=args.port,
+                    model=args.model,
+                    dataset_name=args.dataset_name,
+                    dataset_path=args.dataset_path,
+                    num_prompts=args.num_prompts,
+                    request_rate=rate,
+                    result_dir=args.result_dir,
+                    strategy=args.strategy,
+                    text="Smart_Spec"
                 )
         
         

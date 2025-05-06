@@ -555,7 +555,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         """
         return self._computed_blocks_tracker.get_num_cached_tokens(seq)
     
-    def decrease_gpu_blocks(self, decrease_num_blocks: int) -> None:
+    def decrease_gpu_blocks(self, decrease_num_blocks: int) -> List[Tuple[Block, Block]]:
         """Decreases the number of GPU blocks and updates all block tables accordingly."""
         if decrease_num_blocks <= 0:
             return
@@ -606,6 +606,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
                 if (old_block.prev_block is None or 
                     old_block.prev_block in processed_blocks or 
                     old_block.prev_block not in blocks_to_migrate):
+                    assert old_block.block_id is not None
                     blocks_to_process.append(old_block)
             
             # If we couldn't find any blocks to process but still have blocks to migrate,
@@ -629,7 +630,8 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
                     physical_block_id=new_block_id)
                 
                 # Store the mapping
-                block_mapping[old_block] = new_block
+                assert old_block.block_id is not None
+                block_mapping[old_block.block_id] = new_block.block_id
                 processed_blocks.add(old_block)
                 
                 # Update the block table
@@ -647,7 +649,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         
         # Now decrease the blocks in the allocator
         self.block_allocator._allocators[Device.GPU].decrease_block_number(current_size, decrease_num_blocks)
-        
+        return block_mapping
 
     def increase_gpu_blocks(self, increase_num_blocks: int) -> None:
         """Increases the number of GPU blocks and updates all block tables accordingly.

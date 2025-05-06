@@ -4,11 +4,13 @@ from typing import List
 import time
 import torch
 import gc
+from concurrent.futures import ThreadPoolExecutor
 from vllm.attention import get_attn_backend
 from vllm.config import CacheConfig, DeviceConfig, ModelConfig, ParallelConfig
 from vllm.logger import init_logger
 from vllm.utils import (STR_DTYPE_TO_TORCH_DTYPE, LayerBlockType,
                         get_dtype_size, is_pin_memory_available)
+import torch.nn.functional as F
 import sys
 import triton
 import triton.language as tl
@@ -144,10 +146,8 @@ class CacheEngine:
         """
         # 需要先解决循环依赖问题
         # 按照拓扑排序的方式处理映射，避免数据覆盖
-        time_start = time.time()
+
         processed_map = self._resolve_migration_dependencies(block_migration_map)
-        time_end = time.time()
-        logger.info(f"resolve_migration_dependencies 时间: {time_end - time_start:.2f} 秒")
         
         # 转换映射为张量
         old_ids = torch.tensor(list(processed_map.keys()), 
@@ -202,7 +202,6 @@ class CacheEngine:
             # 过滤映射，确保所有索引都在有效范围内
             valid_map = {old: new for old, new in block_migration_map.items() 
                         if old < self.num_gpu_blocks and new < new_num_blocks}
-            
             if valid_map:
                 for i in range(self.num_attention_layers):
                     # 使用 Triton 执行原地迁移
@@ -252,6 +251,7 @@ class CacheEngine:
         end_time = time.time()
         logger.info(f"decrease_gpu_blocks 时间: {end_time - time_start:.2f} 秒")
 
+    
     def increase_gpu_blocks(self, increase_num_blocks: int) -> None:
         """通过原地扩展方式增加GPU块的数量，避免大规模内存复制
         
@@ -264,20 +264,35 @@ class CacheEngine:
         allocated = torch.cuda.memory_allocated() / (1024 * 1024 * 1024)  # 转换为GB
         reserved = torch.cuda.memory_reserved() / (1024 * 1024 * 1024)
         logger.info(f"before increase_gpu_blocks 显存使用情况: 已分配 {allocated:.2f} GB, 已预留 {reserved:.2f} GB")
-        
+        begin_time = time.time()
         # 计算新的块数量
         new_num_blocks = self.num_gpu_blocks + increase_num_blocks
         
-        # 对于每个注意力层分别处理
-        for i in range(self.num_attention_layers):
+        def expand_cache_layer(i):
             old_shape = list(self.gpu_cache[i].shape)
             new_shape = old_shape.copy()
             new_shape[1] = increase_num_blocks
-            # 0.4630403518676758 seconds
             new_cache = torch.zeros(new_shape, 
-                                   dtype=self.dtype,
-                                   device=self.device_config.device_type)
+                                dtype=self.dtype,
+                                device=self.device_config.device_type)
             self.gpu_cache[i] = torch.cat([self.gpu_cache[i], new_cache], dim=1)
+        with ThreadPoolExecutor() as executor:
+            list(executor.map(expand_cache_layer, range(self.num_attention_layers)))
+        # # 对于每个注意力层分别处理
+        # for i in range(self.num_attention_layers):
+        #     old_shape = list(self.gpu_cache[i].shape)
+        #     new_shape = old_shape.copy()
+        #     new_shape[1] = increase_num_blocks
+        #     # 0.4630403518676758 seconds
+        #     new_cache = torch.zeros(new_shape, 
+        #                            dtype=self.dtype,
+        #                            device=self.device_config.device_type)
+        #     self.gpu_cache[i] = torch.cat([self.gpu_cache[i], new_cache], dim=1)
+            # self.gpu_cache[i] = F.pad(self.gpu_cache[i], 
+            #              (0, 0,    # 第4维度(dim=128)不填充
+            #              0, 0,    # 第3维度(blocks=4)不填充
+            #              0, 0,    # 第2维度(heads=16)不填充
+            #              0, increase_num_blocks))  # 第1维度(seq_len)末尾填充2982
             
         # 更新块数量
         self.num_gpu_blocks = new_num_blocks
@@ -289,7 +304,8 @@ class CacheEngine:
         allocated = torch.cuda.memory_allocated() / (1024 * 1024 * 1024)  # 转换为GB
         reserved = torch.cuda.memory_reserved() / (1024 * 1024 * 1024)
         logger.info(f"after increase_gpu_blocks 显存使用情况: 已分配 {allocated:.2f} GB, 已预留 {reserved:.2f} GB")
-    
+        end_time = time.time()
+        logger.info(f"increase_gpu_blocks 时间: {end_time - begin_time:.2f} 秒")
     def _resolve_migration_dependencies(self, block_migration_map):
         """解析块迁移映射中的依赖关系，确保按正确顺序执行
         
@@ -499,7 +515,7 @@ def kv_cache_inplace_migration_kernel(
             src_addr = old_block_id * block_elements + offset
             dst_addr = new_block_id * block_elements + offset
             
-            # 复制数据 - 修复索引类型问题
+            # 复制数据
             val = tl.load(cache_ptr + src_addr.to(tl.int32))
             tl.store(cache_ptr + dst_addr.to(tl.int32), val)
 

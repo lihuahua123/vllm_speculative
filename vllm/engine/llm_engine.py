@@ -2208,15 +2208,16 @@ class LLMEngine:
     
     def increase_or_decrease_block_number(self,scheduler_outputs,virtual_engine):
         can_increase_space, can_decrease_space = False, False
+        # logger.info(f"scheduler_outputs.scheduled_seq_groups: {len(scheduler_outputs.scheduled_seq_groups)}, scheduler_outputs.num_prefill_groups: {scheduler_outputs.num_prefill_groups}, len(self.scheduler[virtual_engine].waiting): {len(self.scheduler[virtual_engine].waiting)},running: {len(self.scheduler[virtual_engine].running)}")
         # FIXME 具有滞后性 如果预先调度，则增加overhead，否则具有滞后性，没准下一次就用不上了
         if self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks < self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks:
-            if len(scheduler_outputs.scheduled_seq_groups) ==  scheduler_outputs.num_prefill_groups and  len(scheduler_outputs.scheduled_seq_groups) <  len(self.scheduler[virtual_engine].waiting):
+            if len(scheduler_outputs.scheduled_seq_groups) ==  scheduler_outputs.num_prefill_groups and  len(self.scheduler[virtual_engine].waiting) > 2:
                 can_increase_space = True # prefill 满了，可以增加空间
-            elif scheduler_outputs.num_prefill_groups == 0 and len(scheduler_outputs.scheduled_seq_groups) < len(self.scheduler[virtual_engine].running):
+            elif scheduler_outputs.num_prefill_groups == 0 and len(self.scheduler[virtual_engine].running) - len(scheduler_outputs.scheduled_seq_groups) > 2:
                 can_increase_space = True # decode 满了，可以增加空间
         else:
             if self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks == self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks and \
-                self.cache_config.num_virtual_blocks <  self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks():
+                self.cache_config.num_virtual_blocks + 50 <  self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks():
                 can_decrease_space = True
         if can_increase_space:
             logger.info("increase block number")
@@ -2288,6 +2289,10 @@ class LLMEngine:
         print(f"Time taken to decrease block number: {end_time - start_time} seconds")
 
     def set_disable_speculative_decoding(self,disable_speculative_decoding):
+        if self.proposer_worker_to_cpu:
+            if not disable_speculative_decoding:
+                logger.info("disable_speculative_decoding is False, but proposer_worker_to_cpu is True, so ingore the disable_speculative_decoding")
+                return
         if disable_speculative_decoding:
             self.has_been_disabled_speculative_decoding = True
         if self.disable_speculative_decoding != disable_speculative_decoding:

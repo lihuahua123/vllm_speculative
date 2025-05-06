@@ -560,7 +560,7 @@ class BurstGPTDataset(BenchmarkDataset):
                 ))
         return samples
 
-
+    
 class HuggingFaceAlpacaDataset(BenchmarkDataset):
     """
     Dataset class for processing a HuggingFace dataset with conversation data

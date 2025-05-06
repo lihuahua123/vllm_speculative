@@ -369,12 +369,12 @@ async def benchmark(
     benchmark_start_time = time.perf_counter()
     begin_time = time.time()
     
-    start_index = 300
+    start_index = 300 # 前300 用来profile了
     # input_requests_list = [input_requests[start_index:start_index+18],input_requests[start_index+18:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:]]
     # request_rate_list = [1,0.1,1,0.1]
     outputs_list = []
-    request_rate_list = [10] # [request_rate]#
-    input_requests_list = [input_requests[start_index+40:]]#[input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:start_index+540]] # [input_requests] #[input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:]]
+    request_rate_list =  [request_rate]#
+    input_requests_list = [input_requests[start_index:]]#[input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:start_index+540]] # [input_requests] #[input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:]]
     for index, one_input_requests in enumerate(input_requests_list):
         tasks: list[asyncio.Task] = []
         async for request in get_request(one_input_requests, request_rate_list[index], burstiness, enable_trace=False):

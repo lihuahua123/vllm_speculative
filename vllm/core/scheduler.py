@@ -231,7 +231,88 @@ class SmartSpec:
             return 0.7  # 默认值，如果没有历史数据
         window = self.prev_alphas[-window_size:]
         return sum(window) / len(window)
-    def exponential_smoothing(self):
+    
+    def estimate_generated_length(self, alpha, k):
+        """
+        估计生成的token长度。带bonus的
+        :param alpha: token接受率。
+        :param k: 推测长度。
+        :return: 生成的token长度。
+        """
+        if alpha == 1:
+            return k + 1  # 如果接受率为1，生成k+1个token
+        return (1 - alpha ** (k + 1)) / (1 - alpha)
+    
+    def estimate_batch_execution_time(self, context_length, batch_size, proposed_length, speculative_metrics=None):
+        """
+        估计批处理的执行时间。
+        :param batch_size: 批处理大小。
+        :param context_length: 上下文长度。
+        :return: 执行时间。
+        """
+        # 假设执行时间是线性的，基于模型系数 FIXME 万一前面的和后面的batch size 不一样，得到的时间也不一样
+        # if speculative_metrics is not None and speculative_metrics[7] > 0: # 这里也整一个指数平均
+        #     target = speculative_metrics[1] + speculative_metrics[2] 
+        #     draft = speculative_metrics[0]/speculative_metrics[7]
+        #     draft_predict = self.draft_model.predict([[context_length,batch_size]])[0]
+        #     target_predict = self.model.predict([[context_length, batch_size*proposed_length]])[0]
+        #     print("proposed_length",proposed_length, "batch_size",batch_size,"real target time",target,"target_predict",target_predict, "real draft time",draft,"draft_predict",draft_predict)
+            
+        # else:
+        draft = self.draft_model.predict([[context_length,batch_size]])[0]
+        target = self.model.predict([[context_length, batch_size*proposed_length]])[0]
+        
+        # self.model.predict([[context_length, batch_size*proposed_length]])[0]
+        # target = self.model.predict([[context_length, batch_size*proposed_length]])[0]
+        return draft *  proposed_length + target
+    def goodput_estimation(self, context_length, batch_size, proposed_length, alpha, speculative_metrics=None):
+        """
+        计算goodput。
+        :param batch_size: 批处理大小。
+        :param proposed_length: 推测长度。
+        :return: goodput值。
+        """
+        if proposed_length == 0:
+            # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposed_length
+            time_predict = self.model.predict([[context_length, batch_size]])[0]
+            return batch_size/time_predict
+        generated_length = batch_size *  self.estimate_generated_length(alpha, proposed_length)
+        execution_time = self.estimate_batch_execution_time(context_length,batch_size,proposed_length, speculative_metrics)
+        return generated_length / execution_time
+
+    def optimize_proposed_length(self, context_length, batch_size, speculative_metrics=None,context_lengths=None):
+        """
+        优化推测长度，选择最大化goodput的长度。
+        :param batch_size: 批处理大小。
+        :return: 最优的推测长度。
+        """
+        best_goodput = -1
+        best_length = 0
+        min_k = 0
+        alpha = self.moving_average() #self.exponential_smoothing()
+
+        for k in range(min_k, self.max_proposed_length + 1):
+            goodput = self.goodput_estimation(context_length,batch_size, k, alpha, speculative_metrics)
+            if goodput > best_goodput:
+                best_goodput = goodput
+                best_length = k
+        return best_length, best_goodput
+    
+class DASpec:
+    def __init__(self, model, draft_model, max_proposed_length=5):
+        """
+        初始化DASpec。
+        :param model: 模型，用于计算执行时间。
+        :param max_proposed_length: 最大推测长度。
+        """
+        self.model = model
+        self.draft_model = draft_model
+        self.max_proposed_length = max_proposed_length
+        self.prev_alphas = []  # 用于存储历史token接受率
+        self.smoothed = -1
+        self.explore_for_low_alpha_cnt = 0
+
+    def moving_average(self, window_size=10):
         """
         计算历史token接受率的移动平均值。
         :param window_size: 移动平均的窗口大小。
@@ -239,12 +320,9 @@ class SmartSpec:
         """
         if len(self.prev_alphas) == 0:
             return 0.7  # 默认值，如果没有历史数据
-        if self.smoothed == -1:
-            self.smoothed = self.prev_alphas[-1]
-        else:
-            alpha = 0.7
-            self.smoothed =  alpha * self.prev_alphas[-1] + (1 - alpha) * self.smoothed
-        return self.smoothed
+        window = self.prev_alphas[-window_size:]
+        return sum(window) / len(window)
+    
     def estimate_generated_length(self, alpha, k):
         """
         估计生成的token长度。带bonus的
@@ -288,8 +366,6 @@ class SmartSpec:
         if proposed_length == 0:
             # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposed_length
             time_predict = min(speculative_metrics[1],self.model.predict([[context_length, batch_size]])[0])
-            last_real_time = speculative_metrics[1]
-            #print("proposed_length = 0 scoring time_predict",time_predict,"last_real_time",last_real_time)
             return batch_size/time_predict
         generated_length = batch_size *  self.estimate_generated_length(alpha, proposed_length)
         execution_time = self.estimate_batch_execution_time(context_length,batch_size,proposed_length, speculative_metrics)
@@ -662,9 +738,10 @@ class Scheduler:
         draft_model_profile = 'DeepSeek-R1-DRAFT-Qwen2.5-0.5B_LR.pkl'
         if self.scheduler_config.num_lookahead_slots > 0 and os.path.exists(verify_model_profile) and os.path.exists(draft_model_profile):
             self.smart_spec = SmartSpec(load(verify_model_profile), load(draft_model_profile), self.scheduler_config.num_lookahead_slots)
+            self.daspec_spec = DASpec(load(verify_model_profile), load(draft_model_profile), self.scheduler_config.num_lookahead_slots)
         else:
             self.smart_spec = None  
-            
+            self.daspec_spec = None
         self.smart_schedule_count = 0
         
         # Create directory if it doesn't exist
@@ -1663,11 +1740,19 @@ class Scheduler:
 
         best_batch = None 
         need_disable_spec = False
+        if self.daspec_spec is not None and len(self.running) > 0: 
+            self.daspec_spec.prev_alphas = self.speculative_metrics_cache
+            best_batch, best_proposed_lengths = self.daspec_spec_schedule(speculative_metrics)
+            
+            self.scheduler_config.num_lookahead_slots = best_proposed_lengths
+            if self.scheduler_config.num_lookahead_slots == 0:
+                print("zero!",len(self.running)) 
+                need_disable_spec = True
+                
         if self.smart_spec is not None and len(self.running) > 0: #and (self.has_new_request or self.smart_schedule_count < 5): # 有decode的时候进行
             self.smart_spec.prev_alphas = self.speculative_metrics_cache
             best_batch, best_proposed_lengths = self.smart_spec_schedule(speculative_metrics)
             #print("best batch",best_batch, "best_proposed_lengths", best_proposed_lengths)
-            
             self.scheduler_config.num_lookahead_slots = best_proposed_lengths
             if self.scheduler_config.num_lookahead_slots == 0:
                 print("zero!",len(self.running)) 
@@ -2026,10 +2111,26 @@ class Scheduler:
         return passed_delay
     
     def smart_spec_schedule(self, speculative_metrics=None):
-        # batch_candidates = [] 
-        # for i in range(1, len(self.running) + 1):
-        #     batch_candidates.append(i)
+        batch_candidates = [] 
+        context_length = 0
+        context_lengths = []
+        for i in range(1, len(self.running) + 1):
+            batch_candidates.append(i)
+            context_length += self.running[i-1].first_seq.get_len()
+            context_lengths.append(context_length)
         best_goodput = -1
+        best_proposed_lengths = self.scheduler_config.num_lookahead_slots
+        best_batch = None
+        for index,batch_size in enumerate(batch_candidates):
+            proposed_length, goodput = self.smart_spec.optimize_proposed_length(context_lengths[index], batch_size, speculative_metrics)
+            if goodput > best_goodput:
+                best_goodput = goodput
+                best_proposed_lengths = proposed_length
+                best_batch = batch_size
+        return best_batch, best_proposed_lengths
+    
+    def daspec_spec_schedule(self, speculative_metrics=None):
+
         best_proposed_lengths = self.scheduler_config.num_lookahead_slots
         best_batch = None
 
@@ -2046,7 +2147,7 @@ class Scheduler:
         context_length = 0
         for i in range(batch_size):
             context_length += self.running[i].first_seq.get_len()
-        proposed_length = self.smart_spec.optimize_proposed_length(start_idx, context_length,batch_size, speculative_metrics)
+        proposed_length = self.daspec_spec.optimize_proposed_length(start_idx, context_length,batch_size, speculative_metrics)
 
         best_proposed_lengths = proposed_length
         best_batch = batch_size

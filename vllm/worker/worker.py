@@ -344,7 +344,7 @@ class Worker(LocalOrDistributedWorkerBase):
                       self.gpu_cache)
 
     def decrease_cache_blocks(self,num_gpu_blocks: int, block_migration_map=None) -> None:
-        print(f"!!!decrease_cache_blocks: {num_gpu_blocks}, block_migration_map: {block_migration_map}")
+        print(f"!!!decrease_cache_blocks: {num_gpu_blocks}")           
         self.gpu_cache = None
         deblind_kv_cache(self.compilation_config.static_forward_context)
         for ve in range(self.parallel_config.pipeline_parallel_size):
