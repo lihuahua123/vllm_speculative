@@ -80,7 +80,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     server_process = subprocess.Popen(exec_cmd, env=my_env)
     # 等待服务器启动
     print("等待服务器启动...")
-    time.sleep(20)
+    time.sleep(40)
    
     return server_process
 
@@ -90,7 +90,7 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
     print(f"正在运行基准测试，strategy: {strategy}, 请求率: {request_rate} QPS...")
     
     os.makedirs(result_dir, exist_ok=True)
-    result_filename = f"benchmark_rate_{strategy}_{num_prompts}_{text}.json"
+    result_filename = f"benchmark_rate_{text}_{num_prompts}_{request_rate}.json"
     # 检查结果文件是否存在,不存在则创建
     result_file = os.path.join(result_dir, result_filename)
     if not os.path.exists(result_file):
@@ -116,8 +116,7 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
     
     subprocess.run(benchmark_cmd)
     print(f"完成请求率为 {request_rate} QPS 的基准测试，结果保存在 {os.path.join(result_dir, result_filename)}")
-    with open(os.path.join(result_dir, result_filename), 'a') as f:
-        f.write(',')
+    
 def send_speculative_action(host, port, action,strategy="ilp",save_action_time_history=False, profile=False,file_name=None):
     """向服务器发送speculative_action请求"""
     url = f"http://{host}:{port}/speculative_action"
@@ -225,7 +224,7 @@ def main():
                     text="DASpec"
                 )
             if sub_strategy == "smart_spec":
-                send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"daspec_{file_name}.json")
+                send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"smart_spec_{file_name}.json")
                 run_benchmark(
                     host=args.host,
                     port=args.port,
