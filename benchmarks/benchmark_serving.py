@@ -369,7 +369,7 @@ async def benchmark(
     benchmark_start_time = time.perf_counter()
     begin_time = time.time()
     
-    start_index = 300 # 前300 用来profile了
+    start_index = 300 #300 # 前300 用来profile了
     # input_requests_list = [input_requests[start_index:start_index+18],input_requests[start_index+18:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:]]
     # request_rate_list = [1,0.1,1,0.1]
     outputs_list = []

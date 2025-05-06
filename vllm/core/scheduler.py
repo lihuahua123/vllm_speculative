@@ -342,16 +342,16 @@ class DASpec:
         :return: 执行时间。
         """
         # 假设执行时间是线性的，基于模型系数 FIXME 万一前面的和后面的batch size 不一样，得到的时间也不一样
-        # if speculative_metrics is not None and speculative_metrics[7] > 0: # 这里也整一个指数平均
-        #     target = speculative_metrics[1] + speculative_metrics[2] 
-        #     draft = speculative_metrics[0]/speculative_metrics[7]
-        #     draft_predict = self.draft_model.predict([[context_length,batch_size]])[0]
-        #     target_predict = self.model.predict([[context_length, batch_size*proposed_length]])[0]
-        #     print("proposed_length",proposed_length, "batch_size",batch_size,"real target time",target,"target_predict",target_predict, "real draft time",draft,"draft_predict",draft_predict)
-            
-        # else:
-        draft = self.draft_model.predict([[context_length,batch_size]])[0]
-        target = self.model.predict([[context_length, batch_size*proposed_length]])[0]
+        if speculative_metrics is not None and speculative_metrics[7] > 0: # 这里也整一个指数平均
+            target = speculative_metrics[1] + speculative_metrics[2] 
+            draft = speculative_metrics[0]/speculative_metrics[7]
+            draft_predict = self.draft_model.predict([[context_length,batch_size]])[0]
+            target_predict = self.model.predict([[context_length, batch_size*proposed_length]])[0]
+            print("proposed_length",proposed_length, "batch_size",batch_size,"real target time",target,"target_predict",target_predict, "real draft time",draft,"draft_predict",draft_predict)
+            target = target_predict
+        else:
+            draft = self.draft_model.predict([[context_length,batch_size]])[0]
+            target = self.model.predict([[context_length, batch_size*proposed_length]])[0]
         
         # self.model.predict([[context_length, batch_size*proposed_length]])[0]
         # target = self.model.predict([[context_length, batch_size*proposed_length]])[0]
@@ -742,7 +742,7 @@ class Scheduler:
         else:
             self.smart_spec = None  
             self.daspec_spec = None
-        self.smart_schedule_count = 0
+        self.profile = False
         
         # Create directory if it doesn't exist
         os.makedirs('logs', exist_ok=True)
@@ -1740,7 +1740,7 @@ class Scheduler:
 
         best_batch = None 
         need_disable_spec = False
-        if self.daspec_spec is not None and len(self.running) > 0: 
+        if not self.profile and self.daspec_spec is not None and len(self.running) > 0: 
             self.daspec_spec.prev_alphas = self.speculative_metrics_cache
             best_batch, best_proposed_lengths = self.daspec_spec_schedule(speculative_metrics)
             
@@ -1749,7 +1749,7 @@ class Scheduler:
                 print("zero!",len(self.running)) 
                 need_disable_spec = True
                 
-        if self.smart_spec is not None and len(self.running) > 0: #and (self.has_new_request or self.smart_schedule_count < 5): # 有decode的时候进行
+        if not self.profile and self.smart_spec is not None and len(self.running) > 0: 
             self.smart_spec.prev_alphas = self.speculative_metrics_cache
             best_batch, best_proposed_lengths = self.smart_spec_schedule(speculative_metrics)
             #print("best batch",best_batch, "best_proposed_lengths", best_proposed_lengths)
@@ -2140,9 +2140,6 @@ class Scheduler:
         if self.has_new_request:
             start_idx = 1
             self.has_new_request = False
-            self.smart_schedule_count = 0
-        else:
-            self.smart_schedule_count += 1
         
         context_length = 0
         for i in range(batch_size):

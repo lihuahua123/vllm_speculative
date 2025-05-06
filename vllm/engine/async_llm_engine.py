@@ -305,12 +305,12 @@ class _AsyncLLMEngine(LLMEngine):
             (seq_group_metadata_list, scheduler_outputs,
              allow_async_output_proc, need_disable_spec
              ) = self.scheduler[virtual_engine].schedule(self.stage_data)
-            if (self.strategy == "daspec"  or self.strategy == "smart_spec")and not scheduler_outputs.is_empty() and scheduler_outputs.num_prefill_groups == 0:
+            if not self.ilp_manager.profile and (self.strategy == "daspec"  or self.strategy == "smart_spec")and not scheduler_outputs.is_empty() and scheduler_outputs.num_prefill_groups == 0:
                 if need_disable_spec:
                     self.set_disable_speculative_decoding(True)
                 else:
                     self.set_disable_speculative_decoding(False)
-            if self.strategy == "daspec" and not scheduler_outputs.is_empty(): 
+            if not self.ilp_manager.profile and self.strategy == "daspec" and not scheduler_outputs.is_empty(): 
                 self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
 
             ctx.seq_group_metadata_list = seq_group_metadata_list
@@ -359,7 +359,7 @@ class _AsyncLLMEngine(LLMEngine):
                 last_sampled_token_ids=last_sampled_token_ids)
 
             # FIXME
-            if self.ilp_manager.strategy == "daspec" or self.ilp_manager.strategy == "smart_spec":
+            if not self.ilp_manager.profile and (self.ilp_manager.strategy == "daspec" or self.ilp_manager.strategy == "smart_spec"):
                 if self.scheduler[virtual_engine].has_new_request:
                     self.has_new_request = True
                 if self.has_new_request and self.disable_speculative_decoding and scheduler_outputs.num_prefill_groups == 0:
@@ -1272,7 +1272,10 @@ class AsyncLLMEngine(EngineClient):
         """Change the speculative action."""
         if strategy is not None:
             self.engine.strategy = strategy
+            
             virtual_engine = 0
+            self.engine.scheduler[virtual_engine].profile = profile
+            logger.info(f"change_speculative_action: {strategy}, {profile}")
             if strategy == "smart_spec":
                 self.engine.scheduler[virtual_engine].daspec_spec = None
             elif strategy == "daspec":
