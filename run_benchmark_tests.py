@@ -36,6 +36,7 @@ def parse_args():
     parser.add_argument("--speculative-len", type=int, default=1, help="speculative长度")
     parser.add_argument("--draft-model", type=str, default="", help="draft模型")
     parser.add_argument("--profile",action="store_true", help="是否开启profile")
+    parser.add_argument("--start-index", type=int, default=0, help="benchmark 数据集开始索引")
     
     return parser.parse_args()
 
@@ -43,7 +44,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     """启动vLLM服务器"""
     print(f"正在启动vLLM服务器，模型: {model}, 地址: {host}:{port}...")
     
-    num_gpu_blocks_override = 2140 #4800 #28845
+    num_gpu_blocks_override = 4800 #2140 4090 0.75 mem #4800 4090 0.85 mem #28845 a6000
 
     # 设置环境变量
     my_env = os.environ.copy()
@@ -56,7 +57,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
         "--host", host,
         "--port", str(port),
         "--model", model,
-        "--gpu-memory-utilization", "0.75", # 0.65 跑不起来
+        "--gpu-memory-utilization", "0.85", # 0.65 跑不起来
         # "--ngram_prompt_lookup_max", "4",
         "--enforce-eager",
         "--no-enable-prefix-caching",
@@ -85,17 +86,18 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     return server_process
 
 def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts, 
-                 request_rate, result_dir, strategy, text):
+                 request_rate, result_dir, strategy, text, start_index=0):
     """运行单个请求率的基准测试"""
     print(f"正在运行基准测试，strategy: {strategy}, 请求率: {request_rate} QPS...")
     
     os.makedirs(result_dir, exist_ok=True)
-    result_filename = f"benchmark_rate_{text}_{num_prompts}_{request_rate}.json"
+    time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+    result_filename = f"benchmark_{text}_{num_prompts}_{request_rate}_{time_str}.json"
     # 检查结果文件是否存在,不存在则创建
-    result_file = os.path.join(result_dir, result_filename)
-    if not os.path.exists(result_file):
-        with open(result_file, 'w') as f:
-            f.write('[')
+    # result_file = os.path.join(result_dir, result_filename)
+    # if not os.path.exists(result_file):
+    #     with open(result_file, 'w') as f:
+    #         f.write('[')
     benchmark_cmd = [
         sys.executable,
         "benchmarks/benchmark_serving.py",
@@ -111,7 +113,8 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
         "--save-result",
         "--result-dir", result_dir,
         "--result-filename", result_filename,
-        "--enable-trace"
+        "--enable-trace",
+        "--start-index", str(start_index)
     ]
     
     subprocess.run(benchmark_cmd)
@@ -148,6 +151,7 @@ def main():
     # 启动服务器
     server_process = start_server(args.model, args.host, args.port, args.strategy,args.sub_strategy,args.draft_model,args.speculative_len)
     sub_strategy = args.sub_strategy
+    start_index = args.start_index
     try:
         num_prompts = args.num_prompts
         if args.profile:
@@ -156,7 +160,9 @@ def main():
         else:
             profile = False
             save_action_time_history = False
-        file_name = f"300_new{args.speculative_len}"
+        time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+        profile_file_name = f"300_new{args.speculative_len}_{time_str}"
+        benchmark_file_name = sub_strategy+"_"+str(args.speculative_len)
         # args.dataset_name = "alpaca"
         # args.dataset_path = "tatsu-lab/alpaca"
         for rate in args.request_rates:
@@ -173,9 +179,10 @@ def main():
                         request_rate=request_rate,
                         result_dir=args.result_dir,
                         strategy=args.strategy,
-                        text="Ngram"
+                        text=sub_strategy+"_"+str(args.speculative_len),
+                        start_index=start_index
                     )
-                send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"ngram_{file_name}.json")
+                send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"ngram_{profile_file_name}.json")
             if sub_strategy == "nospec":
                 send_speculative_action(args.host, args.port, 2,strategy=args.sub_strategy,profile=profile)
 
@@ -189,9 +196,10 @@ def main():
                         request_rate=request_rate,
                         result_dir=args.result_dir,
                         strategy=args.strategy,
-                        text="Nospec"
+                        text=benchmark_file_name,
+                        start_index=start_index
                     )
-                send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"nospec_{file_name}.json")
+                send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"nospec_{profile_file_name}.json")
             if sub_strategy == "deep":
                 if not send_speculative_action(args.host, args.port, 0,strategy=args.sub_strategy,profile=profile):
                     print("发送speculative_action请求失败")
@@ -206,11 +214,12 @@ def main():
                         request_rate=request_rate,
                         result_dir=args.result_dir,
                         strategy=args.strategy,
-                        text="Deep_05b"
+                        text=benchmark_file_name,
+                        start_index=start_index
                     )
-                send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"deep_05b_{file_name}.json")
+                send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"deep_05b_{profile_file_name}.json")
             if sub_strategy == "daspec":
-                send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"daspec_{file_name}.json")
+                send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"daspec_{profile_file_name}.json")
                 run_benchmark(
                     host=args.host,
                     port=args.port,
@@ -221,10 +230,11 @@ def main():
                     request_rate=rate,
                     result_dir=args.result_dir,
                     strategy=args.strategy,
-                    text="DASpec"
+                    text=benchmark_file_name,
+                    start_index=start_index
                 )
             if sub_strategy == "smart_spec":
-                send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"smart_spec_{file_name}.json")
+                send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"smart_spec_{profile_file_name}.json")
                 run_benchmark(
                     host=args.host,
                     port=args.port,
@@ -235,7 +245,8 @@ def main():
                     request_rate=rate,
                     result_dir=args.result_dir,
                     strategy=args.strategy,
-                    text="Smart_Spec"
+                    text=benchmark_file_name,
+                    start_index=start_index
                 )
         
         

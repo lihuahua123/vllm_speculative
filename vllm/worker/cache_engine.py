@@ -268,26 +268,26 @@ class CacheEngine:
         # 计算新的块数量
         new_num_blocks = self.num_gpu_blocks + increase_num_blocks
         
-        def expand_cache_layer(i):
-            old_shape = list(self.gpu_cache[i].shape)
-            new_shape = old_shape.copy()
-            new_shape[1] = increase_num_blocks
-            new_cache = torch.zeros(new_shape, 
-                                dtype=self.dtype,
-                                device=self.device_config.device_type)
-            self.gpu_cache[i] = torch.cat([self.gpu_cache[i], new_cache], dim=1)
-        with ThreadPoolExecutor() as executor:
-            list(executor.map(expand_cache_layer, range(self.num_attention_layers)))
-        # # 对于每个注意力层分别处理
-        # for i in range(self.num_attention_layers):
+        # def expand_cache_layer(i):
         #     old_shape = list(self.gpu_cache[i].shape)
         #     new_shape = old_shape.copy()
         #     new_shape[1] = increase_num_blocks
-        #     # 0.4630403518676758 seconds
         #     new_cache = torch.zeros(new_shape, 
-        #                            dtype=self.dtype,
-        #                            device=self.device_config.device_type)
+        #                         dtype=self.dtype,
+        #                         device=self.device_config.device_type)
         #     self.gpu_cache[i] = torch.cat([self.gpu_cache[i], new_cache], dim=1)
+        # with ThreadPoolExecutor() as executor: 会OOM
+        #     list(executor.map(expand_cache_layer, range(self.num_attention_layers)))
+        # # 对于每个注意力层分别处理
+        for i in range(self.num_attention_layers):
+            old_shape = list(self.gpu_cache[i].shape)
+            new_shape = old_shape.copy()
+            new_shape[1] = increase_num_blocks
+            # 0.4630403518676758 seconds
+            new_cache = torch.zeros(new_shape, 
+                                   dtype=self.dtype,
+                                   device=self.device_config.device_type)
+            self.gpu_cache[i] = torch.cat([self.gpu_cache[i], new_cache], dim=1)
             # self.gpu_cache[i] = F.pad(self.gpu_cache[i], 
             #              (0, 0,    # 第4维度(dim=128)不填充
             #              0, 0,    # 第3维度(blocks=4)不填充

@@ -710,7 +710,6 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
             for req in execute_model_req.seq_group_metadata_list:
                 for key, value in req.seq_data.items():
                    stage = value.stage
-                   
                    context_length += value.get_len()
             stage = stage.value
             sampler_output = self.scorer_worker.execute_model(execute_model_req)

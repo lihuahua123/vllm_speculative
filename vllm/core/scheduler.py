@@ -311,8 +311,31 @@ class DASpec:
         self.prev_alphas = []  # 用于存储历史token接受率
         self.smoothed = -1
         self.explore_for_low_alpha_cnt = 0
+        
+        self.alpha_table = {round(i * 0.01, 2): 0 for i in range(101)}
+        self.alpha_window = deque()  # To store the sliding window of alphas
+        self.window_size = 10  # Or any default you want
 
-    def moving_average(self, window_size=10):
+    def update_alpha_table(self, new_alpha):
+        
+        # Round to nearest 0.01
+        key = round(new_alpha, 2)
+        logger.info(f"update_alpha_table: new_alpha: {new_alpha}, key: {key}")
+        # Add to window and table
+        self.alpha_window.append(key)
+        self.alpha_table[key] += 1
+
+        # If window exceeds size, remove oldest and update table
+        if len(self.alpha_window) > self.window_size:
+            old_key = self.alpha_window.popleft()
+            self.alpha_table[old_key] -= 1
+    
+    def predict_alpha(self):
+        # Find the key with the maximum value
+        max_key = max(self.alpha_table, key=lambda k: (self.alpha_table[k], k))
+        return max_key
+
+    def moving_average(self, window_size=30):
         """
         计算历史token接受率的移动平均值。
         :param window_size: 移动平均的窗口大小。
@@ -321,6 +344,7 @@ class DASpec:
         if len(self.prev_alphas) == 0:
             return 0.7  # 默认值，如果没有历史数据
         window = self.prev_alphas[-window_size:]
+        
         return sum(window) / len(window)
     
     def estimate_generated_length(self, alpha, k):
@@ -334,29 +358,21 @@ class DASpec:
             return k + 1  # 如果接受率为1，生成k+1个token
         return (1 - alpha ** (k + 1)) / (1 - alpha)
     
-    def estimate_batch_execution_time(self, context_length, batch_size, proposed_length, speculative_metrics=None):
+    def estimate_batch_execution_time(self, context_length, batch_size, proposed_length, speculative_metrics=None,draft_predict=None):
         """
         估计批处理的执行时间。
         :param batch_size: 批处理大小。
         :param context_length: 上下文长度。
         :return: 执行时间。
         """
+        # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposed_length
         # 假设执行时间是线性的，基于模型系数 FIXME 万一前面的和后面的batch size 不一样，得到的时间也不一样
-        if speculative_metrics is not None and speculative_metrics[7] > 0: # 这里也整一个指数平均
-            target = speculative_metrics[1] + speculative_metrics[2] 
-            draft = speculative_metrics[0]/speculative_metrics[7]
-            draft_predict = self.draft_model.predict([[context_length,batch_size]])[0]
-            target_predict = self.model.predict([[context_length, batch_size*proposed_length]])[0]
-            print("proposed_length",proposed_length, "batch_size",batch_size,"real target time",target,"target_predict",target_predict, "real draft time",draft,"draft_predict",draft_predict)
-            target = target_predict
-        else:
-            draft = self.draft_model.predict([[context_length,batch_size]])[0]
-            target = self.model.predict([[context_length, batch_size*proposed_length]])[0]
         
-        # self.model.predict([[context_length, batch_size*proposed_length]])[0]
-        # target = self.model.predict([[context_length, batch_size*proposed_length]])[0]
+        draft = draft_predict
+        target = self.model.predict([[context_length, batch_size*proposed_length]])[0]
+            
         return draft *  proposed_length + target
-    def goodput_estimation(self, context_length, batch_size, proposed_length, alpha, speculative_metrics=None):
+    def goodput_estimation(self, context_length, batch_size, proposed_length, alpha, speculative_metrics=None,draft_predict=None):
         """
         计算goodput。
         :param batch_size: 批处理大小。
@@ -364,11 +380,16 @@ class DASpec:
         :return: goodput值。
         """
         if proposed_length == 0:
-            # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposed_length
-            time_predict = min(speculative_metrics[1],self.model.predict([[context_length, batch_size]])[0])
+            if speculative_metrics is not None:
+                # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposed_length
+                time_predict = min(speculative_metrics[1],self.model.predict([[context_length, batch_size]])[0])
+                # logger.info(f"time_predict: {time_predict},{speculative_metrics[1]},")
+            else:
+                time_predict = self.model.predict([[context_length, batch_size]])[0]
             return batch_size/time_predict
         generated_length = batch_size *  self.estimate_generated_length(alpha, proposed_length)
-        execution_time = self.estimate_batch_execution_time(context_length,batch_size,proposed_length, speculative_metrics)
+        # logger.info(f"generated_length: {generated_length}")
+        execution_time = self.estimate_batch_execution_time(context_length,batch_size,proposed_length, speculative_metrics,draft_predict)
         return generated_length / execution_time
 
     def optimize_proposed_length(self, start_idx, context_length, batch_size, speculative_metrics=None):
@@ -382,22 +403,29 @@ class DASpec:
         min_k = 0
         kk = []
         alpha = self.moving_average() #self.exponential_smoothing()
-        if start_idx == 1 or (self.explore_for_low_alpha_cnt < 10 and alpha < 0.3 and batch_size < 10): # 探索!
-            if (alpha < 0.3 and batch_size < 10):
-                self.explore_for_low_alpha_cnt += 1
+        if alpha == 0:
+            self.explore_for_low_alpha_cnt += 1 # 连续都是 0 
+            if self.explore_for_low_alpha_cnt  > 3 :
+                print("explore1")
+                alpha = 0.7 # 探索!
+                
             else:
-                self.explore_for_low_alpha_cnt = 0
-            #print("explore",self.explore_for_low_alpha_cnt)
-            alpha = 0.7 
-        #print("alpha",alpha)
+                return 0
+        self.explore_for_low_alpha_cnt = 0
+        if start_idx == 1:  # 探索!
+            print("explore2")
+            alpha = 0.7
+        
+        draft_predict = self.draft_model.predict([[context_length,batch_size]])[0]
         for k in range(min_k, self.max_proposed_length + 1):
-            goodput = self.goodput_estimation(context_length,batch_size, k, alpha, speculative_metrics)
+            goodput = self.goodput_estimation(context_length,batch_size, k, alpha, speculative_metrics,draft_predict)
             # kk.append((goodput,k))
             if goodput > best_goodput:
                 best_goodput = goodput
                 best_length = k
-        # print("kk",batch_size,kk)
-        return best_length
+        if best_length == 0:
+            return 0
+        return best_length + 1 
 @dataclass
 class SchedulerRunningOutputs:
     """The requests that are scheduled from a running queue.
@@ -1737,16 +1765,18 @@ class Scheduler:
             #  0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposal_length
             metric_value = float(speculative_metrics[4]/(speculative_metrics[7]*speculative_metrics[3]))
             self.speculative_metrics_cache.append(metric_value)
+            # if not self.profile and self.daspec_spec is not None:
+            #     self.daspec_spec.update_alpha_table(metric_value)
 
         best_batch = None 
         need_disable_spec = False
         if not self.profile and self.daspec_spec is not None and len(self.running) > 0: 
             self.daspec_spec.prev_alphas = self.speculative_metrics_cache
             best_batch, best_proposed_lengths = self.daspec_spec_schedule(speculative_metrics)
-            
+            #print("best_batch",best_batch, "best_proposed_lengths", best_proposed_lengths)
             self.scheduler_config.num_lookahead_slots = best_proposed_lengths
             if self.scheduler_config.num_lookahead_slots == 0:
-                print("zero!",len(self.running)) 
+                #print("zero!",len(self.running)) 
                 need_disable_spec = True
                 
         if not self.profile and self.smart_spec is not None and len(self.running) > 0: 

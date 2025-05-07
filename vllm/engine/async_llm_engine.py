@@ -398,6 +398,7 @@ class _AsyncLLMEngine(LLMEngine):
             if len(ctx.output_queue) > 0:
                 self._process_model_outputs(ctx=ctx)
             outputs = []
+            self.stage_data = None
 
         # Finish the current step for all the sequence groups.
         if self.scheduler_config.is_multi_step:

@@ -680,7 +680,7 @@ class SequenceGroup:
                                       first_token_time=None,
                                       time_in_queue=None,
                                       spec_token_acceptance_counts=[0] *
-                                      draft_size)
+                                      (draft_size+10))
         self.last_token_latency = 0.0
         self.lora_request = lora_request
         self.prompt_logprobs: Optional[PromptLogprobs] = None

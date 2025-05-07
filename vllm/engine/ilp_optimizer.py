@@ -78,7 +78,7 @@ class ILPOptimizer:
         self.last_action = ILPAction.USE_SMALL_MODEL_1
         self.last_action_time = 0.0
         self.current_state = None
-        self.history_max_len = 2000
+        self.history_max_len = 3000
         
         # Configuration
         self.reward_window_size = reward_window_size # history window size

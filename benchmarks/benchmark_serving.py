@@ -282,6 +282,7 @@ async def benchmark(
     max_concurrency: Optional[int],
     lora_modules: Optional[Iterable[str]],
     enable_trace: bool = False,
+    start_index: int = 0,
 ):
     if backend in ASYNC_REQUEST_FUNCS:
         request_func = ASYNC_REQUEST_FUNCS[backend]
@@ -369,7 +370,7 @@ async def benchmark(
     benchmark_start_time = time.perf_counter()
     begin_time = time.time()
     
-    start_index = 300 #300 # 前300 用来profile了
+    # start_index = 3 00 # 前300 用来profile了
     # input_requests_list = [input_requests[start_index:start_index+18],input_requests[start_index+18:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:]]
     # request_rate_list = [1,0.1,1,0.1]
     outputs_list = []
@@ -703,6 +704,7 @@ def main(args: argparse.Namespace):
             max_concurrency=args.max_concurrency,
             lora_modules=args.lora_modules,
             enable_trace=args.enable_trace,
+            start_index=args.start_index,
         ))
 
     # Save config and results to json
@@ -1055,6 +1057,10 @@ if __name__ == "__main__":
     parser.add_argument("--enable-trace",
                         action="store_true",
                         help="Enable trace mode for the benchmark.")
+    parser.add_argument("--start-index",
+                        type=int,
+                        default=0,
+                        help="Start index for the benchmark dataset.")
 
     args = parser.parse_args()
 
