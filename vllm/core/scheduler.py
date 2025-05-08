@@ -344,7 +344,7 @@ class DASpec:
         # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposed_length
         # 假设执行时间是线性的，基于模型系数 FIXME 万一前面的和后面的batch size 不一样，得到的时间也不一样
         draft = draft_predict
-        target = self.model.predict([[context_length, batch_size*proposed_length]])[0]
+        target = self.model.predict([[context_length, batch_size*(proposed_length+1)]])[0]
         print("draft_predict",draft_predict,"target",target,"speculative_metrics",speculative_metrics)
         return draft * proposed_length + target + 1 # verification
     def goodput_estimation(self, context_length, batch_size, proposed_length, alpha, speculative_metrics=None,draft_predict=None):

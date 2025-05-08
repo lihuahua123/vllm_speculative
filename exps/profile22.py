@@ -189,7 +189,7 @@ train_data_v = []
 train_data_d = []
 
 # Read data from deep_05b_300_new1 to deep_05b_300_new3
-for gamma in range(1, 6):  # This will iterate through 1, 2, 3
+for gamma in range(3, 4):  # This will iterate through 1, 2, 3
     # Using f-string to create dynamic regex pattern
     pattern = fr"^deep_05b_300_new{gamma}.*\.json$"
     print(f"Reading files matching pattern: {pattern}")
@@ -221,12 +221,13 @@ for gamma in range(1, 6):  # This will iterate through 1, 2, 3
                 #train_data_d.append((x1, x2, y))
                 train_data_v.append((x1,x2*gamma,datas['scoring_time'][j]))
 
-
+kk = {}
 for gamma in range(1, 6):  # This will iterate through 1, 2, 3
     # Using f-string to create dynamic regex pattern
     pattern = fr"^nospec_300_new{gamma}.*\.json$"
     #print(f"Reading files matching pattern: {pattern}")
     nospec_action_time_historys = read_json(pattern)
+    kk = nospec_action_time_historys[0][2][30][1]
     for i in range(len(nospec_action_time_historys)):
         for batch in range(1, 300):
             data = nospec_action_time_historys[i][2][batch][1]
@@ -235,8 +236,11 @@ for gamma in range(1, 6):  # This will iterate through 1, 2, 3
                 x1 = data['context_length'][j]
                 x2 = batch
                 train_data_v.append((x1,x2,y))
-
+#print(tt[1]['proposal_time'][:10],tt[5]['proposal_time'][:10])
+print(tt[1]['scoring_time'][:10],tt[5]['scoring_time'][:10])
+#print(tt[1]['proposal_time'][:10],tt[4]['proposal_time'][:10])
+print(kk['scoring_time'][:10])
 print("len(train_data_d)",len(train_data_d))
 print("len(train_data_v)",len(train_data_v))
-results_d = train_and_evaluate_model(train_data_d, model_save_path="./DeepSeek-R1-DRAFT-Qwen2.5-0.5B")
-results_v = train_and_evaluate_model(train_data_v, model_save_path="./DeepSeek-R1-Qwen2.5-0.5B-Verify")
+# results_d = train_and_evaluate_model(train_data_d, model_save_path="./DeepSeek-R1-DRAFT-Qwen2.5-0.5B")
+# results_v = train_and_evaluate_model(train_data_v, model_save_path="./DeepSeek-R1-Qwen2.5-0.5B-Verify")
