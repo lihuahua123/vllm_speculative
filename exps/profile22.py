@@ -51,11 +51,14 @@ def train_and_evaluate_model(train_data, model_save_path=None, test_size=100, ra
     # 划分训练集和测试集
     train_idx, test_idx = train_test_split(np.arange(len(train_data)), test_size=test_size, random_state=random_state)
     
+    
     # 构建训练集和测试集
     X_train = np.array([[x1, x2] for x1, x2, _ in train_data_array[train_idx]])
     y_train = np.array([y for _, _, y in train_data_array[train_idx]])
     X_test = np.array([[x1, x2] for x1, x2, _ in train_data_array[test_idx]])
     y_test = np.array([y for _, _, y in train_data_array[test_idx]])
+    
+        
     
     # 训练随机森林模型
     rf_model = RandomForestRegressor(n_estimators=n_estimators, random_state=random_state)
@@ -90,6 +93,7 @@ def train_and_evaluate_model(train_data, model_save_path=None, test_size=100, ra
     
     # 保存模型
     if model_save_path:
+        print("save model",model_save_path)
         dump(rf_model, f"{model_save_path}_RF.pkl")
         dump(lr_model, f"{model_save_path}_LR.pkl")
     
@@ -99,13 +103,13 @@ def train_and_evaluate_model(train_data, model_save_path=None, test_size=100, ra
     print(f"测试集 R2 分数: {rf_test_r2:.4f}")
     print(f"推理时间: {rf_inference_time:.6f} 秒")
     
-    print("\n特征重要性:")
-    print(f"context_length重要性: {feature_importance[0]:.4f}")
-    print(f"batch_size重要性: {feature_importance[1]:.4f}")
+    # print("\n特征重要性:")
+    # print(f"context_length重要性: {feature_importance[0]:.4f}")
+    # print(f"batch_size重要性: {feature_importance[1]:.4f}")
     
-    print(f"\n相关系数分析 (样本数量: {len(train_data)}):")
-    print(f"x1(context_length)与y的相关系数: {corr_x1_y[0]:.4f}, p值: {corr_x1_y[1]:.4f}")
-    print(f"x2(batch_size)与y的相关系数: {corr_x2_y[0]:.4f}, p值: {corr_x2_y[1]:.4f}")
+    # print(f"\n相关系数分析 (样本数量: {len(train_data)}):")
+    # print(f"x1(context_length)与y的相关系数: {corr_x1_y[0]:.4f}, p值: {corr_x1_y[1]:.4f}")
+    # print(f"x2(batch_size)与y的相关系数: {corr_x2_y[0]:.4f}, p值: {corr_x2_y[1]:.4f}")
     
     print("\n线性回归模型评估结果:")
     print(f"系数: {lr_model.coef_}")
@@ -185,7 +189,7 @@ train_data_v = []
 train_data_d = []
 
 # Read data from deep_05b_300_new1 to deep_05b_300_new3
-for gamma in range(3, 4):  # This will iterate through 1, 2, 3
+for gamma in range(1, 6):  # This will iterate through 1, 2, 3
     # Using f-string to create dynamic regex pattern
     pattern = fr"^deep_05b_300_new{gamma}.*\.json$"
     print(f"Reading files matching pattern: {pattern}")
@@ -195,12 +199,44 @@ for gamma in range(3, 4):  # This will iterate through 1, 2, 3
         for batch in range(1, 300):
             datas = deep_action_time_historys[i][0][batch][1]
             for j in range(len(datas['proposal_time'])):
-                y = datas['proposal_time'][j] / gamma 
+                y = datas['proposal_time'][j] / gamma
                 x1 = datas['context_length'][j]
                 x2 = batch
                 train_data_d.append((x1, x2, y))
+                
+# Read data from deep_05b_300_new1 to deep_05b_300_new3
+tt ={}
+for gamma in range(1, 6):  # This will iterate through 1, 2, 3
+    # Using f-string to create dynamic regex pattern
+    pattern = fr"^deep_05b_300_new{gamma}.*\.json$"
+    #print(f"Reading files matching pattern: {pattern}")
+    deep_action_time_historys = read_json(pattern)
+    tt[gamma] = deep_action_time_historys[0][0][30][1] # action 0 即 spec 的batch size 1 decode 阶段
+    for i in range(len(deep_action_time_historys)):
+        for batch in range(1, 300):
+            datas = deep_action_time_historys[i][0][batch][1]
+            for j in range(len(datas['proposal_time'])):
+                x1 = datas['context_length'][j]
+                x2 = batch
+                #train_data_d.append((x1, x2, y))
+                train_data_v.append((x1,x2*gamma,datas['scoring_time'][j]))
 
 
+for gamma in range(1, 6):  # This will iterate through 1, 2, 3
+    # Using f-string to create dynamic regex pattern
+    pattern = fr"^nospec_300_new{gamma}.*\.json$"
+    #print(f"Reading files matching pattern: {pattern}")
+    nospec_action_time_historys = read_json(pattern)
+    for i in range(len(nospec_action_time_historys)):
+        for batch in range(1, 300):
+            data = nospec_action_time_historys[i][2][batch][1]
+            for j in range(len(data['scoring_time'])):
+                y = data['scoring_time'][j]
+                x1 = data['context_length'][j]
+                x2 = batch
+                train_data_v.append((x1,x2,y))
 
-
-results_d = train_and_evaluate_model(train_data_d, model_save_path="../DeepSeek-R1-DRAFT-Qwen2.5-0.5B")
+print("len(train_data_d)",len(train_data_d))
+print("len(train_data_v)",len(train_data_v))
+results_d = train_and_evaluate_model(train_data_d, model_save_path="./DeepSeek-R1-DRAFT-Qwen2.5-0.5B")
+results_v = train_and_evaluate_model(train_data_v, model_save_path="./DeepSeek-R1-Qwen2.5-0.5B-Verify")

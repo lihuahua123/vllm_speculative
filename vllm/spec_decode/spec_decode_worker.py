@@ -853,7 +853,6 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
             )
         _, (non_spec_seqs, non_spec_indices) = split_batch_by_proposal_len(
             execute_model_req.seq_group_metadata_list, proposals.proposal_lens)
-
         # With prefill chunking enabled, `non_spec_seqs` contains prefills too:
         # discard decodes that have already been processed by proposer.
         non_spec_indices = [

@@ -38,14 +38,15 @@ def parse_args():
     parser.add_argument("--profile",action="store_true", help="是否开启profile")
     parser.add_argument("--start-index", type=int, default=0, help="benchmark 数据集开始索引")
     parser.add_argument("--output-len", type=int, default=-1, help="hf数据集输出长度")
+    parser.add_argument("--num-gpu-blocks-override", type=int, default=28845, help="gpu blocks override")
     
     return parser.parse_args()
 
-def start_server(model, host, port, strategy,sub_strategy,draft_model,speculative_len=1):
+def start_server(model, host, port, strategy,sub_strategy,draft_model,speculative_len=1,num_gpu_blocks_override=28845):
     """启动vLLM服务器"""
     print(f"正在启动vLLM服务器，模型: {model}, 地址: {host}:{port}...")
     
-    num_gpu_blocks_override = 4800 #2140 4090 0.75 mem #4800 4090 0.85 mem #28845 a6000
+    num_gpu_blocks_override = num_gpu_blocks_override #2140 4090 0.75 mem #4800 4090 0.85 mem #28845 a6000
 
     # 设置环境变量
     my_env = os.environ.copy()
@@ -153,7 +154,7 @@ def main():
     args = parse_args()
     
     # 启动服务器
-    server_process = start_server(args.model, args.host, args.port, args.strategy,args.sub_strategy,args.draft_model,args.speculative_len)
+    server_process = start_server(args.model, args.host, args.port, args.strategy,args.sub_strategy,args.draft_model,args.speculative_len,args.num_gpu_blocks_override)
     sub_strategy = args.sub_strategy
     start_index = args.start_index
     try:
