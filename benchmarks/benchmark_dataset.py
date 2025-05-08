@@ -635,6 +635,62 @@ class HuggingFaceAlpacaDataset(BenchmarkDataset):
                 ))
         self.maybe_oversample_requests(sampled_requests, num_requests)
         return sampled_requests
+    
+    
+class SpecBenchDataset(BenchmarkDataset):
+    """
+    Dataset class for processing a HuggingFace dataset with conversation data
+    and optional images.
+    """
+
+    def __init__(
+        self,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+
+        self.load_data()
+
+    def load_data(self) -> None:
+        if not self.dataset_path:
+            raise ValueError("dataset_path must be provided for loading data.")
+
+        prompts = []
+        with open(self.dataset_path) as f:
+            for line in f:
+                data = json.loads(line)
+                prompts.append(data["turns"][0])
+        self.data = prompts
+    def sample(self,
+               tokenizer: PreTrainedTokenizerBase,
+               num_requests: int,
+               output_len: Optional[int] = None,
+               enable_multimodal_chat: bool = False,
+               **kwargs) -> list:
+        sampled_requests = []
+        dynamic_output = output_len is None
+        for item in self.data:
+            if len(sampled_requests) >= num_requests:
+                break
+            prompt = item
+
+            prompt_ids = tokenizer(prompt).input_ids
+            prompt_len = len(prompt_ids)
+            output_len = prompt_len if dynamic_output else output_len
+            assert isinstance(output_len, int) and output_len > 0
+            if dynamic_output and not is_valid_sequence(
+                    prompt_len, output_len, max_prompt_len=6000):
+                continue
+            sampled_requests.append(
+                SampleRequest(
+                    prompt=prompt,
+                    prompt_len=prompt_len,
+                    expected_output_len=output_len,
+                    multi_modal_data=None,
+                ))
+        self.maybe_oversample_requests(sampled_requests, num_requests)
+        return sampled_requests
+    
 # -----------------------------------------------------------------------------
 # HuggingFace Dataset Implementation
 # -----------------------------------------------------------------------------

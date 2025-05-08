@@ -276,7 +276,7 @@ class SmartSpec:
             # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposed_length
             time_predict = self.model.predict([[context_length, batch_size]])[0]
             return batch_size/time_predict
-        generated_length = batch_size *  self.estimate_generated_length(alpha, proposed_length)
+        generated_length = batch_size * self.estimate_generated_length(alpha, proposed_length)
         execution_time = self.estimate_batch_execution_time(context_length,batch_size,proposed_length, speculative_metrics)
         return generated_length / execution_time
 
@@ -386,10 +386,12 @@ class DASpec:
                 # logger.info(f"time_predict: {time_predict},{speculative_metrics[1]},")
             else:
                 time_predict = self.model.predict([[context_length, batch_size]])[0]
+            #print("proposed_length",proposed_length,"time_predict",time_predict)
             return batch_size/time_predict
         generated_length = batch_size *  self.estimate_generated_length(alpha, proposed_length)
-        # logger.info(f"generated_length: {generated_length}")
+        #logger.info(f"generated_length: {generated_length}")
         execution_time = self.estimate_batch_execution_time(context_length,batch_size,proposed_length, speculative_metrics,draft_predict)
+        #print("proposed_length",proposed_length,"time_predict", execution_time)
         return generated_length / execution_time
 
     def optimize_proposed_length(self, start_idx, context_length, batch_size, speculative_metrics=None):
@@ -406,14 +408,14 @@ class DASpec:
         if alpha == 0:
             self.explore_for_low_alpha_cnt += 1 # 连续都是 0 
             if self.explore_for_low_alpha_cnt  > 3 :
-                print("explore1")
+                #print("explore1")
                 alpha = 0.7 # 探索!
                 
             else:
                 return 0
         self.explore_for_low_alpha_cnt = 0
         if start_idx == 1:  # 探索!
-            print("explore2")
+            #print("explore2")
             alpha = 0.7
         
         draft_predict = self.draft_model.predict([[context_length,batch_size]])[0]
@@ -425,7 +427,7 @@ class DASpec:
                 best_length = k
         if best_length == 0:
             return 0
-        return best_length + 1 
+        return best_length 
 @dataclass
 class SchedulerRunningOutputs:
     """The requests that are scheduled from a running queue.
@@ -771,6 +773,7 @@ class Scheduler:
             self.smart_spec = None  
             self.daspec_spec = None
         self.profile = False
+        self.proposer_worker_to_cpu = False
         
         # Create directory if it doesn't exist
         os.makedirs('logs', exist_ok=True)
@@ -1765,15 +1768,13 @@ class Scheduler:
             #  0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposal_length
             metric_value = float(speculative_metrics[4]/(speculative_metrics[7]*speculative_metrics[3]))
             self.speculative_metrics_cache.append(metric_value)
-            # if not self.profile and self.daspec_spec is not None:
-            #     self.daspec_spec.update_alpha_table(metric_value)
 
         best_batch = None 
         need_disable_spec = False
-        if not self.profile and self.daspec_spec is not None and len(self.running) > 0: 
+        if not self.profile and self.daspec_spec is not None and len(self.running) > 0 and not self.proposer_worker_to_cpu: 
             self.daspec_spec.prev_alphas = self.speculative_metrics_cache
             best_batch, best_proposed_lengths = self.daspec_spec_schedule(speculative_metrics)
-            #print("best_batch",best_batch, "best_proposed_lengths", best_proposed_lengths)
+            print("best_batch",best_batch, "best_proposed_lengths", best_proposed_lengths)
             self.scheduler_config.num_lookahead_slots = best_proposed_lengths
             if self.scheduler_config.num_lookahead_slots == 0:
                 #print("zero!",len(self.running)) 
@@ -1785,7 +1786,7 @@ class Scheduler:
             #print("best batch",best_batch, "best_proposed_lengths", best_proposed_lengths)
             self.scheduler_config.num_lookahead_slots = best_proposed_lengths
             if self.scheduler_config.num_lookahead_slots == 0:
-                print("zero!",len(self.running)) 
+                # print("zero!",len(self.running)) 
                 need_disable_spec = True
         
         scheduler_start_time = time.perf_counter()

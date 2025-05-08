@@ -305,12 +305,22 @@ class _AsyncLLMEngine(LLMEngine):
             (seq_group_metadata_list, scheduler_outputs,
              allow_async_output_proc, need_disable_spec
              ) = self.scheduler[virtual_engine].schedule(self.stage_data)
-            if not self.ilp_manager.profile and (self.strategy == "daspec"  or self.strategy == "smart_spec")and not scheduler_outputs.is_empty() and scheduler_outputs.num_prefill_groups == 0:
+            if not self.ilp_manager.profile and (self.strategy == "daspec"  or self.strategy == "smart_spec")and \
+                not scheduler_outputs.is_empty() and scheduler_outputs.num_prefill_groups == 0 and \
+                not self.proposer_worker_to_cpu:
                 if need_disable_spec:
                     self.set_disable_speculative_decoding(True)
                 else:
                     self.set_disable_speculative_decoding(False)
             if not self.ilp_manager.profile and self.strategy == "daspec" and not scheduler_outputs.is_empty(): 
+                # if self.next_step_increase_blcok_number:
+                #     self.next_step_increase_blcok_number = False
+                #     self.increase_block_number()
+                    
+                # elif not self.disable_speculative_decoding:
+                #     self.set_disable_speculative_decoding(True)
+                #     self.offload_proposer_worker()
+                #     self.next_step_increase_blcok_number = True
                 self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
 
             ctx.seq_group_metadata_list = seq_group_metadata_list

@@ -54,7 +54,7 @@ except ImportError:
 
 from benchmark_dataset import (BurstGPTDataset, HuggingFaceDataset,
                                RandomDataset, SampleRequest, ShareGPTDataset,
-                               SonnetDataset, VisionArenaDataset, HuggingFaceAlpacaDataset)
+                               SonnetDataset, VisionArenaDataset, HuggingFaceAlpacaDataset, SpecBenchDataset)
 from benchmark_utils import convert_to_pytorch_benchmark_format, write_to_json
 
 MILLISECONDS_TO_SECONDS_CONVERSION = 1000
@@ -659,6 +659,12 @@ def main(args: argparse.Namespace):
                 num_requests=args.num_prompts,
                 output_len=args.hf_output_len,
             ),
+            "specbench":
+            lambda: SpecBenchDataset(dataset_path=args.dataset_path).sample(
+                tokenizer=tokenizer,
+                num_requests=args.num_prompts,
+                output_len=args.hf_output_len,
+            ),
             "random":
             lambda: RandomDataset(dataset_path=args.dataset_path).sample(
                 tokenizer=tokenizer,
@@ -792,7 +798,7 @@ if __name__ == "__main__":
         "--dataset-name",
         type=str,
         default="sharegpt",
-        choices=["sharegpt", "burstgpt", "sonnet", "random", "hf", "alpaca"],
+        choices=["sharegpt", "burstgpt", "sonnet", "random", "hf", "alpaca","specbench"],
         help="Name of the dataset to benchmark on.",
     )
     parser.add_argument("--dataset-path",

@@ -19,7 +19,7 @@ def parse_args():
     
     # 基准测试参数
     parser.add_argument("--dataset-name", type=str, default="sharegpt", 
-                        choices=["sharegpt", "burstgpt", "sonnet", "random", "hf", "alpaca"],
+                        choices=["sharegpt", "burstgpt", "sonnet", "random", "hf", "alpaca","specbench"],
                         help="基准测试数据集名称")
     parser.add_argument("--dataset-path", type=str, required=True, help="数据集路径")
     parser.add_argument("--num-prompts", type=int, default=100, help="测试的提示数量")
@@ -37,6 +37,7 @@ def parse_args():
     parser.add_argument("--draft-model", type=str, default="", help="draft模型")
     parser.add_argument("--profile",action="store_true", help="是否开启profile")
     parser.add_argument("--start-index", type=int, default=0, help="benchmark 数据集开始索引")
+    parser.add_argument("--output-len", type=int, default=-1, help="hf数据集输出长度")
     
     return parser.parse_args()
 
@@ -86,13 +87,13 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     return server_process
 
 def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts, 
-                 request_rate, result_dir, strategy, text, start_index=0):
+                 request_rate, result_dir, strategy, text, start_index=0,output_len=-1):
     """运行单个请求率的基准测试"""
     print(f"正在运行基准测试，strategy: {strategy}, 请求率: {request_rate} QPS...")
     
     os.makedirs(result_dir, exist_ok=True)
     time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
-    result_filename = f"benchmark_{text}_{num_prompts}_{request_rate}_{time_str}.json"
+    result_filename = f"benchmark_{text}_{dataset_name}_{num_prompts}_{request_rate}_{time_str}.json"
     # 检查结果文件是否存在,不存在则创建
     # result_file = os.path.join(result_dir, result_filename)
     # if not os.path.exists(result_file):
@@ -114,8 +115,11 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
         "--result-dir", result_dir,
         "--result-filename", result_filename,
         "--enable-trace",
-        "--start-index", str(start_index)
+        "--start-index", str(start_index),
     ]
+    if output_len != -1:
+        benchmark_cmd.append("--hf-output-len")
+        benchmark_cmd.append(str(output_len))
     
     subprocess.run(benchmark_cmd)
     print(f"完成请求率为 {request_rate} QPS 的基准测试，结果保存在 {os.path.join(result_dir, result_filename)}")
@@ -180,7 +184,8 @@ def main():
                         result_dir=args.result_dir,
                         strategy=args.strategy,
                         text=sub_strategy+"_"+str(args.speculative_len),
-                        start_index=start_index
+                        start_index=start_index,
+                        output_len=args.output_len
                     )
                 send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"ngram_{profile_file_name}.json")
             if sub_strategy == "nospec":
@@ -197,7 +202,8 @@ def main():
                         result_dir=args.result_dir,
                         strategy=args.strategy,
                         text=benchmark_file_name,
-                        start_index=start_index
+                        start_index=start_index,
+                        output_len=args.output_len
                     )
                 send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"nospec_{profile_file_name}.json")
             if sub_strategy == "deep":
@@ -215,7 +221,8 @@ def main():
                         result_dir=args.result_dir,
                         strategy=args.strategy,
                         text=benchmark_file_name,
-                        start_index=start_index
+                        start_index=start_index,
+                        output_len=args.output_len
                     )
                 send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"deep_05b_{profile_file_name}.json")
             if sub_strategy == "daspec":
@@ -231,7 +238,8 @@ def main():
                     result_dir=args.result_dir,
                     strategy=args.strategy,
                     text=benchmark_file_name,
-                    start_index=start_index
+                    start_index=start_index,
+                    output_len=args.output_len
                 )
             if sub_strategy == "smart_spec":
                 send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"smart_spec_{profile_file_name}.json")
@@ -246,10 +254,9 @@ def main():
                     result_dir=args.result_dir,
                     strategy=args.strategy,
                     text=benchmark_file_name,
-                    start_index=start_index
+                    start_index=start_index,
+                    output_len=args.output_len
                 )
-        
-        
     finally:
         # 确保服务器被正确关闭
         print("正在关闭服务器...")

@@ -198,7 +198,6 @@ class CacheEngine:
         print(f"decrease_num_blocks: {decrease_num_blocks}, new_num_blocks: {new_num_blocks}")
         # 如果有迁移映射，先执行迁移
         if block_migration_map:
-            print(f"block_migration_map: {block_migration_map}")
             # 过滤映射，确保所有索引都在有效范围内
             valid_map = {old: new for old, new in block_migration_map.items() 
                         if old < self.num_gpu_blocks and new < new_num_blocks}
@@ -276,23 +275,23 @@ class CacheEngine:
         #                         dtype=self.dtype,
         #                         device=self.device_config.device_type)
         #     self.gpu_cache[i] = torch.cat([self.gpu_cache[i], new_cache], dim=1)
-        # with ThreadPoolExecutor() as executor: 会OOM
+        # with ThreadPoolExecutor() as executor: #会OOM
         #     list(executor.map(expand_cache_layer, range(self.num_attention_layers)))
         # # 对于每个注意力层分别处理
         for i in range(self.num_attention_layers):
-            old_shape = list(self.gpu_cache[i].shape)
-            new_shape = old_shape.copy()
-            new_shape[1] = increase_num_blocks
-            # 0.4630403518676758 seconds
-            new_cache = torch.zeros(new_shape, 
-                                   dtype=self.dtype,
-                                   device=self.device_config.device_type)
-            self.gpu_cache[i] = torch.cat([self.gpu_cache[i], new_cache], dim=1)
-            # self.gpu_cache[i] = F.pad(self.gpu_cache[i], 
-            #              (0, 0,    # 第4维度(dim=128)不填充
-            #              0, 0,    # 第3维度(blocks=4)不填充
-            #              0, 0,    # 第2维度(heads=16)不填充
-            #              0, increase_num_blocks))  # 第1维度(seq_len)末尾填充2982
+            # old_shape = list(self.gpu_cache[i].shape)
+            # new_shape = old_shape.copy()
+            # new_shape[1] = increase_num_blocks
+            # # 0.4630403518676758 seconds
+            # new_cache = torch.zeros(new_shape, 
+            #                        dtype=self.dtype,
+            #                        device=self.device_config.device_type)
+            # self.gpu_cache[i] = torch.cat([self.gpu_cache[i], new_cache], dim=1)
+            self.gpu_cache[i] = F.pad(self.gpu_cache[i], 
+                         (0, 0,    # 第4维度(dim=128)不填充
+                         0, 0,    # 第3维度(blocks=4)不填充
+                         0, 0,    # 第2维度(heads=16)不填充
+                         0, increase_num_blocks))  # 第1维度(seq_len)末尾填充2982
             
         # 更新块数量
         self.num_gpu_blocks = new_num_blocks
