@@ -374,10 +374,18 @@ async def benchmark(
     # input_requests_list = [input_requests[start_index:start_index+18],input_requests[start_index+18:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:]]
     # request_rate_list = [1,0.1,1,0.1]
     outputs_list = []
-    request_rate_list =  [request_rate]#
-    input_requests_list = [input_requests[start_index:]]#[input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:start_index+540]] # [input_requests] #[input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:]]
+    request_rate_list =  []#
+    input_requests_list = []#[input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:start_index+540]] # [input_requests] #[input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:]]
+    if enable_trace:
+        request_rate_list = np.load('./azureqps.npy') #[1,5,1,10,15,2]
+        for req in request_rate_list:
+            input_requests_list.append(input_requests[start_index:start_index+req])
+            start_index += req
+    else:
+        request_rate_list = [request_rate]
+        input_requests = [input_requests[start_index]]
+    tasks: list[asyncio.Task] = []
     for index, one_input_requests in enumerate(input_requests_list):
-        tasks: list[asyncio.Task] = []
         async for request in get_request(one_input_requests, request_rate_list[index], burstiness, enable_trace=False):
             prompt, prompt_len, output_len, mm_content = request.prompt, \
                 request.prompt_len, request.expected_output_len, \
@@ -402,11 +410,11 @@ async def benchmark(
                                         pbar=pbar)))
         end_time = time.time()
         print(f"send request time cost: {end_time - begin_time}")
-        begin_time = time.time()
-        outputs: list[RequestFuncOutput] = await asyncio.gather(*tasks)
-        outputs_list  += outputs
-        end_time = time.time()
-        print(f"receive response time cost: {end_time - begin_time}")
+    begin_time = time.time()
+    outputs: list[RequestFuncOutput] = await asyncio.gather(*tasks)
+    outputs_list  += outputs
+    end_time = time.time()
+    print(f"receive response time cost: {end_time - begin_time}")
     
     
     if profile:

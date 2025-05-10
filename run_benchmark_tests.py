@@ -83,7 +83,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     server_process = subprocess.Popen(exec_cmd, env=my_env)
     # 等待服务器启动
     print("等待服务器启动...")
-    time.sleep(40)
+    time.sleep(50)
    
     return server_process
 
@@ -115,7 +115,7 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
         "--save-result",
         "--result-dir", result_dir,
         "--result-filename", result_filename,
-        "--enable-trace",
+        #"--enable-trace",
         "--start-index", str(start_index),
     ]
     if output_len != -1:
