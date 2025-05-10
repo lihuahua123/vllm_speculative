@@ -39,7 +39,7 @@ def parse_args():
     parser.add_argument("--start-index", type=int, default=0, help="benchmark 数据集开始索引")
     parser.add_argument("--output-len", type=int, default=-1, help="hf数据集输出长度")
     parser.add_argument("--num-gpu-blocks-override", type=int, default=28845, help="gpu blocks override")
-    
+    parser.add_argument("--enable-trace", type=bool, default=False, help="是否开启trace")
     return parser.parse_args()
 
 def start_server(model, host, port, strategy,sub_strategy,draft_model,speculative_len=1,num_gpu_blocks_override=28845):
@@ -88,7 +88,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     return server_process
 
 def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts, 
-                 request_rate, result_dir, strategy, text, start_index=0,output_len=-1):
+                 request_rate, result_dir, strategy, text, start_index=0,output_len=-1,enable_trace=False):
     """运行单个请求率的基准测试"""
     print(f"正在运行基准测试，strategy: {strategy}, 请求率: {request_rate} QPS...")
     
@@ -115,9 +115,10 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
         "--save-result",
         "--result-dir", result_dir,
         "--result-filename", result_filename,
-        #"--enable-trace",
         "--start-index", str(start_index),
     ]
+    if enable_trace:
+        benchmark_cmd.append("--enable-trace")
     if output_len != -1:
         benchmark_cmd.append("--hf-output-len")
         benchmark_cmd.append(str(output_len))
@@ -186,7 +187,8 @@ def main():
                         strategy=args.strategy,
                         text=sub_strategy+"_"+str(args.speculative_len),
                         start_index=start_index,
-                        output_len=args.output_len
+                        output_len=args.output_len,
+                        enable_trace=args.enable_trace
                     )
                 send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"ngram_{profile_file_name}.json")
             if sub_strategy == "nospec":
@@ -204,7 +206,8 @@ def main():
                         strategy=args.strategy,
                         text=benchmark_file_name,
                         start_index=start_index,
-                        output_len=args.output_len
+                        output_len=args.output_len,
+                        enable_trace=args.enable_trace
                     )
                 send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"nospec_{profile_file_name}.json")
             if sub_strategy == "deep":
@@ -223,7 +226,8 @@ def main():
                         strategy=args.strategy,
                         text=benchmark_file_name,
                         start_index=start_index,
-                        output_len=args.output_len
+                        output_len=args.output_len,
+                        enable_trace=args.enable_trace
                     )
                 send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"deep_05b_{profile_file_name}.json")
             if sub_strategy == "daspec":
@@ -240,7 +244,8 @@ def main():
                     strategy=args.strategy,
                     text=benchmark_file_name,
                     start_index=start_index,
-                    output_len=args.output_len
+                    output_len=args.output_len,
+                    enable_trace=args.enable_trace
                 )
             if sub_strategy == "smart_spec":
                 send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"smart_spec_{profile_file_name}.json")
@@ -256,7 +261,8 @@ def main():
                     strategy=args.strategy,
                     text=benchmark_file_name,
                     start_index=start_index,
-                    output_len=args.output_len
+                    output_len=args.output_len,
+                    enable_trace=args.enable_trace
                 )
     finally:
         # 确保服务器被正确关闭

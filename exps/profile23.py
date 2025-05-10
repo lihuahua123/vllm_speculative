@@ -206,23 +206,26 @@ def train_and_evaluate_model(train_data, model_save_path=None, test_size=100, ra
     # plt.savefig('model_comparison.png')
     # plt.close()
     # print("模型比较图已保存为 'model_comparison.png'")
-    
-    # 输出线性回归模型的详细结果
-    if 'LinearRegression' in results:
-        lr_model = results['LinearRegression']['model']
-        print("\n线性回归模型详细结果:")
-        print(f"系数: {lr_model.coef_}")
-        print(f"截距: {lr_model.intercept_}")
-        
-        # 如果有三个特征，打印完整模型方程
-        if len(feature_names) == 3:
-            equation = f"y = {lr_model.intercept_:.4f}"
-            for i, coef in enumerate(lr_model.coef_):
-                equation += f" + {coef:.4f} * {feature_names[i]}"
-            print(f"模型方程: {equation}")
-        # 保存模型
+    if 'DecisionTree' in results:
         if model_save_path:
-            dump(lr_model, f"{model_save_path}_lr.pkl")
+            dump(results['DecisionTree']['model'], f"{model_save_path}_dt.pkl")
+        
+    # # 输出线性回归模型的详细结果
+    # if 'LinearRegression' in results:
+    #     lr_model = results['LinearRegression']['model']
+    #     print("\n线性回归模型详细结果:")
+    #     print(f"系数: {lr_model.coef_}")
+    #     print(f"截距: {lr_model.intercept_}")
+        
+    #     # 如果有三个特征，打印完整模型方程
+    #     if len(feature_names) == 3:
+    #         equation = f"y = {lr_model.intercept_:.4f}"
+    #         for i, coef in enumerate(lr_model.coef_):
+    #             equation += f" + {coef:.4f} * {feature_names[i]}"
+    #         print(f"模型方程: {equation}")
+    #     # 保存模型
+    #     if model_save_path:
+    #         dump(lr_model, f"{model_save_path}_lr.pkl")
     
     # 输出最佳模型及其结果
     best_model_name = df_results.sort_values('Test R²', ascending=False).iloc[0]['Model']
@@ -311,12 +314,33 @@ for gamma in range(1, 6):  # This will iterate through 1, 2, 3
 
 
 train_data = []
-            
+train_table = {i:{
+     j : [] for j in range(1,300)
+    } for i in range(1,6)}
+train_table_avg =      {i:{
+     j : -1 for j in range(1,300)
+    } for i in range(1,6)}  
 for key,value in tt.items():
     x = key
     y = []
     for k in value:
         train_data.append((key,k[1],k[0]+k[1]))
+        train_table[key][k[1]].append(k[0]+k[1])
+for key,value in train_table.items():
+    for k,v in value.items():
+        if len(v) > 0:
+            train_table_avg[key][k] = np.mean(v)
+# Save train_table_avg to a pickle file
+import pickle
+print(train_table_avg)
+# Save the train_table_avg dictionary
+with open('./train_table_avg.pkl', 'wb') as f:
+    pickle.dump(train_table_avg, f)
+
+# Load the train_table_avg dictionary (for future use)
+# with open('train_table_avg.pkl', 'rb') as f:
+#     train_table_avg = pickle.load(f)
+
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -332,6 +356,12 @@ z = [data[2] for data in train_data]  # generated tokens
 
 # Create scatter plot
 scatter = ax.scatter(x, y, z)
+# Plot the average points from train_table_avg
+for gamma, batch_dict in train_table_avg.items():
+    for batch_size, avg_tokens in batch_dict.items():
+        if avg_tokens != -1:  # Only plot if we have valid data
+            ax.scatter(gamma, batch_size, avg_tokens, color='red', s=10, marker='*')
+
 
 # Add labels
 ax.set_xlabel('Gamma')

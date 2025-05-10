@@ -383,7 +383,7 @@ async def benchmark(
             start_index += req
     else:
         request_rate_list = [request_rate]
-        input_requests = [input_requests[start_index]]
+        input_requests_list = [input_requests[start_index:]]
     tasks: list[asyncio.Task] = []
     for index, one_input_requests in enumerate(input_requests_list):
         async for request in get_request(one_input_requests, request_rate_list[index], burstiness, enable_trace=False):
