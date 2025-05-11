@@ -295,7 +295,7 @@ class _AsyncLLMEngine(LLMEngine):
 
         # Clear outputs for each new scheduler iteration
         ctx.request_outputs.clear()
-
+        
         # skip the scheduler if there are any remaining steps in the seq groups.
         # This ensures that the scheduler is only called again when the current
         # batch has completed.
@@ -306,14 +306,16 @@ class _AsyncLLMEngine(LLMEngine):
              allow_async_output_proc, need_disable_spec
              ) = self.scheduler[virtual_engine].schedule(self.stage_data)
             pre_disable = self.disable_speculative_decoding
-            if not self.ilp_manager.profile and (self.strategy == "daspec"  or self.strategy == "smart_spec")and \
+            
+            if not self.disable_speculative_decoding and not self.ilp_manager.profile and (self.strategy == "daspec"  or self.strategy == "smart_spec")and \
                 not scheduler_outputs.is_empty() and scheduler_outputs.num_prefill_groups == 0 and \
                 not self.proposer_worker_to_cpu:
                 if need_disable_spec:
                     self.set_disable_speculative_decoding(True)
                 else:
                     self.set_disable_speculative_decoding(False)
-            if not self.ilp_manager.profile and self.strategy == "daspec" and not scheduler_outputs.is_empty(): 
+            #print("scheduler_outputs.num_prefill_groups",scheduler_outputs.num_prefill_groups,len(seq_group_metadata_list))
+            #if not self.ilp_manager.profile and self.strategy == "daspec" and not scheduler_outputs.is_empty(): 
                 # if self.next_step_increase_blcok_number:
                 #     self.next_step_increase_blcok_number = False
                 #     self.increase_block_number()
@@ -322,7 +324,7 @@ class _AsyncLLMEngine(LLMEngine):
                 #     self.set_disable_speculative_decoding(True)
                 #     self.offload_proposer_worker()
                 #     self.next_step_increase_blcok_number = True
-                self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
+                #self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
 
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs

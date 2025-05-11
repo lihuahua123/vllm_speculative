@@ -443,6 +443,8 @@ class LLMEngine:
         self._skip_scheduling_next_step = False
         self.has_been_disabled_speculative_decoding = False
         self.next_step_increase_blcok_number = False
+        self.last_batch_size = 0
+        self.max_resolve_batch_size = 0
 
     def _initialize_kv_caches(self) -> None:
         """Initialize the KV cache in the worker(s).
@@ -1410,7 +1412,10 @@ class LLMEngine:
             (seq_group_metadata_list, scheduler_outputs,
             allow_async_output_proc
              ) = self.scheduler[virtual_engine].schedule()
-            
+            abs_diff = abs(len(seq_group_metadata_list) - self.last_batch_size)
+            self.max_resolve_batch_size = max(self.max_resolve_batch_size,abs_diff)
+            self.last_batch_size = len(seq_group_metadata_list)
+            print("max_resolve_batch_size",self.max_resolve_batch_size)
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
 
@@ -2220,9 +2225,9 @@ class LLMEngine:
         # logger.info(f"scheduler_outputs.scheduled_seq_groups: {len(scheduler_outputs.scheduled_seq_groups)}, scheduler_outputs.num_prefill_groups: {scheduler_outputs.num_prefill_groups}, len(self.scheduler[virtual_engine].waiting): {len(self.scheduler[virtual_engine].waiting)},running: {len(self.scheduler[virtual_engine].running)}")
         # FIXME 具有滞后性 如果预先调度，则增加overhead，否则具有滞后性，没准下一次就用不上了
         if self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks < self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks:
-            if len(scheduler_outputs.scheduled_seq_groups) ==  scheduler_outputs.num_prefill_groups and  len(self.scheduler[virtual_engine].waiting) > 5:
+            if len(scheduler_outputs.scheduled_seq_groups) ==  scheduler_outputs.num_prefill_groups and  len(self.scheduler[virtual_engine].waiting) > 20:
                 can_increase_space = True # prefill 满了，可以增加空间
-            elif scheduler_outputs.num_prefill_groups == 0 and len(self.scheduler[virtual_engine].running) - len(scheduler_outputs.scheduled_seq_groups) > 5:
+            elif scheduler_outputs.num_prefill_groups == 0 and len(self.scheduler[virtual_engine].running) - len(scheduler_outputs.scheduled_seq_groups) > 20:
                 can_increase_space = True # decode 满了，可以增加空间
         else:
             if len(self.scheduler[virtual_engine].waiting) == 0 and len(self.scheduler[virtual_engine].running) < 64 and \

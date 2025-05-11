@@ -376,16 +376,34 @@ async def benchmark(
     outputs_list = []
     request_rate_list =  []#
     input_requests_list = []#[input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:start_index+540]] # [input_requests] #[input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:]]
+    print(f"enable_trace: {enable_trace}")
     if enable_trace:
-        request_rate_list = np.load('./azureqps.npy') #[1,5,1,10,15,2]
-        for req in request_rate_list:
-            input_requests_list.append(input_requests[start_index:start_index+req])
-            start_index += req
+        # request_rate_list = np.load('./azureqps.npy') #[1,5,1,10,15,2]
+        # for req in request_rate_list:
+        #     input_requests_list.append(input_requests[start_index:start_index+req])
+        #     start_index += req
+        
+        request_rate_list = [5,5,25]
+        input_requests_list = [input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+120],input_requests[start_index+120:start_index+320]]
+
+        # request_rate_list = [1,1,2,1,5,10,25,1,1]
+        #input_requests_list = [input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+120],input_requests[start_index+120:start_index+320]]
+        # for req in request_rate_list[:6]:
+        #     input_requests_list.append(input_requests[start_index:start_index+20])
+        #     start_index += 20
+        # input_requests_list.append(input_requests[start_index:start_index+200])
+        # start_index += 200
+        # input_requests_list.append(input_requests[start_index:start_index+5])
+        # start_index += 5
+        # input_requests_list.append(input_requests[start_index:start_index+10])
+        # assert len(input_requests_list) == len(request_rate_list)
+        # print(f"input_requests_list: {input_requests_list}")
+        # print(f"request_rate_list: {request_rate_list}")
     else:
         request_rate_list = [request_rate]
         input_requests_list = [input_requests[start_index:]]
-    tasks: list[asyncio.Task] = []
     for index, one_input_requests in enumerate(input_requests_list):
+        tasks: list[asyncio.Task] = []
         async for request in get_request(one_input_requests, request_rate_list[index], burstiness, enable_trace=False):
             prompt, prompt_len, output_len, mm_content = request.prompt, \
                 request.prompt_len, request.expected_output_len, \
@@ -409,12 +427,12 @@ async def benchmark(
                     limited_request_func(request_func_input=request_func_input,
                                         pbar=pbar)))
         end_time = time.time()
-        print(f"send request time cost: {end_time - begin_time}")
-    begin_time = time.time()
-    outputs: list[RequestFuncOutput] = await asyncio.gather(*tasks)
-    outputs_list  += outputs
-    end_time = time.time()
-    print(f"receive response time cost: {end_time - begin_time}")
+        #print(f"send request time cost: {end_time - begin_time}")
+        begin_time = time.time()
+        outputs: list[RequestFuncOutput] = await asyncio.gather(*tasks)
+        outputs_list  += outputs
+        end_time = time.time()
+    #print(f"receive response time cost: {end_time - begin_time}")
     
     
     if profile:

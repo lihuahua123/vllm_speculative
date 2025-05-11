@@ -39,7 +39,7 @@ def parse_args():
     parser.add_argument("--start-index", type=int, default=0, help="benchmark 数据集开始索引")
     parser.add_argument("--output-len", type=int, default=-1, help="hf数据集输出长度")
     parser.add_argument("--num-gpu-blocks-override", type=int, default=28845, help="gpu blocks override")
-    parser.add_argument("--enable-trace", type=bool, default=False, help="是否开启trace")
+    parser.add_argument("--enable-trace", type=str, default="False", help="是否开启trace")
     return parser.parse_args()
 
 def start_server(model, host, port, strategy,sub_strategy,draft_model,speculative_len=1,num_gpu_blocks_override=28845):
@@ -88,7 +88,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     return server_process
 
 def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts, 
-                 request_rate, result_dir, strategy, text, start_index=0,output_len=-1,enable_trace=False):
+                 request_rate, result_dir, strategy, text, start_index=0,output_len=-1,enable_trace="False"):
     """运行单个请求率的基准测试"""
     print(f"正在运行基准测试，strategy: {strategy}, 请求率: {request_rate} QPS...")
     
@@ -117,12 +117,12 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
         "--result-filename", result_filename,
         "--start-index", str(start_index),
     ]
-    if enable_trace:
+    if enable_trace.lower() == "true":
         benchmark_cmd.append("--enable-trace")
     if output_len != -1:
         benchmark_cmd.append("--hf-output-len")
         benchmark_cmd.append(str(output_len))
-    
+    print(f"benchmark_cmd: {benchmark_cmd}")
     subprocess.run(benchmark_cmd)
     print(f"完成请求率为 {request_rate} QPS 的基准测试，结果保存在 {os.path.join(result_dir, result_filename)}")
     
@@ -153,7 +153,7 @@ def send_speculative_action(host, port, action,strategy="ilp",save_action_time_h
 
 def main():
     args = parse_args()
-    
+    print(f"args: {args}")
     # 启动服务器
     server_process = start_server(args.model, args.host, args.port, args.strategy,args.sub_strategy,args.draft_model,args.speculative_len,args.num_gpu_blocks_override)
     sub_strategy = args.sub_strategy
@@ -167,7 +167,7 @@ def main():
             profile = False
             save_action_time_history = False
         time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
-        profile_file_name = f"300_new{args.speculative_len}_{time_str}"
+        profile_file_name = f"./profile_log/300_new_specbench_{args.speculative_len}_{time_str}"
         benchmark_file_name = sub_strategy+"_"+str(args.speculative_len)
         # args.dataset_name = "alpaca"
         # args.dataset_path = "tatsu-lab/alpaca"
@@ -175,6 +175,7 @@ def main():
             request_rate = rate
             if sub_strategy == "ngram":
                 send_speculative_action(args.host, args.port, 1,strategy=args.sub_strategy,profile=profile)
+                time.sleep(5)
                 run_benchmark(
                         host=args.host,
                         port=args.port,
@@ -190,10 +191,10 @@ def main():
                         output_len=args.output_len,
                         enable_trace=args.enable_trace
                     )
-                send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"ngram_{profile_file_name}.json")
+                send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ngram.json")
             if sub_strategy == "nospec":
                 send_speculative_action(args.host, args.port, 2,strategy=args.sub_strategy,profile=profile)
-
+                time.sleep(5)
                 run_benchmark(
                         host=args.host,
                         port=args.port,
@@ -209,11 +210,12 @@ def main():
                         output_len=args.output_len,
                         enable_trace=args.enable_trace
                     )
-                send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"nospec_{profile_file_name}.json")
+                send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_nospec.json")
             if sub_strategy == "deep":
                 if not send_speculative_action(args.host, args.port, 0,strategy=args.sub_strategy,profile=profile):
                     print("发送speculative_action请求失败")
                     return
+                time.sleep(5)
                 run_benchmark(
                         host=args.host,
                         port=args.port,
@@ -229,9 +231,9 @@ def main():
                         output_len=args.output_len,
                         enable_trace=args.enable_trace
                     )
-                send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"deep_05b_{profile_file_name}.json")
+                send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_deep.json")
             if sub_strategy == "daspec":
-                send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"daspec_{profile_file_name}.json")
+                send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_daspec.json")
                 run_benchmark(
                     host=args.host,
                     port=args.port,
@@ -248,7 +250,7 @@ def main():
                     enable_trace=args.enable_trace
                 )
             if sub_strategy == "smart_spec":
-                send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"smart_spec_{profile_file_name}.json")
+                send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_smart_spec.json")
                 run_benchmark(
                     host=args.host,
                     port=args.port,

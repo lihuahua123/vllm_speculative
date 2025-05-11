@@ -206,26 +206,26 @@ def train_and_evaluate_model(train_data, model_save_path=None, test_size=100, ra
     # plt.savefig('model_comparison.png')
     # plt.close()
     # print("模型比较图已保存为 'model_comparison.png'")
-    if 'DecisionTree' in results:
-        if model_save_path:
-            dump(results['DecisionTree']['model'], f"{model_save_path}_dt.pkl")
-        
-    # # 输出线性回归模型的详细结果
-    # if 'LinearRegression' in results:
-    #     lr_model = results['LinearRegression']['model']
-    #     print("\n线性回归模型详细结果:")
-    #     print(f"系数: {lr_model.coef_}")
-    #     print(f"截距: {lr_model.intercept_}")
-        
-    #     # 如果有三个特征，打印完整模型方程
-    #     if len(feature_names) == 3:
-    #         equation = f"y = {lr_model.intercept_:.4f}"
-    #         for i, coef in enumerate(lr_model.coef_):
-    #             equation += f" + {coef:.4f} * {feature_names[i]}"
-    #         print(f"模型方程: {equation}")
-    #     # 保存模型
+    # if 'DecisionTree' in results:
     #     if model_save_path:
-    #         dump(lr_model, f"{model_save_path}_lr.pkl")
+    #         dump(results['DecisionTree']['model'], f"{model_save_path}_dt.pkl")
+        
+    # 输出线性回归模型的详细结果
+    if 'LinearRegression' in results:
+        lr_model = results['LinearRegression']['model']
+        print("\n线性回归模型详细结果:")
+        print(f"系数: {lr_model.coef_}")
+        print(f"截距: {lr_model.intercept_}")
+        
+        # 如果有三个特征，打印完整模型方程
+        if len(feature_names) == 3:
+            equation = f"y = {lr_model.intercept_:.4f}"
+            for i, coef in enumerate(lr_model.coef_):
+                equation += f" + {coef:.4f} * {feature_names[i]}"
+            print(f"模型方程: {equation}")
+        # 保存模型
+        if model_save_path:
+            dump(lr_model, f"{model_save_path}_lr.pkl")
     
     # 输出最佳模型及其结果
     best_model_name = df_results.sort_values('Test R²', ascending=False).iloc[0]['Model']
@@ -298,7 +298,7 @@ train_data_v = []
 train_data_d = []
 
 # Read data from deep_05b_300_new1 to deep_05b_300_new3
-tt = {i:[] for i in range(10)}
+tt = {i:[] for i in range(1,6)}
 for gamma in range(1, 6):  # This will iterate through 1, 2, 3
     # Using f-string to create dynamic regex pattern
     pattern = fr"^deep_05b_300_new{gamma}.*\.json$"
@@ -326,21 +326,21 @@ for key,value in tt.items():
     for k in value:
         train_data.append((key,k[1],k[0]+k[1]))
         train_table[key][k[1]].append(k[0]+k[1])
-for key,value in train_table.items():
-    for k,v in value.items():
-        if len(v) > 0:
-            train_table_avg[key][k] = np.mean(v)
-# Save train_table_avg to a pickle file
+    for j in range(1,300):
+        if len(train_table[key][j]) > 0:
+            import numpy as np
+            # Calculate mode (most frequent value)
+            mode = max(set(train_table[key][j]), key=train_table[key][j].count)
+            # Calculate P50 (median)
+            p50 = np.percentile(train_table[key][j], 50)
+            p25 = np.percentile(train_table[key][j], 25)
+            p75 = np.percentile(train_table[key][j], 75)
+            p10 = np.percentile(train_table[key][j], 10)
+            train_table_avg[key][j] = p10 #(mode,p10,p25,p50,p75,np.mean(train_table[key][j]))
+
 import pickle
-print(train_table_avg)
-# Save the train_table_avg dictionary
-with open('./train_table_avg.pkl', 'wb') as f:
+with open('train_table_avg.pkl', 'wb') as f:
     pickle.dump(train_table_avg, f)
-
-# Load the train_table_avg dictionary (for future use)
-# with open('train_table_avg.pkl', 'rb') as f:
-#     train_table_avg = pickle.load(f)
-
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -354,13 +354,7 @@ x = [data[0] for data in train_data]  # gamma
 y = [data[1] for data in train_data]  # batch size
 z = [data[2] for data in train_data]  # generated tokens
 
-# Create scatter plot
-scatter = ax.scatter(x, y, z)
-# Plot the average points from train_table_avg
-for gamma, batch_dict in train_table_avg.items():
-    for batch_size, avg_tokens in batch_dict.items():
-        if avg_tokens != -1:  # Only plot if we have valid data
-            ax.scatter(gamma, batch_size, avg_tokens, color='red', s=10, marker='*')
+
 
 
 # Add labels
@@ -377,19 +371,19 @@ plt.close()
 
 train_and_evaluate_model(train_data,'./generated_data_num_predict_model')
 # 画图1
-# batch_size = 17             
-# for key,value in tt.items():
-#     x = key
-#     y = []
-#     for k in value:
-#         if k[1] == batch_size:
-#             y.append(k[0]+batch_size)
-#     if len(y) > 0:  # Only plot if we have data
-#         #tokens = (1 - 0.6 ** (x + 1)) / (1 - 0.6)
-#         plt.boxplot(y, positions=[x])
-#     # Plot theoretical tokens as points
-#     tokens = batch_size * (1 - 0.6 ** (x + 1)) / (1 - 0.6)
-#     plt.plot(x, tokens, 'ro', label='Theoretical tokens')  # 'ro' means red dots
+batch_size = 17             
+for key,value in tt.items():
+    x = key
+    y = []
+    for k in value:
+        if k[1] == batch_size:
+            y.append(k[0]+batch_size)
+    if len(y) > 0:  # Only plot if we have data
+        #tokens = (1 - 0.6 ** (x + 1)) / (1 - 0.6)
+        plt.boxplot(y, positions=[x])
+    # Plot theoretical tokens as points
+    tokens = batch_size * (1 - 0.6 ** (x + 1)) / (1 - 0.6)
+    plt.plot(x, tokens, 'ro', label='Theoretical tokens')  # 'ro' means red dots
 # 画图2
 # for key,value in tt.items():
 #     x = key
