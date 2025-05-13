@@ -317,7 +317,7 @@ train_data_d = []
 # ============ for acceptance rate profile!!!! ============
 # Read data from deep_05b_300_new1 to deep_05b_300_new3
 tt = {i:[] for i in range(1,6)}
-for gamma in range(3, 4):  # This will iterate through 1, 2, 3
+for gamma in range(1, 6):  # This will iterate through 1, 2, 3
     # Using f-string to create dynamic regex pattern
     pattern = r"profile_log/300_new_specbench_3.*\.json"
     print(f"Reading files matching pattern: {pattern}")
@@ -355,53 +355,53 @@ for key,value in tt.items():
             p75 = np.percentile(train_table[key][j], 75)
             p10 = np.percentile(train_table[key][j], 10)
             train_table_avg[key][j] = p10 #(mode,p10,p25,p50,p75,np.mean(train_table[key][j]))
-
+print(train_table_avg)
 import pickle
 with open('train_table_avg_specbench.pkl', 'wb') as f:
     pickle.dump(train_table_avg, f)
 
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+# import matplotlib.pyplot as plt
+# from mpl_toolkits.mplot3d import Axes3D
 
-# Create 3D figure
-fig = plt.figure(figsize=(10, 8))
-ax = fig.add_subplot(111, projection='3d')
+# # Create 3D figure
+# fig = plt.figure(figsize=(10, 8))
+# ax = fig.add_subplot(111, projection='3d')
 
-# Extract x, y, z coordinates from train_data
-x = [data[0] for data in train_data]  # gamma
-y = [data[1] for data in train_data]  # batch size
-z = [data[2] for data in train_data]  # generated tokens
-
-
+# # Extract x, y, z coordinates from train_data
+# x = [data[0] for data in train_data]  # gamma
+# y = [data[1] for data in train_data]  # batch size
+# z = [data[2] for data in train_data]  # generated tokens
 
 
-# Add labels
-ax.set_xlabel('Gamma')
-ax.set_ylabel('Batch Size')
-ax.set_zlabel('Generated Tokens')
 
-# Add title
-plt.title('3D Relationship between Gamma, Batch Size and Generated Tokens')
 
-# Save plot
-plt.savefig('./figs/3d_relationship.png')
-plt.close()
+# # Add labels
+# ax.set_xlabel('Gamma')
+# ax.set_ylabel('Batch Size')
+# ax.set_zlabel('Generated Tokens')
 
-train_and_evaluate_model(train_data,'./generated_data_num_predict_model')
-# 画图1
-batch_size = 17             
-for key,value in tt.items():
-    x = key
-    y = []
-    for k in value:
-        if k[1] == batch_size:
-            y.append(k[0]+batch_size)
-    if len(y) > 0:  # Only plot if we have data
-        #tokens = (1 - 0.6 ** (x + 1)) / (1 - 0.6)
-        plt.boxplot(y, positions=[x])
-    # Plot theoretical tokens as points
-    tokens = batch_size * (1 - 0.6 ** (x + 1)) / (1 - 0.6)
-    plt.plot(x, tokens, 'ro', label='Theoretical tokens')  # 'ro' means red dots
+# # Add title
+# plt.title('3D Relationship between Gamma, Batch Size and Generated Tokens')
+
+# # Save plot
+# plt.savefig('./figs/3d_relationship.png')
+# plt.close()
+
+# train_and_evaluate_model(train_data,'./generated_data_num_predict_model')
+# # 画图1
+# batch_size = 17             
+# for key,value in tt.items():
+#     x = key
+#     y = []
+#     for k in value:
+#         if k[1] == batch_size:
+#             y.append(k[0]+batch_size)
+#     if len(y) > 0:  # Only plot if we have data
+#         #tokens = (1 - 0.6 ** (x + 1)) / (1 - 0.6)
+#         plt.boxplot(y, positions=[x])
+#     # Plot theoretical tokens as points
+#     tokens = batch_size * (1 - 0.6 ** (x + 1)) / (1 - 0.6)
+#     plt.plot(x, tokens, 'ro', label='Theoretical tokens')  # 'ro' means red dots
 # 画图2
 # for key,value in tt.items():
 #     x = key
@@ -413,10 +413,10 @@ for key,value in tt.items():
 
 
 # After the loop ends, add labels and show plot
-plt.xlabel('Gamma')
-plt.ylabel('# Generated tokens')
-# plt.title('Acceptance Rate Distribution by Gamma')
-plt.grid(True)
-plt.savefig('./figs/acceptance_rate_distribution.png')
-plt.close()
+# plt.xlabel('Gamma')
+# plt.ylabel('# Generated tokens')
+# # plt.title('Acceptance Rate Distribution by Gamma')
+# plt.grid(True)
+# plt.savefig('./figs/acceptance_rate_distribution.png')
+# plt.close()
 

@@ -167,6 +167,8 @@ def main():
             profile = False
             save_action_time_history = False
         time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+        if not os.path.exists("./profile_log"):
+            os.makedirs("./profile_log")
         profile_file_name = f"./profile_log/300_new_specbench_{args.speculative_len}_{time_str}"
         benchmark_file_name = sub_strategy+"_"+str(args.speculative_len)
         # args.dataset_name = "alpaca"

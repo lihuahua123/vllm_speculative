@@ -10,7 +10,9 @@ from typing import (Any, AsyncGenerator, Callable, Coroutine, Dict, Iterable,
 from weakref import ReferenceType
 
 from typing_extensions import deprecated
-
+import os
+import json
+from datetime import datetime
 import vllm.envs as envs
 from vllm.config import (DecodingConfig, LoRAConfig, ModelConfig,
                          ParallelConfig, SchedulerConfig, VllmConfig)
@@ -653,6 +655,10 @@ class AsyncLLMEngine(EngineClient):
 
         # Lazy initialized fields
         self._request_tracker: RequestTracker
+        self.last_record_time = 0
+        self.tokens_per_second = 0
+        self.throughput_history = []
+        self.tokens_generated = 0
 
     def __del__(self):
         if rt := getattr(self, "request_tracker", None):
@@ -786,7 +792,6 @@ class AsyncLLMEngine(EngineClient):
         """Kick the engine to process the waiting requests.
 
         Returns True if there are in-progress requests."""
-
         new_requests, aborted_requests = (
             self._request_tracker.get_new_and_aborted_requests())
 
@@ -817,9 +822,25 @@ class AsyncLLMEngine(EngineClient):
             # requests are finished
             all_finished = all(request_output.finished
                                for request_output in request_outputs)
-
+        tokens_generated = 0
+        for output in request_outputs:
+            for o in output.outputs:
+                tokens_generated += len(o.token_ids)
+        self.record_tokens(tokens_generated)
         return not all_finished, request_outputs
-
+    
+    def record_tokens(self, tokens_generated: int) -> None:
+        self.tokens_generated += tokens_generated
+        if self.last_record_time == 0:
+            self.last_record_time = time.time()
+            return
+        pass_time = time.time() - self.last_record_time
+        if pass_time >= 1.0:
+            self.last_record_time = time.time()
+            self.tokens_per_second = self.tokens_generated / pass_time
+            self.throughput_history.append(self.tokens_per_second)
+            self.tokens_generated = 0
+            
     def process_request_outputs(self, request_outputs) -> bool:
         # Put the outputs into the corresponding streams.
         all_finished = True
@@ -1262,6 +1283,21 @@ class AsyncLLMEngine(EngineClient):
 
     def change_speculative_action(self, action:int,strategy= None, save_action_time_history:bool=False, profile:bool=False,file_name:str=None):
         """Change the speculative action."""
+        if action == 9:
+            # Create directory if it doesn't exist
+            output_dir = "throughput_history"
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = os.path.join(output_dir, f"throughput_history_{timestamp}.json")
+            
+            # Save throughput history to file
+            with open(filename, "w") as f:
+                json.dump({"throughput_history": self.throughput_history}, f, indent=2)
+            
+            logger.info(f"Saved throughput history to {filename}")
+            return
         if strategy is not None:
             self.engine.strategy = strategy
             

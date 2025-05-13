@@ -141,7 +141,12 @@ def read_nospec_json_files(patternstr):
     
     # Get the parent directory path
     parent_directory = Path(__file__).parent.parent
-    
+    # Change to profile_log directory
+    profile_log_dir = parent_directory / 'profile_log'
+    if not profile_log_dir.exists():
+        print(f"Warning: {profile_log_dir} does not exist")
+        return {}
+    parent_directory = profile_log_dir
     # Define the regex pattern for files starting with "nospec_300_new1"
     pattern = re.compile(patternstr)
     
@@ -183,63 +188,6 @@ def read_json(patternstr):
     return action_time_historys
 
 
-action_time_history = {}
-train_data_v = []
-train_data_d = []
-
-# Read data from deep_05b_300_new1 to deep_05b_300_new3
-for gamma in range(1, 6):  # This will iterate through 1, 2, 3
-    # Using f-string to create dynamic regex pattern
-    pattern = fr"^deep_05b_300_new{gamma}.*\.json$"
-    print(f"Reading files matching pattern: {pattern}")
-    deep_action_time_historys = read_json(pattern)
-    
-    for i in range(len(deep_action_time_historys)):
-        for batch in range(1, 300):
-            datas = deep_action_time_historys[i][0][batch][1]
-            for j in range(len(datas['proposal_time'])):
-                y = datas['proposal_time'][j] / gamma
-                x1 = datas['context_length'][j]
-                x2 = batch
-                train_data_d.append((x1, x2, y))
-                
-# Read data from deep_05b_300_new1 to deep_05b_300_new3
-for gamma in range(1, 6):  # This will iterate through 1, 2, 3
-    # Using f-string to create dynamic regex pattern
-    pattern = fr"^deep_05b_300_new{gamma}.*\.json$"
-    #print(f"Reading files matching pattern: {pattern}")
-    deep_action_time_historys = read_json(pattern)
-    for i in range(len(deep_action_time_historys)):
-        for batch in range(1, 300):
-            datas = deep_action_time_historys[i][0][batch][1]
-            for j in range(len(datas['proposal_time'])):
-                x1 = datas['context_length'][j]
-                x2 = batch
-                #train_data_d.append((x1, x2, y))
-                train_data_v.append((x1,x2*(gamma+1),datas['scoring_time'][j]))
-
-for gamma in range(1, 6):  # This will iterate through 1, 2, 3
-    # Using f-string to create dynamic regex pattern
-    pattern = fr"^nospec_300_new{gamma}.*\.json$"
-    #print(f"Reading files matching pattern: {pattern}")
-    nospec_action_time_historys = read_json(pattern)
-    for i in range(len(nospec_action_time_historys)):
-        for batch in range(1, 300):
-            data = nospec_action_time_historys[i][2][batch][1]
-            for j in range(len(data['scoring_time'])):
-                y = data['scoring_time'][j]
-                x1 = data['context_length'][j]
-                x2 = batch
-                train_data_v.append((x1,x2,y))
-
-print("len(train_data_d)",len(train_data_d))
-print("len(train_data_v)",len(train_data_v))
-results_d = train_and_evaluate_model(train_data_d, model_save_path="./DeepSeek-R1-DRAFT-Qwen2.5-0.5B")
-results_v = train_and_evaluate_model(train_data_v, model_save_path="./DeepSeek-R1-Qwen2.5-0.5B-Verify")
-
-
-
-
 
 action_time_history = {}
 train_data_v = []
@@ -248,7 +196,7 @@ train_data_d = []
 # Read data from deep_05b_300_new1 to deep_05b_300_new3
 for gamma in range(1, 6):  # This will iterate through 1, 2, 3
     # Using f-string to create dynamic regex pattern
-    pattern = fr"^deep_05b_300_new{gamma}.*\.json$"
+    pattern = fr"^300_new_specbench_{gamma}_.*_deep\.json$"
     print(f"Reading files matching pattern: {pattern}")
     deep_action_time_historys = read_json(pattern)
     
@@ -264,7 +212,7 @@ for gamma in range(1, 6):  # This will iterate through 1, 2, 3
 # Read data from deep_05b_300_new1 to deep_05b_300_new3
 for gamma in range(1, 6):  # This will iterate through 1, 2, 3
     # Using f-string to create dynamic regex pattern
-    pattern = fr"^deep_05b_300_new{gamma}.*\.json$"
+    pattern = fr"^300_new_specbench_{gamma}_.*_deep\.json$"
     #print(f"Reading files matching pattern: {pattern}")
     deep_action_time_historys = read_json(pattern)
     for i in range(len(deep_action_time_historys)):
@@ -278,7 +226,7 @@ for gamma in range(1, 6):  # This will iterate through 1, 2, 3
 
 for gamma in range(1, 6):  # This will iterate through 1, 2, 3
     # Using f-string to create dynamic regex pattern
-    pattern = fr"^nospec_300_new{gamma}.*\.json$"
+    pattern = fr"^300_new_specbench_{gamma}_.*_nospec\.json$"
     #print(f"Reading files matching pattern: {pattern}")
     nospec_action_time_historys = read_json(pattern)
     for i in range(len(nospec_action_time_historys)):
@@ -316,8 +264,7 @@ def train_and_save_decision_tree(train_data, model_save_path=None, test_size=100
     from joblib import dump
     import pandas as pd
     import matplotlib.pyplot as plt
-    import graphviz
-    
+
     # 转换为numpy数组
     train_data_array = np.array(train_data)
 
