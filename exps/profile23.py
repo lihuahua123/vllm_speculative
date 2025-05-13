@@ -242,27 +242,45 @@ def train_and_evaluate_model(train_data, model_save_path=None, test_size=100, ra
 
 def read_nospec_json_files(patternstr):
     """
-    Read all JSON files in the parent directory that start with "nospec_300_new1".
+    Read JSON files matching the provided pattern path.
     
     Returns:
         dict: Dictionary with filenames as keys and JSON content as values
     """
     json_files = {}
     
-    # Get the parent directory path
-    parent_directory = Path(__file__).parent.parent
+    # Get the current working directory
+    base_directory = Path.cwd()
     
-    # Define the regex pattern for files starting with "nospec_300_new1"
-    pattern = re.compile(patternstr)
+    # Extract the directory part and the filename pattern part from patternstr
+    pattern_path = Path(patternstr)
+    dir_part = pattern_path.parent
+    file_pattern = pattern_path.name
     
-    # Get all JSON files in the directory
-    for json_file in parent_directory.glob('*.json'):
-        filename = json_file.name
+    # Create full directory path
+    full_dir_path = base_directory / dir_part if str(dir_part) != '.' else base_directory
+    
+    # Define the regex pattern for files
+    pattern = re.compile(file_pattern)
+    
+    # Check if the directory exists
+    if not full_dir_path.exists():
+        print(f"Warning: Directory {full_dir_path} does not exist")
+        return json_files
+    
+    # Print debug information
+    print(f"Searching in directory: {full_dir_path}")
+    print(f"Using file pattern: {file_pattern}")
+    
+    # Get all files in the directory
+    for file_path in full_dir_path.glob('*'):
+        filename = file_path.name
         
         # Check if filename matches the pattern
         if pattern.match(filename):
+            file_full_path = full_dir_path / filename
             try:
-                with open(json_file, 'r', encoding='utf-8') as f:
+                with open(file_full_path, 'r', encoding='utf-8') as f:
                     json_content = json.load(f)
                     json_files[filename] = json_content
                     print(f"Successfully read: {filename}")
@@ -296,15 +314,15 @@ def read_json(patternstr):
 action_time_history = {}
 train_data_v = []
 train_data_d = []
-
+# ============ for acceptance rate profile!!!! ============
 # Read data from deep_05b_300_new1 to deep_05b_300_new3
 tt = {i:[] for i in range(1,6)}
-for gamma in range(1, 6):  # This will iterate through 1, 2, 3
+for gamma in range(3, 4):  # This will iterate through 1, 2, 3
     # Using f-string to create dynamic regex pattern
-    pattern = fr"^deep_05b_300_new{gamma}.*\.json$"
+    pattern = r"profile_log/300_new_specbench_3.*\.json"
     print(f"Reading files matching pattern: {pattern}")
     deep_action_time_historys = read_json(pattern)
-    
+    print(len(deep_action_time_historys))
     for i in range(len(deep_action_time_historys)):
         for batch in range(1, 300):
             datas = deep_action_time_historys[i][0][batch][1]
@@ -339,7 +357,7 @@ for key,value in tt.items():
             train_table_avg[key][j] = p10 #(mode,p10,p25,p50,p75,np.mean(train_table[key][j]))
 
 import pickle
-with open('train_table_avg.pkl', 'wb') as f:
+with open('train_table_avg_specbench.pkl', 'wb') as f:
     pickle.dump(train_table_avg, f)
 
 import matplotlib.pyplot as plt

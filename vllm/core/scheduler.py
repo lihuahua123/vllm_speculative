@@ -136,7 +136,6 @@ class ScheduledSequenceGroup:
     # chunked, it can be smaller than that.
     token_chunk_size: int
 
-
 @dataclass
 class SchedulerOutputs:
     """The scheduling decision made from a scheduler."""
@@ -313,7 +312,8 @@ class DASpec:
         self.smoothed = -1
         self.continue_low_alpha = 0
         self.generated_token_num_predict_model = generated_token_num_predict_model
-        with open('./train_table_avg.pkl', 'rb') as f:
+        # train_table_avg
+        with open('./train_table_avg_specbench.pkl', 'rb') as f:
             self.train_table_avg = pickle.load(f)
     
     def exponential_smoothing(self, alpha=0.1):
@@ -408,20 +408,21 @@ class DASpec:
         #     next_alpha = 0.6
         # else:
         next_alpha = alpha
-        print("alpha",alpha,"next_alpha",next_alpha)
+        #print("alpha",alpha,"next_alpha",next_alpha)
         draft_predict = None #self.draft_model.predict([[context_length,batch_size]])[0]
         goodputs = []
         for k in [0,3]:
             goodput = self.goodput_estimation(context_length,batch_size, k, next_alpha, speculative_metrics,draft_predict)
-            print("proposed_length",k,"goodput",goodput)
+            #print("proposed_length",k,"goodput",goodput)
             if goodput > best_goodput:
                 best_goodput = goodput
                 best_length = k
             goodputs.append(goodput)
-        if goodputs[0] - goodputs[1] > 0:
-            return 0
-        else:
-            return 3
+        return best_length
+        # if goodputs[0] - goodputs[1] > 0:
+        #     return 0
+        # else:
+        #     return 3
         
 @dataclass
 class SchedulerRunningOutputs:
@@ -774,6 +775,7 @@ class Scheduler:
         self.proposer_worker_to_cpu = False
         self.disable_spec_cnt = 0
         self.last_batch_size = 0
+        self.first_zero_proposed_length = -1
         # Create directory if it doesn't exist
         os.makedirs('logs', exist_ok=True)
 
@@ -1043,8 +1045,14 @@ class Scheduler:
                     prefill_seq_groups.append(scheduled_seq_group)
                     ret.prefill_seq_groups_list.append(seq_group)
                 else:
+                    if self.scheduler_config.num_lookahead_slots == 0:
+                        seq_group.skip_neural_net_proposer_step_num = 1
+                    if seq_group.skip_neural_net_proposer_step_num == 1:
+                        seq_group.num_speculative_tokens = 0
                     scheduled_seq_group.token_chunk_size = 1
                     decode_seq_groups.append(scheduled_seq_group)
+                    scheduled_seq_group.seq_group.num_speculative_tokens = seq_group.num_speculative_tokens
+                    scheduled_seq_group.seq_group.skip_neural_net_proposer_step_num = seq_group.skip_neural_net_proposer_step_num
                     ret.decode_seq_groups_list.append(seq_group)
 
                 budget.add_num_batched_tokens(seq_group.request_id,
@@ -1058,8 +1066,6 @@ class Scheduler:
                     budget.add_num_seqs(seq_group.request_id, num_running_seqs)
                 if curr_loras is not None and seq_group.lora_int_id > 0:
                     curr_loras.add(seq_group.lora_int_id)
-        if best_batch is not None and best_batch < len(self.running):
-            self.running = running_queue
         self._scheduler_running_outputs_cache[self.next_cache_id].reset()
         self._scheduled_seq_group_cache[self.next_cache_id].reset()
 
@@ -1767,26 +1773,23 @@ class Scheduler:
             #  0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposal_length
             metric_value = float(speculative_metrics[4]/(speculative_metrics[7]*speculative_metrics[3]))
             self.speculative_metrics_cache.append(metric_value)
-            if self.daspec_spec is not None:
-                lens = len(self.speculative_metrics_cache)
-                new = speculative_metrics[4] + speculative_metrics[3]
-                old = self.daspec_spec.train_table_avg[speculative_metrics[7]][speculative_metrics[3]]
-                self.daspec_spec.train_table_avg[speculative_metrics[7]][speculative_metrics[3]] = old + (new-old)/(lens+1)
-
+            # if self.daspec_spec is not None:
+            #     lens = len(self.speculative_metrics_cache) + 1
+            #     new = speculative_metrics[4] + speculative_metrics[3]
+            #     old = self.daspec_spec.train_table_avg[speculative_metrics[7]][speculative_metrics[3]]
+            #     self.daspec_spec.train_table_avg[speculative_metrics[7]][speculative_metrics[3]] = new
         best_batch = None 
         need_disable_spec = False
-        if len(self.waiting) == 0 and not self.profile and self.daspec_spec is not None and len(self.running) > 0 and not self.proposer_worker_to_cpu: 
+        if  not self.profile and self.daspec_spec is not None and len(self.running) > 0 and not self.proposer_worker_to_cpu: 
             self.daspec_spec.prev_alphas = self.speculative_metrics_cache
-            if self.last_batch_size != len(self.running) and self.scheduler_config.num_lookahead_slots > 0:
+            if self.last_batch_size != len(self.running):
                 best_batch, best_proposed_lengths = self.daspec_spec_schedule(speculative_metrics)
                 self.scheduler_config.num_lookahead_slots = best_proposed_lengths
                 self.last_batch_size = len(self.running)
                 print("best_batch",best_batch, "best_proposed_lengths", best_proposed_lengths)
             if self.scheduler_config.num_lookahead_slots == 0: 
                 need_disable_spec = True
-                self.disable_spec_cnt += 1
-            else:
-                self.disable_spec_cnt = 0
+                
                 
         if not self.profile and self.smart_spec is not None and len(self.running) > 0: 
             self.smart_spec.prev_alphas = self.speculative_metrics_cache
@@ -1899,6 +1902,7 @@ class Scheduler:
                     mm_processor_kwargs=seq_group.mm_processor_kwargs,
                     prompt_adapter_request=seq_group.prompt_adapter_request,
                     skip_neural_net_proposer_step_num=seq_group.skip_neural_net_proposer_step_num,
+                    num_speculative_tokens=seq_group.num_speculative_tokens
                 )
             else:
                 # When SPMD mode is enabled, we only send delta data except for
@@ -1915,6 +1919,7 @@ class Scheduler:
                     token_chunk_size=token_chunk_size,
                     computed_block_nums=common_computed_block_nums,
                     skip_neural_net_proposer_step_num=seq_group.skip_neural_net_proposer_step_num,
+                    num_speculative_tokens=seq_group.num_speculative_tokens
                 )
             seq_group_metadata_list.append(seq_group_metadata)
 
@@ -2175,6 +2180,9 @@ class Scheduler:
         
         #for batch_size in batch_candidates:
         batch_size = len(self.running)
+        
+        # if self.first_zero_proposed_length > 0 and batch_size > self.first_zero_proposed_length:
+        #     return batch_size, 0
         start_idx = 0
         if self.has_new_request:
             start_idx = 1
@@ -2184,10 +2192,10 @@ class Scheduler:
         for i in range(batch_size):
             context_length += self.running[i].first_seq.get_len()
         proposed_length = self.daspec_spec.optimize_proposed_length(start_idx, context_length,batch_size, speculative_metrics,self.disable_spec_cnt)
-
+        # if proposed_length == 0:
+        #     self.first_zero_proposed_length = batch_size
         best_proposed_lengths = proposed_length
         best_batch = batch_size
-
         return best_batch, best_proposed_lengths
 
     def set_num_lookahead_slots(self,num_lookahead_slots):

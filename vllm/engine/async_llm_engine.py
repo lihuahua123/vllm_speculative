@@ -307,7 +307,7 @@ class _AsyncLLMEngine(LLMEngine):
              ) = self.scheduler[virtual_engine].schedule(self.stage_data)
             pre_disable = self.disable_speculative_decoding
             
-            if not self.disable_speculative_decoding and not self.ilp_manager.profile and (self.strategy == "daspec"  or self.strategy == "smart_spec")and \
+            if  not self.ilp_manager.profile and (self.strategy == "daspec"  or self.strategy == "smart_spec")and \
                 not scheduler_outputs.is_empty() and scheduler_outputs.num_prefill_groups == 0 and \
                 not self.proposer_worker_to_cpu:
                 if need_disable_spec:
@@ -315,7 +315,7 @@ class _AsyncLLMEngine(LLMEngine):
                 else:
                     self.set_disable_speculative_decoding(False)
             #print("scheduler_outputs.num_prefill_groups",scheduler_outputs.num_prefill_groups,len(seq_group_metadata_list))
-            #if not self.ilp_manager.profile and self.strategy == "daspec" and not scheduler_outputs.is_empty(): 
+            if not self.ilp_manager.profile and self.strategy == "daspec" and not scheduler_outputs.is_empty(): 
                 # if self.next_step_increase_blcok_number:
                 #     self.next_step_increase_blcok_number = False
                 #     self.increase_block_number()
@@ -324,7 +324,7 @@ class _AsyncLLMEngine(LLMEngine):
                 #     self.set_disable_speculative_decoding(True)
                 #     self.offload_proposer_worker()
                 #     self.next_step_increase_blcok_number = True
-                #self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
+                self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
 
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
@@ -370,31 +370,6 @@ class _AsyncLLMEngine(LLMEngine):
                 # We use ExecuteModelRequest to pass the last sampled_token_ids
                 # to each of the non-last PP stages for in-place prepare_input.
                 last_sampled_token_ids=last_sampled_token_ids)
-
-            # FIXME
-            # if not self.ilp_manager.profile and (self.strategy == "daspec" or self.strategy == "smart_spec"):
-            #     if self.scheduler[virtual_engine].has_new_request:
-            #         self.has_new_request = True
-            #     if not pre_disable and self.disable_speculative_decoding and scheduler_outputs.num_prefill_groups == 0:
-                    
-            #         for seq_group in self.scheduler[virtual_engine].running:
-            #             seq_group.skip_neural_net_proposer_step_num += 1
-            #         # self.has_new_request = False
-            #     elif not self.disable_speculative_decoding and seq_group_metadata_list and self.has_been_disabled_speculative_decoding:
-            #         skip_count = sum(1 for seq_group in seq_group_metadata_list if seq_group.skip_neural_net_proposer_step_num > 0)
-            #         logger.info(f"skip_count = {skip_count}")
-            #         if 0 < skip_count < len(seq_group_metadata_list):
-            #             for seq_group in seq_group_metadata_list:
-            #                 if seq_group.skip_neural_net_proposer_step_num > 1:
-            #                     seq_group.num_speculative_tokens = 0
-            #                     logger.info(f"seq_group.num_speculative_tokens = 0")
-            #                 else:
-            #                     seq_group.skip_neural_net_proposer_step_num = 0
-            #         elif skip_count == len(seq_group_metadata_list):
-            #             self.set_disable_speculative_decoding(True)
-            #             logger.info(f"self.set_disable_speculative_decoding(True)")
-            #         elif skip_count == 0:
-            #             self.has_been_disabled_speculative_decoding = False
 
             if allow_async_output_proc:
                 execute_model_req.async_callback = self.async_callbacks[
