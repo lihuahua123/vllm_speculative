@@ -421,7 +421,7 @@ class DASpec:
                 best_length = k
             goodputs.append(goodput)
         #return best_length
-        if goodputs[0] - goodputs[1] > 0.3:
+        if goodputs[0] - goodputs[1] > 1:
             return 0
         else:
             return 3
@@ -1048,8 +1048,8 @@ class Scheduler:
                     ret.prefill_seq_groups_list.append(seq_group)
                 else:
                     if self.scheduler_config.num_lookahead_slots == 0:
-                        seq_group.skip_neural_net_proposer_step_num = 1
-                    if seq_group.skip_neural_net_proposer_step_num == 1:
+                        seq_group.skip_neural_net_proposer_step_num += 1
+                    if seq_group.skip_neural_net_proposer_step_num > 20:
                         seq_group.num_speculative_tokens = 0
                     scheduled_seq_group.token_chunk_size = 1
                     decode_seq_groups.append(scheduled_seq_group)

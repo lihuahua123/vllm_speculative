@@ -32,7 +32,7 @@ def parse_args():
     parser.add_argument("--strategy", type=str, default="baseline", 
                         choices=["baseline", "ilp", "no-spec"], help="策略名称")
     parser.add_argument("--sub-strategy", type=str, default="ngram", 
-                        choices=["ngram", "deep", "nospec", "daspec", "smart_spec"], help="子策略名称")
+                        choices=["ngram", "deep", "nospec", "daspec", "smart_spec", "threshold"], help="子策略名称")
     parser.add_argument("--speculative-len", type=int, default=1, help="speculative长度")
     parser.add_argument("--draft-model", type=str, default="", help="draft模型")
     parser.add_argument("--profile",action="store_true", help="是否开启profile")
@@ -212,6 +212,7 @@ def main():
                         output_len=args.output_len,
                         enable_trace=args.enable_trace
                     )
+                send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_daspec.json")
                 send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_nospec.json")
             if sub_strategy == "deep":
                 if not send_speculative_action(args.host, args.port, 0,strategy=args.sub_strategy,profile=profile):
@@ -233,6 +234,7 @@ def main():
                         output_len=args.output_len,
                         enable_trace=args.enable_trace
                     )
+                send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_daspec.json")
                 send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_deep.json")
             if sub_strategy == "daspec":
                 send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_daspec.json")
@@ -251,6 +253,7 @@ def main():
                     output_len=args.output_len,
                     enable_trace=args.enable_trace
                 )
+                send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_daspec.json")
             if sub_strategy == "smart_spec":
                 send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_smart_spec.json")
                 run_benchmark(
@@ -268,6 +271,25 @@ def main():
                     output_len=args.output_len,
                     enable_trace=args.enable_trace
                 )
+                send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_daspec.json")
+            if sub_strategy == "threshold":
+                send_speculative_action(args.host, args.port, 69,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_smart_spec.json")
+                run_benchmark(
+                    host=args.host,
+                    port=args.port,
+                    model=args.model,
+                    dataset_name=args.dataset_name,
+                    dataset_path=args.dataset_path,
+                    num_prompts=args.num_prompts,
+                    request_rate=rate,
+                    result_dir=args.result_dir,
+                    strategy=args.strategy,
+                    text=benchmark_file_name,
+                    start_index=start_index,
+                    output_len=args.output_len,
+                    enable_trace=args.enable_trace
+                )
+                send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_daspec.json")
     finally:
         # 确保服务器被正确关闭
         print("正在关闭服务器...")

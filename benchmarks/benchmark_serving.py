@@ -383,15 +383,15 @@ async def benchmark(
         #     input_requests_list.append(input_requests[start_index:start_index+req])
         #     start_index += req
         
-        request_rate_list = [5,5,25]
-        input_requests_list = [input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+120],input_requests[start_index+120:start_index+320]]
+        request_rate_list = [5,5,40]
+        input_requests_list = [input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+120],input_requests[start_index+120:]]
 
-        request_rate_list = [2,5,5,25]
-        input_requests_list = [input_requests[start_index:start_index+20],
-                               input_requests[start_index+20:start_index+120],
-                               input_requests[start_index+120:start_index+220],
-                               input_requests[start_index+220:start_index+320]]
-        # request_rate_list = [1,1,2,1,5,10,25,1,1]
+        # request_rate_list = [2,5,5,25]
+        # input_requests_list = [input_requests[start_index:start_index+20],
+        #                        input_requests[start_index+20:start_index+120],
+        #                        input_requests[start_index+120:start_index+220],
+        #                        input_requests[start_index+220:start_index+320]]
+        # # request_rate_list = [1,1,2,1,5,10,25,1,1]
         #input_requests_list = [input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+120],input_requests[start_index+120:start_index+320]]
         # for req in request_rate_list[:6]:
         #     input_requests_list.append(input_requests[start_index:start_index+20])

@@ -318,14 +318,6 @@ class _AsyncLLMEngine(LLMEngine):
                     self.set_disable_speculative_decoding(False)
             #print("scheduler_outputs.num_prefill_groups",scheduler_outputs.num_prefill_groups,len(seq_group_metadata_list))
             if not self.ilp_manager.profile and self.strategy == "daspec" and not scheduler_outputs.is_empty(): 
-                # if self.next_step_increase_blcok_number:
-                #     self.next_step_increase_blcok_number = False
-                #     self.increase_block_number()
-                    
-                # elif not self.disable_speculative_decoding:
-                #     self.set_disable_speculative_decoding(True)
-                #     self.offload_proposer_worker()
-                #     self.next_step_increase_blcok_number = True
                 self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
 
             ctx.seq_group_metadata_list = seq_group_metadata_list
@@ -444,7 +436,7 @@ class _AsyncLLMEngine(LLMEngine):
                 self._process_model_outputs(ctx=ctx)
             assert len(ctx.output_queue) == 0
         
-        return ctx.request_outputs
+        return ctx.request_outputs, self.stage_data
 
     async def stop_remote_worker_execution_loop_async(self) -> None:
         """Stop the remote worker execution loop."""
@@ -809,8 +801,10 @@ class AsyncLLMEngine(EngineClient):
 
         if aborted_requests:
             await self._engine_abort(aborted_requests)
-
-        request_outputs = await self.engine.step_async(virtual_engine)
+        begin_time = time.time()
+        request_outputs, stage_data = await self.engine.step_async(virtual_engine)
+        end_time = time.time()
+        step_time = end_time - begin_time
 
         # Put the outputs into the corresponding streams.
         # If used as a callback, then already invoked inside
@@ -822,18 +816,16 @@ class AsyncLLMEngine(EngineClient):
             # requests are finished
             all_finished = all(request_output.finished
                                for request_output in request_outputs)
-        tokens_generated = 0
-        for output in request_outputs:
-            for o in output.outputs:
-                tokens_generated += len(o.token_ids)
-        self.record_tokens(tokens_generated)
+        # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposed_length
+        if stage_data is not None:
+            self.record_tokens(stage_data[4]+stage_data[3],step_time)
         return not all_finished, request_outputs
     
-    def record_tokens(self, tokens_generated: int) -> None:
-        self.tokens_generated += tokens_generated
+    def record_tokens(self, tokens_generated: int, step_time: float) -> None:
         if self.last_record_time == 0:
             self.last_record_time = time.time()
             return
+        self.tokens_generated += tokens_generated
         pass_time = time.time() - self.last_record_time
         if pass_time >= 1.0:
             self.last_record_time = time.time()
@@ -1283,6 +1275,7 @@ class AsyncLLMEngine(EngineClient):
 
     def change_speculative_action(self, action:int,strategy= None, save_action_time_history:bool=False, profile:bool=False,file_name:str=None):
         """Change the speculative action."""
+        virtual_engine = 0
         if action == 9:
             # Create directory if it doesn't exist
             output_dir = "throughput_history"
@@ -1290,7 +1283,7 @@ class AsyncLLMEngine(EngineClient):
             
             # Generate filename with timestamp
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = os.path.join(output_dir, f"throughput_history_{timestamp}.json")
+            filename = os.path.join(output_dir, f"throughput_history_{self.engine.strategy}_{timestamp}.json")
             
             # Save throughput history to file
             with open(filename, "w") as f:
@@ -1298,10 +1291,14 @@ class AsyncLLMEngine(EngineClient):
             
             logger.info(f"Saved throughput history to {filename}")
             return
+        if strategy == "threshold":
+            self.engine.strategy = strategy
+            self.engine.model_executor.set_disable_by_batch_size(action)
+            self.engine.scheduler[virtual_engine].daspec_spec = None
+            self.engine.scheduler[virtual_engine].smart_spec = None
+            return
         if strategy is not None:
             self.engine.strategy = strategy
-            
-            virtual_engine = 0
             self.engine.scheduler[virtual_engine].profile = profile
             logger.info(f"change_speculative_action: {strategy}, {profile}")
             if strategy == "smart_spec":

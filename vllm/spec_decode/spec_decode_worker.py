@@ -512,19 +512,15 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         atleast_one_prompt = False
         all_zero_spec_tokens = True
         has_skip_neural_net_proposer_step_num = False
-        #aa = []
+
         for sgm in execute_model_req.seq_group_metadata_list:
             all_prompt = all_prompt and sgm.is_prompt
             atleast_one_prompt = atleast_one_prompt or sgm.is_prompt
             all_zero_spec_tokens = all_zero_spec_tokens and (
                 sgm.num_speculative_tokens == 0)
-            #aa.append(sgm.skip_neural_net_proposer_step_num)
-            if sgm.skip_neural_net_proposer_step_num == 1:
+            if sgm.skip_neural_net_proposer_step_num > 20:
                 sgm.num_speculative_tokens = 0
                 has_skip_neural_net_proposer_step_num = True
-        # if has_skip_neural_net_proposer_step_num:
-        #     disable_all_speculation = True
-        #print("aa",aa)
         if all_prompt and execute_model_req.seq_group_metadata_list:
             assert num_lookahead_slots == 0, (
                 "Prompt only runs should have num_lookahead_slots equal to 0. "
