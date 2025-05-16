@@ -2230,9 +2230,9 @@ class LLMEngine:
             elif scheduler_outputs.num_prefill_groups == 0 and len(self.scheduler[virtual_engine].running) - len(scheduler_outputs.scheduled_seq_groups) > 10:
                 can_increase_space = True # decode 满了，可以增加空间
         else:
-            if len(self.scheduler[virtual_engine].waiting) == 0 and \
+            if  len(self.scheduler[virtual_engine].waiting) == 0 and \
                 self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks == self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks and \
-                self.cache_config.num_virtual_blocks + 20 <  self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks():
+                self.cache_config.num_virtual_blocks + 10 <  self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks():
                 can_decrease_space = True
         if can_increase_space:
             logger.info("increase block number")

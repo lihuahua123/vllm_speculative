@@ -8,6 +8,7 @@ import signal
 import argparse
 import sys
 import requests
+import psutil
 
 def parse_args():
     parser = argparse.ArgumentParser(description="运行vLLM服务器并执行多个请求率的基准测试")
@@ -67,6 +68,8 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
         # "--enable-chunked-prefill",
         # "--max_num_batched_tokens", "256",
         "--strategy", strategy,
+        "--tensor-parallel-size", "1",
+        "--speculative-draft-tensor-parallel-size", "1",
     ]
     if strategy != "no-spec":
         exec_cmd.append("--speculative-model")
@@ -151,6 +154,20 @@ def send_speculative_action(host, port, action,strategy="ilp",save_action_time_h
     
     return response.status_code == 200
 
+def kill_child_processes(parent_pid):
+    try:
+        parent = psutil.Process(parent_pid)
+        children = parent.children(recursive=True)
+        for child in children:
+            print(f"Killing child process {child.pid}")
+            child.terminate()
+        gone, alive = psutil.wait_procs(children, timeout=5)
+        for p in alive:
+            print(f"Force killing child process {p.pid}")
+            p.kill()
+    except Exception as e:
+        print(f"Error killing child processes: {e}")
+        
 def main():
     args = parse_args()
     print(f"args: {args}")
@@ -291,11 +308,14 @@ def main():
                 )
                 send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_daspec.json")
     finally:
-        # 确保服务器被正确关闭
-        print("正在关闭服务器...")
+        # 在 finally 里
         server_process.send_signal(signal.SIGINT)
-        server_process.wait()
-        print("服务器已关闭")
+        try:
+            server_process.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            print("Timeout, killing all child processes...")
+            kill_child_processes(server_process.pid)
+            server_process.kill()
 
 if __name__ == "__main__":
     main() 

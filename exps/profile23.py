@@ -319,7 +319,7 @@ train_data_d = []
 tt = {i:[] for i in range(1,6)}
 for gamma in range(1, 6):  # This will iterate through 1, 2, 3
     # Using f-string to create dynamic regex pattern
-    pattern = r"profile_log/300_new_specbench_3.*\.json"
+    pattern = fr"deep_05b_300_new{gamma}_.*\.json"
     print(f"Reading files matching pattern: {pattern}")
     deep_action_time_historys = read_json(pattern)
     print(len(deep_action_time_historys))
@@ -355,7 +355,8 @@ for key,value in tt.items():
             p75 = np.percentile(train_table[key][j], 75)
             p10 = np.percentile(train_table[key][j], 10)
             train_table_avg[key][j] = p10 #(mode,p10,p25,p50,p75,np.mean(train_table[key][j]))
-print(train_table_avg)
+# 
+# print(train_table_avg)
 import pickle
 with open('train_table_avg_specbench.pkl', 'wb') as f:
     pickle.dump(train_table_avg, f)

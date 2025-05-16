@@ -401,9 +401,9 @@ class DASpec:
         """
         best_goodput = -1
         best_length = 0
-        # #if batch_size < 63:
         # min_k = 0
-        
+        # if batch_size > 69:
+        #     return 0
         alpha = self.moving_average()#self.exponential_smoothing()
                 # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposed_length
         # if alpha < 0.4:
@@ -421,7 +421,7 @@ class DASpec:
                 best_length = k
             goodputs.append(goodput)
         #return best_length
-        if goodputs[0] - goodputs[1] > 1:
+        if goodputs[0] - goodputs[1] > 0.3:
             return 0
         else:
             return 3
