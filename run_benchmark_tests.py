@@ -41,6 +41,7 @@ def parse_args():
     parser.add_argument("--output-len", type=int, default=-1, help="hf数据集输出长度")
     parser.add_argument("--num-gpu-blocks-override", type=int, default=28845, help="gpu blocks override")
     parser.add_argument("--enable-trace", type=str, default="False", help="是否开启trace")
+    parser.add_argument("--burstiness", type=float, default=1.0, help="burstiness")
     return parser.parse_args()
 
 def start_server(model, host, port, strategy,sub_strategy,draft_model,speculative_len=1,num_gpu_blocks_override=28845):
@@ -60,7 +61,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
         "--host", host,
         "--port", str(port),
         "--model", model,
-        "--gpu-memory-utilization", "0.85", # 0.65 跑不起来
+        "--gpu-memory-utilization", "0.50", # 0.65 跑不起来
         # "--ngram_prompt_lookup_max", "4",
         "--enforce-eager",
         "--no-enable-prefix-caching",
@@ -91,7 +92,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     return server_process
 
 def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts, 
-                 request_rate, result_dir, strategy, text, start_index=0,output_len=-1,enable_trace="False"):
+                 request_rate, result_dir, strategy, text, start_index=0,output_len=-1,enable_trace="False",burstiness=1.0):
     """运行单个请求率的基准测试"""
     print(f"正在运行基准测试，strategy: {strategy}, 请求率: {request_rate} QPS...")
     
@@ -119,6 +120,7 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
         "--result-dir", result_dir,
         "--result-filename", result_filename,
         "--start-index", str(start_index),
+        "--burstiness", str(burstiness),
     ]
     if enable_trace.lower() == "true":
         benchmark_cmd.append("--enable-trace")
@@ -186,7 +188,7 @@ def main():
         time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
         if not os.path.exists("./profile_log"):
             os.makedirs("./profile_log")
-        profile_file_name = f"./profile_log/300_new_specbench_{args.speculative_len}_{time_str}"
+        profile_file_name = f"./profile_log/300_new_alpaca_{args.speculative_len}_{time_str}"
         benchmark_file_name = sub_strategy+"_"+str(args.speculative_len)
         # args.dataset_name = "alpaca"
         # args.dataset_path = "tatsu-lab/alpaca"
@@ -208,7 +210,8 @@ def main():
                         text=sub_strategy+"_"+str(args.speculative_len),
                         start_index=start_index,
                         output_len=args.output_len,
-                        enable_trace=args.enable_trace
+                        enable_trace=args.enable_trace,
+                        burstiness=args.burstiness
                     )
                 send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ngram.json")
             if sub_strategy == "nospec":
@@ -227,7 +230,8 @@ def main():
                         text=benchmark_file_name,
                         start_index=start_index,
                         output_len=args.output_len,
-                        enable_trace=args.enable_trace
+                        enable_trace=args.enable_trace,
+                        burstiness=args.burstiness
                     )
                 send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_daspec.json")
                 send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_nospec.json")
@@ -249,7 +253,8 @@ def main():
                         text=benchmark_file_name,
                         start_index=start_index,
                         output_len=args.output_len,
-                        enable_trace=args.enable_trace
+                        enable_trace=args.enable_trace,
+                        burstiness=args.burstiness
                     )
                 send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_daspec.json")
                 send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_deep.json")
@@ -268,7 +273,8 @@ def main():
                     text=benchmark_file_name,
                     start_index=start_index,
                     output_len=args.output_len,
-                    enable_trace=args.enable_trace
+                    enable_trace=args.enable_trace,
+                    burstiness=args.burstiness
                 )
                 send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_daspec.json")
             if sub_strategy == "smart_spec":
@@ -286,11 +292,12 @@ def main():
                     text=benchmark_file_name,
                     start_index=start_index,
                     output_len=args.output_len,
-                    enable_trace=args.enable_trace
+                    enable_trace=args.enable_trace,
+                    burstiness=args.burstiness
                 )
                 send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_daspec.json")
             if sub_strategy == "threshold":
-                send_speculative_action(args.host, args.port, 69,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_smart_spec.json")
+                send_speculative_action(args.host, args.port, 50,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_smart_spec.json")
                 run_benchmark(
                     host=args.host,
                     port=args.port,
@@ -304,7 +311,8 @@ def main():
                     text=benchmark_file_name,
                     start_index=start_index,
                     output_len=args.output_len,
-                    enable_trace=args.enable_trace
+                    enable_trace=args.enable_trace,
+                    burstiness=args.burstiness
                 )
                 send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_daspec.json")
     finally:

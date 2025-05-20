@@ -317,8 +317,8 @@ class _AsyncLLMEngine(LLMEngine):
                 else:
                     self.set_disable_speculative_decoding(False)
             #print("scheduler_outputs.num_prefill_groups",scheduler_outputs.num_prefill_groups,len(seq_group_metadata_list))
-            if not self.ilp_manager.profile and self.strategy == "daspec" and not scheduler_outputs.is_empty(): 
-                self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
+            # if not self.ilp_manager.profile and self.strategy == "daspec" and not scheduler_outputs.is_empty(): 
+            #     self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
 
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs

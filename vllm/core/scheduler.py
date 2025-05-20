@@ -293,6 +293,7 @@ class SmartSpec:
 
         for k in range(min_k, self.max_proposed_length + 1):
             goodput = self.goodput_estimation(context_length,batch_size, k, alpha, speculative_metrics)
+            #print("proposed_length",k,"goodput",goodput)
             if goodput > best_goodput:
                 best_goodput = goodput
                 best_length = k
@@ -314,6 +315,7 @@ class DASpec:
         self.generated_token_num_predict_model = generated_token_num_predict_model
         # train_table_avg
         with open('./train_table_avg_specbench.pkl', 'rb') as f:
+        #with open('./train_table_avg_alpaca.pkl', 'rb') as f:
             self.train_table_avg = pickle.load(f)
     
     def exponential_smoothing(self, alpha=0.1):
@@ -401,14 +403,7 @@ class DASpec:
         """
         best_goodput = -1
         best_length = 0
-        # min_k = 0
-        # if batch_size > 69:
-        #     return 0
         alpha = self.moving_average()#self.exponential_smoothing()
-                # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposed_length
-        # if alpha < 0.4:
-        #     next_alpha = 0.6
-        # else:
         next_alpha = alpha
         #print("alpha",alpha,"next_alpha",next_alpha)
         draft_predict = None #self.draft_model.predict([[context_length,batch_size]])[0]
@@ -421,7 +416,7 @@ class DASpec:
                 best_length = k
             goodputs.append(goodput)
         #return best_length
-        if goodputs[0] - goodputs[1] > 0.3:
+        if goodputs[0] - goodputs[1] > 0:
             return 0
         else:
             return 3
@@ -768,7 +763,7 @@ class Scheduler:
         draft_model_profile_smart = 'DeepSeek-R1-DRAFT-Qwen2.5-0.5B_LinearRegression.pkl'
         generated_token_num_predict_model = 'generated_data_num_predict_model_lr.pkl'
         if self.scheduler_config.num_lookahead_slots > 0 and os.path.exists(verify_model_profile) and os.path.exists(draft_model_profile):
-            self.smart_spec = None #SmartSpec(load(verify_model_profile_smart), load(draft_model_profile_smart), self.scheduler_config.num_lookahead_slots)
+            self.smart_spec = SmartSpec(load(verify_model_profile_smart), load(draft_model_profile_smart), self.scheduler_config.num_lookahead_slots)
             self.daspec_spec = DASpec(load(verify_model_profile), load(draft_model_profile), None, self.scheduler_config.num_lookahead_slots)
         else:
             self.smart_spec = None  
@@ -1049,7 +1044,7 @@ class Scheduler:
                 else:
                     if self.scheduler_config.num_lookahead_slots == 0:
                         seq_group.skip_neural_net_proposer_step_num += 1
-                    if seq_group.skip_neural_net_proposer_step_num > 20:
+                    if seq_group.skip_neural_net_proposer_step_num > 100:
                         seq_group.num_speculative_tokens = 0
                     scheduled_seq_group.token_chunk_size = 1
                     decode_seq_groups.append(scheduled_seq_group)
@@ -1775,7 +1770,7 @@ class Scheduler:
             #  0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposal_length
             metric_value = float(speculative_metrics[4]/(speculative_metrics[7]*speculative_metrics[3]))
             self.speculative_metrics_cache.append(metric_value)
-            if self.daspec_spec is not None and self.daspec_spec.train_table_avg[speculative_metrics[7]][speculative_metrics[3]] < 0:
+            if self.daspec_spec is not None: #and self.daspec_spec.train_table_avg[speculative_metrics[7]][speculative_metrics[3]] < 0:
                 new = speculative_metrics[4] + speculative_metrics[3]
                 self.daspec_spec.train_table_avg[speculative_metrics[7]][speculative_metrics[3]] = new
         best_batch = None 
@@ -2165,12 +2160,14 @@ class Scheduler:
         best_goodput = -1
         best_proposed_lengths = self.scheduler_config.num_lookahead_slots
         best_batch = None
-        for index,batch_size in enumerate(batch_candidates):
-            proposed_length, goodput = self.smart_spec.optimize_proposed_length(context_lengths[index], batch_size, speculative_metrics)
-            if goodput > best_goodput:
-                best_goodput = goodput
-                best_proposed_lengths = proposed_length
-                best_batch = batch_size
+        #for index,batch_size in enumerate(batch_candidates):
+        index = len(batch_candidates) - 1
+        batch_size = batch_candidates[index]
+        proposed_length, goodput = self.smart_spec.optimize_proposed_length(context_lengths[index], batch_size, speculative_metrics)
+        # if goodput > best_goodput:
+        best_goodput = goodput
+        best_proposed_lengths = proposed_length
+        best_batch = batch_size
         return best_batch, best_proposed_lengths
     
     def daspec_spec_schedule(self, speculative_metrics=None):

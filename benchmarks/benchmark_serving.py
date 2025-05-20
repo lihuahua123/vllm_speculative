@@ -90,6 +90,8 @@ class BenchmarkMetrics:
     percentiles_e2el_ms: list[tuple[float, float]]
 
 
+
+    
 async def get_request(
     input_requests: list[SampleRequest] | list[list[SampleRequest]], 
     request_rate: float | list[float],
@@ -385,7 +387,6 @@ async def benchmark(
         
         request_rate_list = [5,5,40]
         input_requests_list = [input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+120],input_requests[start_index+120:]]
-
         # request_rate_list = [2,5,5,25]
         # input_requests_list = [input_requests[start_index:start_index+20],
         #                        input_requests[start_index+20:start_index+120],
@@ -402,8 +403,7 @@ async def benchmark(
         # start_index += 5
         # input_requests_list.append(input_requests[start_index:start_index+10])
         # assert len(input_requests_list) == len(request_rate_list)
-        # print(f"input_requests_list: {input_requests_list}")
-        # print(f"request_rate_list: {request_rate_list}")
+        print(f"request_rate_list: {request_rate_list}")
     else:
         request_rate_list = [request_rate]
         input_requests_list = [input_requests[start_index:]]

@@ -319,7 +319,7 @@ train_data_d = []
 tt = {i:[] for i in range(1,6)}
 for gamma in range(1, 6):  # This will iterate through 1, 2, 3
     # Using f-string to create dynamic regex pattern
-    pattern = fr"deep_05b_300_new{gamma}_.*\.json"
+    pattern = fr"./profile_log/300_new_alpaca_{gamma}_.*\.json" # fr"deep_05b_300_new{gamma}_.*\.json"
     print(f"Reading files matching pattern: {pattern}")
     deep_action_time_historys = read_json(pattern)
     print(len(deep_action_time_historys))
@@ -357,8 +357,9 @@ for key,value in tt.items():
             train_table_avg[key][j] = p10 #(mode,p10,p25,p50,p75,np.mean(train_table[key][j]))
 # 
 # print(train_table_avg)
+# train_table_avg_specbench.pkl
 import pickle
-with open('train_table_avg_specbench.pkl', 'wb') as f:
+with open('train_table_avg_alpaca.pkl', 'wb') as f:
     pickle.dump(train_table_avg, f)
 
 # import matplotlib.pyplot as plt
@@ -390,19 +391,26 @@ with open('train_table_avg_specbench.pkl', 'wb') as f:
 
 # train_and_evaluate_model(train_data,'./generated_data_num_predict_model')
 # # 画图1
-# batch_size = 17             
-# for key,value in tt.items():
-#     x = key
-#     y = []
-#     for k in value:
-#         if k[1] == batch_size:
-#             y.append(k[0]+batch_size)
-#     if len(y) > 0:  # Only plot if we have data
-#         #tokens = (1 - 0.6 ** (x + 1)) / (1 - 0.6)
-#         plt.boxplot(y, positions=[x])
-#     # Plot theoretical tokens as points
-#     tokens = batch_size * (1 - 0.6 ** (x + 1)) / (1 - 0.6)
-#     plt.plot(x, tokens, 'ro', label='Theoretical tokens')  # 'ro' means red dots
+batch_size = 17    
+tokens_list = [] 
+xs = []
+avg_y = []        
+for key,value in tt.items():
+    x = key
+    y = []
+    for k in value:
+        if k[1] == batch_size:
+            y.append(k[0]+batch_size)
+    if len(y) > 0:  # Only plot if we have data
+        #tokens = (1 - 0.6 ** (x + 1)) / (1 - 0.6)
+        avg_y.append(np.mean(y))
+        plt.boxplot(y, positions=[x])
+    # Plot theoretical tokens as points
+    tokens = batch_size * (1 - 0.6 ** (x + 1)) / (1 - 0.6)
+    xs.append(x)
+    tokens_list.append(tokens)
+plt.plot(xs, tokens_list, 'ro-', label='Theoretical tokens')  # 'ro' means red dots
+plt.plot(xs, avg_y, 'bo-', label='Average tokens')  # 'ro' means red dots
 # 画图2
 # for key,value in tt.items():
 #     x = key
@@ -414,10 +422,14 @@ with open('train_table_avg_specbench.pkl', 'wb') as f:
 
 
 # After the loop ends, add labels and show plot
-# plt.xlabel('Gamma')
-# plt.ylabel('# Generated tokens')
-# # plt.title('Acceptance Rate Distribution by Gamma')
-# plt.grid(True)
-# plt.savefig('./figs/acceptance_rate_distribution.png')
-# plt.close()
+plt.xlabel(r'$\gamma$', fontsize=24)
+plt.ylabel('# Generated tokens', fontsize=24)
+# plt.title('Acceptance Rate Distribution by Gamma', fontsize=26)
+plt.grid(True)
+plt.xticks(fontsize=20)
+plt.yticks(fontsize=20)
+#plt.legend()
+plt.tight_layout()
+plt.savefig('./exps/figs/acceptance_rate_distribution_b17.pdf')
+plt.close()
 
