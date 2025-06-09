@@ -348,7 +348,285 @@ def train_and_save_decision_tree(train_data, model_save_path=None, test_size=100
     print(f"训练集 MAE: {train_mae:.4f}")
     print(f"测试集 MAE: {test_mae:.4f}")
     print(f"推理时间: {inference_time:.6f} 秒")
+# ... existing code ...
+
+def train_river_online_decision_tree(train_data, model_save_path=None):
+    """
+    使用River库训练在线决策树模型
     
+    参数:
+        train_data: 包含(x1, x2, x3, y)元组的列表，其中x1为context_length，x2为batch_size，x3为gamma(可选)，y为目标变量
+        model_save_path: 模型保存路径，如果为None则不保存
+        
+    返回:
+        dict: 包含训练好的模型和评估指标的字典
+    """
+    from river import tree
+    from river import metrics
+    import time
+    import pickle
+    import numpy as np
+    from sklearn.model_selection import train_test_split
+    
+    print("\n=== 使用River在线决策树进行训练 ===")
+    
+    # 转换为numpy数组
+    train_data_array = np.array(train_data)
+    print("len(train_data)",len(train_data))
+    # 划分训练集和测试集
+    train_idx, test_idx = train_test_split(np.arange(len(train_data)), test_size=100, random_state=42)
+    
+    # 确定特征维度
+    if len(train_data_array[0]) > 3:
+        feature_names = ['context_length', 'batch_size', 'gamma']
+        train_samples = [(dict(zip(feature_names, [x1, x2, x3])), y) for x1, x2, x3, y in train_data_array[train_idx]]
+        test_samples = [(dict(zip(feature_names, [x1, x2, x3])), y) for x1, x2, x3, y in train_data_array[test_idx]]
+    else:
+        feature_names = ['context_length', 'batch_size']
+        train_samples = [(dict(zip(feature_names, [x1, x2])), y) for x1, x2, y in train_data_array[train_idx]]
+        test_samples = [(dict(zip(feature_names, [x1, x2])), y) for x1, x2, y in train_data_array[test_idx]]
+    
+    # 创建River在线决策树模型
+    # HoeffdingTreeRegressor是River中的在线决策树回归器
+    model = tree.HoeffdingTreeRegressor(
+        grace_period=200,  # 在分裂前等待的样本数
+        max_depth=10,      # 最大深度
+        delta=1e-7,        # 置信度参数
+        tau=0.05,          # 分裂阈值
+        leaf_prediction='mean',  # 叶节点预测方法
+    )
+    
+    # 初始化评估指标
+    train_mae = metrics.MAE()
+    train_rmse = metrics.RMSE()
+    
+    # 在线训练过程
+    print("开始在线训练...")
+    start_time = time.time()
+    
+    for i, (x, y) in enumerate(train_samples):
+        # 预测（在学习之前）
+        y_pred = model.predict_one(x)
+        
+        # 更新训练指标
+        if y_pred is not None:  # 前几个样本可能无法预测
+            train_mae.update(y, y_pred)
+            train_rmse.update(y, y_pred)
+        
+        # 在线学习
+        model.learn_one(x, y)
+        
+        # 每1000个样本打印一次进度
+        if (i + 1) % 1000 == 0:
+            print(f"已处理 {i + 1} 个训练样本, 当前训练MAE: {train_mae.get():.4f}, RMSE: {train_rmse.get():.4f}")
+    
+    train_time = time.time() - start_time
+    print(f"训练完成，耗时: {train_time:.4f} 秒")
+    
+    # 测试集评估
+    print("开始测试集评估...")
+    test_mae = metrics.MAE()
+    test_rmse = metrics.RMSE()
+    
+    start_time = time.time()
+    predictions = []
+    actuals = []
+    
+    for x, y in test_samples:
+        y_pred = model.predict_one(x)
+        if y_pred is not None:
+            test_mae.update(y, y_pred)
+            test_rmse.update(y, y_pred)
+            predictions.append(y_pred)
+            actuals.append(y)
+    
+    inference_time = time.time() - start_time
+    
+    # 计算R²分数
+    if len(predictions) > 0:
+        from sklearn.metrics import r2_score
+        test_r2 = r2_score(actuals, predictions)
+    else:
+        test_r2 = 0.0
+    
+    # 保存模型
+    if model_save_path:
+        model_file = f"{model_save_path}_RiverDecisionTree.pkl"
+        with open(model_file, 'wb') as f:
+            pickle.dump(model, f)
+        print(f"\nRiver在线决策树模型已保存到: {model_file}")
+    
+    # 输出评估结果
+    print("\nRiver在线决策树模型评估结果:")
+    print(f"训练集 MAE: {train_mae.get():.4f}")
+    print(f"训练集 RMSE: {train_rmse.get():.4f}")
+    print(f"测试集 MAE: {test_mae.get():.4f}")
+    print(f"测试集 RMSE: {test_rmse.get():.4f}")
+    print(f"测试集 R² 分数: {test_r2:.4f}")
+    print(f"训练时间: {train_time:.4f} 秒")
+    print(f"推理时间: {inference_time:.6f} 秒")
+    print(f"模型大小 (节点数): {model.n_nodes}")
+    print(f"模型深度: {model.height}")
+    
+    return {
+        'model': model,
+        'train_mae': train_mae.get(),
+        'train_rmse': train_rmse.get(),
+        'test_mae': test_mae.get(),
+        'test_rmse': test_rmse.get(),
+        'test_r2': test_r2,
+        'train_time': train_time,
+        'inference_time': inference_time,
+        'n_nodes': model.n_nodes,
+        'height': model.height
+    }
+
+def train_river_adaptive_random_forest(train_data, model_save_path=None):
+    """
+    使用River库训练自适应随机森林模型（适合概念漂移）
+    
+    参数:
+        train_data: 包含(x1, x2, x3, y)元组的列表
+        model_save_path: 模型保存路径
+        
+    返回:
+        dict: 包含训练好的模型和评估指标的字典
+    """
+    from river import forest
+    from river import metrics
+    import time
+    import pickle
+    import numpy as np
+    from sklearn.model_selection import train_test_split
+    
+    print("\n=== 使用River自适应随机森林进行训练 ===")
+    
+    # 数据预处理（与上面相同）
+    train_data_array = np.array(train_data)
+    train_idx, test_idx = train_test_split(np.arange(len(train_data)), test_size=100, random_state=42)
+    
+    if len(train_data_array[0]) > 3:
+        feature_names = ['context_length', 'batch_size', 'gamma']
+        train_samples = [(dict(zip(feature_names, [x1, x2, x3])), y) for x1, x2, x3, y in train_data_array[train_idx]]
+        test_samples = [(dict(zip(feature_names, [x1, x2, x3])), y) for x1, x2, x3, y in train_data_array[test_idx]]
+    else:
+        feature_names = ['context_length', 'batch_size']
+        train_samples = [(dict(zip(feature_names, [x1, x2])), y) for x1, x2, y in train_data_array[train_idx]]
+        test_samples = [(dict(zip(feature_names, [x1, x2])), y) for x1, x2, y in train_data_array[test_idx]]
+    
+    # 创建自适应随机森林模型
+    model = forest.ARFRegressor(
+        n_models=10,           # 森林中的树数量
+        max_depth=10,          # 每棵树的最大深度
+        delta=1e-7,            # 置信度参数
+        grace_period=200,      # 分裂前等待的样本数
+        lambda_value=6,        # 泊松分布参数
+
+    )
+    
+    # 训练和评估过程（与上面类似）
+    train_mae = metrics.MAE()
+    train_rmse = metrics.RMSE()
+    
+    print("开始在线训练...")
+    start_time = time.time()
+    
+    for i, (x, y) in enumerate(train_samples):
+        y_pred = model.predict_one(x)
+        
+        if y_pred is not None:
+            train_mae.update(y, y_pred)
+            train_rmse.update(y, y_pred)
+        
+        model.learn_one(x, y)
+        
+        if (i + 1) % 1000 == 0:
+            print(f"已处理 {i + 1} 个训练样本, 当前训练MAE: {train_mae.get():.4f}, RMSE: {train_rmse.get():.4f}")
+    
+    train_time = time.time() - start_time
+    print(f"训练完成，耗时: {train_time:.4f} 秒")
+    
+    # 测试集评估
+    test_mae = metrics.MAE()
+    test_rmse = metrics.RMSE()
+    
+    start_time = time.time()
+    predictions = []
+    actuals = []
+    
+    for x, y in test_samples:
+        y_pred = model.predict_one(x)
+        if y_pred is not None:
+            test_mae.update(y, y_pred)
+            test_rmse.update(y, y_pred)
+            predictions.append(y_pred)
+            actuals.append(y)
+    
+    inference_time = time.time() - start_time
+    
+    if len(predictions) > 0:
+        from sklearn.metrics import r2_score
+        test_r2 = r2_score(actuals, predictions)
+    else:
+        test_r2 = 0.0
+    
+    # 保存模型
+    if model_save_path:
+        model_file = f"{model_save_path}_RiverARF.pkl"
+        with open(model_file, 'wb') as f:
+            pickle.dump(model, f)
+        print(f"\nRiver自适应随机森林模型已保存到: {model_file}")
+    
+    print("\nRiver自适应随机森林模型评估结果:")
+    print(f"训练集 MAE: {train_mae.get():.4f}")
+    print(f"训练集 RMSE: {train_rmse.get():.4f}")
+    print(f"测试集 MAE: {test_mae.get():.4f}")
+    print(f"测试集 RMSE: {test_rmse.get():.4f}")
+    print(f"测试集 R² 分数: {test_r2:.4f}")
+    print(f"训练时间: {train_time:.4f} 秒")
+    print(f"推理时间: {inference_time:.6f} 秒")
+    print(f"森林中的模型数量: {len(model)}")
+    
+    return {
+        'model': model,
+        'train_mae': train_mae.get(),
+        'train_rmse': train_rmse.get(),
+        'test_mae': test_mae.get(),
+        'test_rmse': test_rmse.get(),
+        'test_r2': test_r2,
+        'train_time': train_time,
+        'inference_time': inference_time,
+        'n_models': len(model)
+    }
+
+# 在现有代码的最后添加River模型训练
+print("\n=== 使用River在线学习库进行训练 ===")
+
+# 训练River在线决策树模型
+print("训练草稿阶段的River在线决策树...")
+river_dt_results_d = train_river_online_decision_tree(
+    train_data_d, 
+    model_save_path="./llama-eagle-online"
+)
+
+print("训练验证阶段的River在线决策树...")
+river_dt_results_v = train_river_online_decision_tree(
+    train_data_v, 
+    model_save_path="./llama-Verify-online"
+)
+
+# # 训练River自适应随机森林模型
+# print("训练草稿阶段的River自适应随机森林...")
+# river_arf_results_d = train_river_adaptive_random_forest(
+#     train_data_d, 
+#     model_save_path="./llama-eagle_adaptive"
+# )
+
+# print("训练验证阶段的River自适应随机森林...")
+# river_arf_results_v = train_river_adaptive_random_forest(
+#     train_data_v, 
+#     model_save_path="./llama-Verify_adaptive"
+# )    
 train_and_evaluate_model(smart_train_data_d,model_save_path="./llama-eagle",test_size=100,random_state=42,n_estimators=100)
 train_and_evaluate_model(smart_train_data_v,model_save_path="./llama-Verify",test_size=100,random_state=42,n_estimators=100)
 

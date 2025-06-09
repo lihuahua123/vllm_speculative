@@ -1410,12 +1410,8 @@ class LLMEngine:
         ) and not self._skip_scheduling_next_step:
             # Schedule iteration
             (seq_group_metadata_list, scheduler_outputs,
-            allow_async_output_proc
+            allow_async_output_proc, need_disable_spec
              ) = self.scheduler[virtual_engine].schedule()
-            abs_diff = abs(len(seq_group_metadata_list) - self.last_batch_size)
-            self.max_resolve_batch_size = max(self.max_resolve_batch_size,abs_diff)
-            self.last_batch_size = len(seq_group_metadata_list)
-            print("max_resolve_batch_size",self.max_resolve_batch_size)
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
 
@@ -2313,6 +2309,7 @@ class LLMEngine:
             self.has_been_disabled_speculative_decoding = True
         if self.disable_speculative_decoding != disable_speculative_decoding:
             self.disable_speculative_decoding = disable_speculative_decoding
+            print("set_disable_speculative_decoding",disable_speculative_decoding)
             self.model_executor.set_disable_speculative_decoding(disable_speculative_decoding)
 
 if envs.is_set("VLLM_USE_V1") and envs.VLLM_USE_V1:

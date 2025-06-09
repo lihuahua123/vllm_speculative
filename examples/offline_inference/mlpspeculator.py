@@ -82,12 +82,23 @@ context_length = {
 context_length = 8000 #context_length["llama8b"] - 2000
 max_tokens = 4090
 num_speculative_tokens = 10
+def extract_answer(s: str) -> str:
+    _PAT_LAST_DIGIT = re.compile(r'([+-])?(?=([0-9]|\.[0-9]))(0|([1-9](\d{0,2}(,\d{3})*)|\d*))?(\.\d*)?(?=\D|$)')
+    match = list(_PAT_LAST_DIGIT.finditer(s))
+    if match:
+        last_digit = match[-1].group().replace(',', '').replace('+', '').strip().strip('.')
+        # print(f"The last digit in {s} is {last_digit}")
+    else:
+        last_digit = None
+        print(f'No digits found in {s!r}', flush=True)
 
+    return last_digit
 def extract_numbers(text):
     """
     Extract numbers from text using regex patterns.
     只适配DeepSeek-R1-Distill-Qwen-7B
     """
+    return [extract_answer(text)]
     pattern = r"\\boxed\{([^{}]*)\}"
     match = re.findall(pattern, text)
     number = None
@@ -440,7 +451,7 @@ if __name__ == "__main__":
     parser.add_argument('--model_names', type=str, default="meta-llama/Llama-2-7b-hf")
     parser.add_argument('--max_seq_len', type=int, default=1024)
     parser.add_argument('--max_batch_size', type=int, default=4)
-    parser.add_argument('--data_path', type=str, default="/root/vllm_speculative/examples/data")
+    parser.add_argument('--data_path', type=str, default="/home/hello/lirui/vllm_speculative/examples/data")
     parser.add_argument('--dataset', choices=['GSM8K', 'CSQA',"AQuA"],default="GSM8K")
     parser.add_argument('--out_path', type=str, default="output/singlemodel")
     parser.add_argument('--max_gen_len', type=int, default=2000)
@@ -450,7 +461,7 @@ if __name__ == "__main__":
                        help="Number of samples to test. If None, use full dataset")
     args = parser.parse_args()
 
-    model_name = "/hy-tmp/lmsysvicuna-33b"
+    model_name = "/data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B"#"/hy-tmp/lmsysvicuna-33b"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     datasets = []
     # datasets.append(sample_sharegpt_requests("/data/sharegpt.json", 56, tokenizer))
@@ -469,18 +480,19 @@ if __name__ == "__main__":
     right = 0
     typical_acceptance_sampler_posterior_alpha=0.8
     typical_acceptance_sampler_posterior_threshold=0.5
+    num_speculative_tokens = 3
     # llm = LLM(model=model_name,max_model_len=10156, enforce_eager=True)
     llm = LLM(
             model=model_name,
-            tensor_parallel_size=4,
-            #speculative_model="[ngram]",#"alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B",
+            tensor_parallel_size=1,
+            speculative_model="[ngram]",#"alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B",
             #max_model_len=2048,
-            #num_speculative_tokens=num_speculative_tokens,
+            num_speculative_tokens=num_speculative_tokens,
             # spec_decoding_acceptance_method="typical_acceptance_sampler",
             # typical_acceptance_sampler_posterior_alpha=typical_acceptance_sampler_posterior_alpha,
             # typical_acceptance_sampler_posterior_threshold=typical_acceptance_sampler_posterior_threshold,
             ngram_prompt_lookup_max=4,
-            enforce_eager=True
+            enforce_eager=True,
         )
     # llm = None
     print("typical_acceptance_sampler_posterior_alpha",typical_acceptance_sampler_posterior_alpha)
@@ -529,6 +541,7 @@ if __name__ == "__main__":
     
     # Process each bucket and generate results
     right = 0
+    begin_time = time.time()
     for bucket_name, bucket_data in buckets.items():
         if not bucket_data["prompts"]:
             continue
@@ -563,7 +576,8 @@ if __name__ == "__main__":
                 results[i]["answer_correct_reason"] = true_answer
                 # if bucket_name == "default":  # Only print default bucket wrong answers
                 #     print(f"Wrong answer in bucket {bucket_name}, index {i}:", results[i])
-    
+    end_time = time.time()
+    print(f"Total time: {end_time - begin_time:.2f}s")
     # Print summary
     print(f"Total correct answers: {right} out of {sum(len(b['prompts']) for b in buckets.values())}")
     

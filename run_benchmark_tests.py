@@ -42,9 +42,11 @@ def parse_args():
     parser.add_argument("--num-gpu-blocks-override", type=int, default=28845, help="gpu blocks override")
     parser.add_argument("--enable-trace", type=str, default="False", help="是否开启trace")
     parser.add_argument("--burstiness", type=float, default=1.0, help="burstiness")
+    parser.add_argument("--gpu-memory-utilization", type=float, default=0.50, help="gpu memory utilization")
     return parser.parse_args()
 
-def start_server(model, host, port, strategy,sub_strategy,draft_model,speculative_len=1,num_gpu_blocks_override=28845):
+
+def start_server(model, host, port, strategy,sub_strategy,draft_model,speculative_len=1,num_gpu_blocks_override=28845,gpu_memory_utilization=0.85):
     """启动vLLM服务器"""
     print(f"正在启动vLLM服务器，模型: {model}, 地址: {host}:{port}...")
     
@@ -61,7 +63,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
         "--host", host,
         "--port", str(port),
         "--model", model,
-        "--gpu-memory-utilization", "0.50", # 0.65 跑不起来
+        "--gpu-memory-utilization", str(gpu_memory_utilization), # 0.65 跑不起来
         # "--ngram_prompt_lookup_max", "4",
         "--enforce-eager",
         "--no-enable-prefix-caching",
@@ -174,7 +176,7 @@ def main():
     args = parse_args()
     print(f"args: {args}")
     # 启动服务器
-    server_process = start_server(args.model, args.host, args.port, args.strategy,args.sub_strategy,args.draft_model,args.speculative_len,args.num_gpu_blocks_override)
+    server_process = start_server(args.model, args.host, args.port, args.strategy,args.sub_strategy,args.draft_model,args.speculative_len,args.num_gpu_blocks_override,args.gpu_memory_utilization)
     sub_strategy = args.sub_strategy
     start_index = args.start_index
     try:
@@ -188,7 +190,7 @@ def main():
         time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
         if not os.path.exists("./profile_log"):
             os.makedirs("./profile_log")
-        profile_file_name = f"./profile_log/300_new_alpaca_{args.speculative_len}_{time_str}"
+        profile_file_name = f"./profile_log/300_new_llama_{args.speculative_len}_{time_str}"
         benchmark_file_name = sub_strategy+"_"+str(args.speculative_len)
         # args.dataset_name = "alpaca"
         # args.dataset_path = "tatsu-lab/alpaca"

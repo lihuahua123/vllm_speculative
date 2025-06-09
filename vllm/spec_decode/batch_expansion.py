@@ -362,7 +362,6 @@ class BatchExpansionTop1Scorer(SpeculativeScorer):
             "Beam search "
             "not supported in speculative decoding")
         input_seq_id = next(iter(input_seq_group_metadata.seq_data.keys()))
-
         token_ids_to_score = self._get_token_ids_to_score(
             proposal_token_ids[batch_index])
 

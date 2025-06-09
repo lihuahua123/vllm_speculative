@@ -308,6 +308,9 @@ class ExecutorBase(ABC):
     def decrease_cache_blocks(self,num_gpu_blocks: int,block_migration_map=None) -> None:
         return self.collective_rpc("decrease_cache_blocks", kwargs=dict(num_gpu_blocks=num_gpu_blocks,block_migration_map=block_migration_map))
     
+    def save_selected_probs(self):
+        self.collective_rpc("save_selected_probs")
+    
 class DistributedExecutorBase(ExecutorBase):
     """Abstract superclass of distributed executor implementations."""
 

@@ -4,6 +4,7 @@ import asyncio
 import copy
 import time
 import weakref
+import uuid
 from functools import partial
 from typing import (Any, AsyncGenerator, Callable, Coroutine, Dict, Iterable,
                     List, Mapping, Optional, Set, Tuple, Type, Union, overload)
@@ -273,6 +274,7 @@ class _AsyncLLMEngine(LLMEngine):
         )
         self.strategy = "daspec"
         self.stage_data = None
+        self.pass_stage_data = None
 
     async def step_async(
         self, virtual_engine: int
@@ -302,13 +304,19 @@ class _AsyncLLMEngine(LLMEngine):
         # This ensures that the scheduler is only called again when the current
         # batch has completed.
         if not self._has_remaining_steps(seq_group_metadata_list):
-            # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposed_length
+            # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposed_length 8: uuid
             # Schedule iteration
-            (seq_group_metadata_list, scheduler_outputs,
-             allow_async_output_proc, need_disable_spec
-             ) = self.scheduler[virtual_engine].schedule(self.stage_data)
+            if self.pass_stage_data is not None and self.pass_stage_data[8] == self.stage_data[8]:
+                (seq_group_metadata_list, scheduler_outputs,
+                allow_async_output_proc, need_disable_spec
+                ) = self.scheduler[virtual_engine].schedule()
+            else:
+                (seq_group_metadata_list, scheduler_outputs,
+                allow_async_output_proc, need_disable_spec
+                ) = self.scheduler[virtual_engine].schedule(self.stage_data)
+            self.pass_stage_data = self.stage_data
             pre_disable = self.disable_speculative_decoding
-            
+
             if  not self.ilp_manager.profile and (self.strategy == "daspec"  or self.strategy == "smart_spec")and \
                 not scheduler_outputs.is_empty() and scheduler_outputs.num_prefill_groups == 0 and \
                 not self.proposer_worker_to_cpu:
@@ -372,9 +380,10 @@ class _AsyncLLMEngine(LLMEngine):
             # Execute the model.
             outputs = await self.model_executor.execute_model_async(
                 execute_model_req)
-            self.stage_data = self.model_executor.get_speculative_metrics()[0]
+            metrics = self.model_executor.get_speculative_metrics()[0]
+            self.stage_data = metrics
             if self.ilp_manager.profile:
-                self.ilp_manager.optimizer.record_metrics(self.ilp_manager._get_current_metrics(self.stage_data))
+                self.ilp_manager.optimizer.record_metrics(self.ilp_manager._get_current_metrics(metrics))
             # we need to do this here so that last step's sampled_token_ids can
             # be passed to the next iteration for PP.
             if self.scheduler_config.is_multi_step:
@@ -383,7 +392,7 @@ class _AsyncLLMEngine(LLMEngine):
             if len(ctx.output_queue) > 0:
                 self._process_model_outputs(ctx=ctx)
             outputs = []
-            self.stage_data = None
+            # self.stage_data = None
 
         # Finish the current step for all the sequence groups.
         if self.scheduler_config.is_multi_step:
@@ -1290,6 +1299,7 @@ class AsyncLLMEngine(EngineClient):
                 json.dump({"throughput_history": self.throughput_history}, f, indent=2)
             
             logger.info(f"Saved throughput history to {filename}")
+            self.engine.model_executor.save_selected_probs()
             return
         if strategy == "threshold":
             self.engine.strategy = strategy

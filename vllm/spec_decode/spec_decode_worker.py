@@ -10,6 +10,7 @@ import torch.nn as nn
 import time
 import vllm.spec_decode.ngram_worker
 import copy
+import uuid
 from vllm.config import ParallelConfig, SpeculativeConfig, VllmConfig
 from vllm.distributed.communication_op import (broadcast_tensor_dict,
                                                get_tp_group,
@@ -771,7 +772,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         else:
             draft_time = 0
         # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposal_length
-        self.stage_times = (draft_time,scoring_timer.elapsed_time_ms,0,len(execute_model_req.seq_group_metadata_list),0,context_length,stage,0)
+        self.stage_times = (draft_time,scoring_timer.elapsed_time_ms,0,len(execute_model_req.seq_group_metadata_list),0,context_length,stage,0,uuid.uuid4())
         return sampler_output_to_return
 
     def _run_non_driver_rank(self) -> bool:
@@ -845,6 +846,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
             # Generate proposals using draft worker.
             proposals = self.proposer_worker.get_spec_proposals(
                 execute_model_req, self._seq_with_bonus_token_in_last_step)
+            
         if not self._allow_zero_draft_token_step and proposals.no_proposals:
             #TODO: Fix it #5814
             raise RuntimeError("Cannot handle cases where distributed draft "
@@ -871,7 +873,6 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
                 prefill_hidden_states = all_hidden_states[non_spec_indices]
                 execute_model_req.previous_hidden_states = \
                     prepare_prefill_hidden_states(prefill_hidden_states)
-                # print("prefill_hidden_states",prefill_hidden_states.shape)
             # Sync proposer KV cache for prefills.
             prefill_req = execute_model_req.clone(non_spec_seqs)
             # TODO avoid sampling here?
@@ -888,7 +889,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
                        verification_timer.elapsed_time_ms)
         num_accepted_tokens = num_accepted_tokens.item()
         # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposal_length
-        self.stage_times = (proposal_timer.elapsed_time_ms,scoring_timer.elapsed_time_ms,verification_timer.elapsed_time_ms,len(execute_model_req.seq_group_metadata_list),num_accepted_tokens,context_length, SequenceStage.DECODE.value,execute_model_req.num_lookahead_slots)
+        self.stage_times = (proposal_timer.elapsed_time_ms,scoring_timer.elapsed_time_ms,verification_timer.elapsed_time_ms,len(execute_model_req.seq_group_metadata_list),num_accepted_tokens,context_length, SequenceStage.DECODE.value,execute_model_req.num_lookahead_slots,uuid.uuid4())
 
         return self._create_output_sampler_list(
             execute_model_req.seq_group_metadata_list,
@@ -925,7 +926,8 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
 
         # Get probabilities of target model, including bonus tokens.
         proposal_verifier_probs = proposal_scores.probs[spec_indices]
-
+        # Check if proposal_verifier_probs contains values other than 0 and 1
+    
         # Get non-speculative sampled tokens from target model.
         non_spec_token_ids = proposal_scores.token_ids[non_spec_indices]
 
@@ -1560,7 +1562,8 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         self.scorer_worker.decrease_cache_blocks(num_gpu_blocks=num_gpu_blocks,block_migration_map=block_migration_map)
         # self.proposer_worker.decrease_cache_blocks(num_gpu_blocks=num_gpu_blocks)
     
-    
+    def save_selected_probs(self):
+        self.spec_decode_sampler.save_selected_probs()
 
 def split_num_cache_blocks_evenly(scorer_cache_block_size_bytes: int,
                                   proposer_cache_block_size_bytes: int,

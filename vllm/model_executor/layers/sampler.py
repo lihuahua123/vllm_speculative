@@ -280,9 +280,10 @@ class Sampler(nn.Module):
         # We use float32 for probabilities and log probabilities.
         # Compute the probabilities.
         probs = torch.softmax(logits, dim=-1, dtype=torch.float)
+        
         # Compute the log probabilities.
         logprobs = torch.log_softmax(logits, dim=-1, dtype=torch.float)
-
+        
         # Sample the next tokens.
         maybe_deferred_sample_results, maybe_sampled_tokens_tensor = _sample(
             probs,

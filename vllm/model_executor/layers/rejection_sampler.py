@@ -12,7 +12,8 @@ from vllm.logger import init_logger
 from vllm.model_executor.layers.spec_decode_base_sampler import (
     SpecDecodeStochasticBaseSampler)
 from vllm.platforms import current_platform
-
+import pickle
+import os
 logger = init_logger(__name__)
 
 if find_spec("flashinfer"):
@@ -58,6 +59,11 @@ class RejectionSampler(SpecDecodeStochasticBaseSampler):
             logger.info("Use flashinfer for rejection sampling.")
         else:
             logger.info("Use pytorch for rejection sampling.")
+            
+        self.selected_target_probs = []
+        self.selected_draft_probs = []
+        self.target_probs = []
+        self.draft_probs = []
 
     def forward(
         self,
@@ -250,6 +256,56 @@ class RejectionSampler(SpecDecodeStochasticBaseSampler):
                 device=device)
         return uniform_rand
 
+
+    def _get_accepted2(
+        self,
+        target_probs: torch.Tensor,
+        draft_probs: torch.Tensor,
+        draft_token_ids: torch.Tensor,
+        seeded_seqs: Optional[Dict[int, torch.Generator]],
+    ) -> torch.Tensor: 
+        # 降低接收阈值
+        # Alignment-Augmented Speculative Decoding with Alignment Sampling and Conditional Verification
+        # 这个好像没有什么效果
+        batch_size, k, _ = draft_probs.shape
+        device = target_probs.device
+        
+        # 创建索引
+        batch_indices = torch.arange(batch_size, device=device)[:, None]
+        prob_indices = torch.arange(k, device=device)
+        
+        # 计算信息熵和自适应阈值
+        epsilon = 1e-10
+        alpha = 0.1  # hyperparameter from paper (0.1 for LLaMA3)
+        beta = 0.1   # hyperparameter from paper
+        entropy = -torch.sum(target_probs * torch.log(target_probs + epsilon), dim=-1)
+        max_probs = torch.max(target_probs, dim=-1).values
+        adaptive_threshold = torch.minimum(-alpha * entropy + beta, max_probs)
+        
+        # 获取目标概率和草稿概率
+        selected_target_probs = target_probs[batch_indices, prob_indices, draft_token_ids]
+        selected_draft_probs = draft_probs[batch_indices, prob_indices, draft_token_ids]
+        
+        # 生成随机数
+        # uniform_rand = self._create_uniform_samples(seeded_seqs, batch_size, k, device)
+        uniform_rand = self._create_uniform_samples(seeded_seqs, batch_size,
+                                                    k - 1, target_probs.device)
+        # 确保阈值张量形状正确 [batch_size, k]
+        if adaptive_threshold.dim() == 1:
+            adaptive_threshold = adaptive_threshold.unsqueeze(1).expand(-1, k)
+        
+        # 计算接受条件
+        above_threshold = selected_target_probs >= adaptive_threshold
+        # capped_ratio = torch.minimum(
+        #     selected_target_probs / selected_draft_probs,
+        #     torch.ones_like(selected_target_probs))
+        capped_ratio = torch.minimum(
+            selected_target_probs / selected_draft_probs,
+            torch.full((1, ), 1, device=target_probs.device))
+        accepted = (uniform_rand < capped_ratio) & above_threshold
+        
+        return accepted
+    
     def _get_accepted(
         self,
         target_probs: torch.Tensor,  # [batch_size, k, vocab_size]
@@ -304,7 +360,12 @@ class RejectionSampler(SpecDecodeStochasticBaseSampler):
         # shape [batch_size, k]
         selected_target_probs = target_probs[batch_indices, probs_indicies,
                                              draft_token_ids]
-
+        self.target_probs.append(target_probs)
+        self.draft_probs.append(draft_probs)
+        self.selected_target_probs.append(selected_target_probs)
+        self.selected_draft_probs.append(selected_draft_probs)
+        # print("selected_target_probs",selected_target_probs)
+        # print("selected_draft_probs",selected_draft_probs)
         uniform_rand = self._create_uniform_samples(seeded_seqs, batch_size,
                                                     k - 1, target_probs.device)
         capped_ratio = torch.minimum(
@@ -312,9 +373,108 @@ class RejectionSampler(SpecDecodeStochasticBaseSampler):
             torch.full((1, ), 1, device=target_probs.device))
         # accepted = torch.zeros_like(capped_ratio, dtype=torch.bool)
         accepted = uniform_rand < capped_ratio
-
         return accepted
+    
+    
+    def _get_ada_edl_lower_bound(
+        self,
+        draft_probs: torch.Tensor,  # [batch_size, k, vocab_size]
+        gamma: float = 0.5,  # hyperparameter γ
+    ) -> torch.Tensor:
+        """Calculate AdaEDL entropy-based lower bound on token acceptance probability.
+        
+        AdaEDL formula: 1 - √(γ * HDM(x))
+        where HDM(x) is the entropy of the draft model probability distribution.
+        
+        Args:
+            draft_probs: Draft model probability distribution
+            gamma: Hyperparameter γ for controlling the bound tightness
+            
+        Returns:
+            lower_bound: Shape [batch_size, k], lower bound on acceptance rate
+        """
+        epsilon = 1e-10
+        
+        # Calculate entropy HDM(x) = -Σ(pDM(x) * log(pDM(x)))
+        # Shape: [batch_size, k]
+        draft_entropy = -torch.sum(
+            draft_probs * torch.log(draft_probs + epsilon), dim=-1)
+        
+        # Apply AdaEDL formula: 1 - √(γ * HDM(x))
+        # Clamp to ensure we don't take sqrt of negative values
+        gamma_entropy = torch.clamp(gamma * draft_entropy, min=0.0)
+        lower_bound = 1.0 - torch.sqrt(gamma_entropy)
+        
+        # Ensure lower bound is in valid range [0, 1]
+        lower_bound = torch.clamp(lower_bound, min=0.0, max=1.0)
+        
+        return lower_bound
 
+    def _get_accepted_with_ada_edl(
+        self,
+        target_probs: torch.Tensor,  # [batch_size, k, vocab_size]
+        draft_probs: torch.Tensor,  # [batch_size, k, vocab_size]
+        draft_token_ids: torch.Tensor,  # [batch_size, k]
+        seeded_seqs: Optional[Dict[int, torch.Generator]],
+        use_ada_edl: bool = False,
+        gamma: float = 0.5,
+    ) -> torch.Tensor:
+        """Enhanced acceptance function with AdaEDL entropy-based stopping criteria.
+        
+        Args:
+            target_probs: Target model probabilities
+            draft_probs: Draft model probabilities  
+            draft_token_ids: Sampled draft tokens
+            seeded_seqs: Seeded generators for reproducibility
+            use_ada_edl: Whether to use AdaEDL entropy-based bound
+            gamma: AdaEDL hyperparameter γ
+            
+        Returns:
+            accepted: Boolean tensor indicating which tokens are accepted
+        """
+        batch_size, k, _ = draft_probs.shape
+        batch_indices = torch.arange(batch_size,
+                                     device=target_probs.device)[:, None]
+        probs_indicies = torch.arange(k, device=target_probs.device)
+
+        # shape [batch_size, k]
+        selected_draft_probs = draft_probs[batch_indices, probs_indicies,
+                                           draft_token_ids]
+        selected_target_probs = target_probs[batch_indices, probs_indicies,
+                                             draft_token_ids]
+        
+        # Store for analysis
+        self.selected_target_probs.append(selected_target_probs)
+        self.selected_draft_probs.append(selected_draft_probs)
+        
+        
+        # Calculate AdaEDL entropy-based lower bound
+        ada_edl_bound = self._get_ada_edl_lower_bound(draft_probs, gamma)
+        
+        # Apply AdaEDL stopping criteria
+        # Only accept if the acceptance probability is above the lower bound
+        acceptance_prob = torch.minimum(
+            selected_target_probs / selected_draft_probs,
+            torch.ones_like(selected_target_probs))
+        
+       
+        # Combine standard rejection sampling with AdaEDL criteria
+        accepted = ada_edl_bound >= 0.5 #ada_edl_condition
+        
+        return accepted
+    
+    def save_selected_probs(self):
+        output_dir = "confidence_history"
+        os.makedirs(output_dir, exist_ok=True)
+        with open(os.path.join(output_dir, "selected_target_probs.pkl"), "wb") as f:
+            pickle.dump(self.selected_target_probs, f)
+        with open(os.path.join(output_dir, "selected_draft_probs.pkl"), "wb") as f:
+            pickle.dump(self.selected_draft_probs, f)
+        with open(os.path.join(output_dir, "target_probs.pkl"), "wb") as f:
+            pickle.dump(self.target_probs, f)
+        with open(os.path.join(output_dir, "draft_probs.pkl"), "wb") as f:
+            pickle.dump(self.draft_probs, f)
+            
     def _get_recovered_probs(
             self,
             target_probs: torch.Tensor,  # [k, vocab_size]

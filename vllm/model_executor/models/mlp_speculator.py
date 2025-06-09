@@ -183,7 +183,6 @@ class MLPSpeculator(nn.Module):
 
             logits = self.logits_processor(self.head[head_index], states,
                                            sampling_metadata)
-
             output = self.sampler(logits, sampling_metadata)
             last_tokens = output.sampled_token_ids
             next_tokens.append(output)
