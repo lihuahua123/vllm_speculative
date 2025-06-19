@@ -310,6 +310,12 @@ class ExecutorBase(ABC):
     
     def save_selected_probs(self):
         self.collective_rpc("save_selected_probs")
+    def begin_thinking(self):
+        return self.collective_rpc("begin_thinking")
+    
+    def end_thinking(self):
+        return self.collective_rpc("end_thinking")
+    
     
 class DistributedExecutorBase(ExecutorBase):
     """Abstract superclass of distributed executor implementations."""

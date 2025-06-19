@@ -8,7 +8,7 @@ from typing import List
 import sys
 import os
 from transformers import AutoTokenizer, AutoConfig
-sys.path.append('/root/vllm_speculative/')
+sys.path.append('/home/nudt/lirui/vllm_speculative')
 from vllm.inputs import TokensPrompt
 from vllm import EngineArgs, LLMEngine, RequestOutput, SamplingParams
 from vllm.utils import FlexibleArgumentParser
@@ -295,13 +295,14 @@ def time_generation(llm: LLM, prompts,
     
     # 自适应批处理
     start = time.time()
-    initial_batch_size = 32  # 初始批处理大小
+    initial_batch_size = 1  # 初始批处理大小
     batch_size = initial_batch_size
-    min_batch_size = 4  # 最小批处理大小
+    min_batch_size = 1  # 最小批处理大小
     
     i = 0
     while i < len(remaining_prompts):
         try:
+            llm.llm_engine.model_executor.begin_thinking()
             end_idx = min(i + batch_size, len(remaining_prompts))
             batch_prompts = remaining_prompts[i:end_idx]
             batch_indices = remaining_indices[i:end_idx]
@@ -353,6 +354,7 @@ def time_generation(llm: LLM, prompts,
             # 如果内存使用率适中，可以尝试增加批处理大小
             if mem_used < 0.7 * torch.cuda.get_device_properties(0).total_memory / (1024 ** 3):
                 batch_size = min(batch_size + 4, initial_batch_size)
+            
                 
         except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
             # 捕获OOM错误
@@ -392,7 +394,7 @@ def time_generation(llm: LLM, prompts,
                 raise
     
     end = time.time()
-    
+    llm.llm_engine.model_executor.begin_thinking()
     return calculate_results(all_outputs, used_time=end-start)
 
 def calculate_results(outputs, used_time=0):
@@ -451,7 +453,7 @@ if __name__ == "__main__":
     parser.add_argument('--model_names', type=str, default="meta-llama/Llama-2-7b-hf")
     parser.add_argument('--max_seq_len', type=int, default=1024)
     parser.add_argument('--max_batch_size', type=int, default=4)
-    parser.add_argument('--data_path', type=str, default="/home/hello/lirui/vllm_speculative/examples/data")
+    parser.add_argument('--data_path', type=str, default="/home/nudt/lirui/vllm_speculative/examples/data")
     parser.add_argument('--dataset', choices=['GSM8K', 'CSQA',"AQuA"],default="GSM8K")
     parser.add_argument('--out_path', type=str, default="output/singlemodel")
     parser.add_argument('--max_gen_len', type=int, default=2000)
@@ -485,8 +487,8 @@ if __name__ == "__main__":
     llm = LLM(
             model=model_name,
             tensor_parallel_size=1,
-            speculative_model="[ngram]",#"alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B",
-            #max_model_len=2048,
+            speculative_model="alamios/DeepSeek-R1-DRAFT-Qwen2.5-0.5B",
+            max_model_len=2048,
             num_speculative_tokens=num_speculative_tokens,
             # spec_decoding_acceptance_method="typical_acceptance_sampler",
             # typical_acceptance_sampler_posterior_alpha=typical_acceptance_sampler_posterior_alpha,

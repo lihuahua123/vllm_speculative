@@ -5,6 +5,7 @@ import copy
 import time
 import weakref
 import uuid
+import torch
 from functools import partial
 from typing import (Any, AsyncGenerator, Callable, Coroutine, Dict, Iterable,
                     List, Mapping, Optional, Set, Tuple, Type, Union, overload)
@@ -308,16 +309,16 @@ class _AsyncLLMEngine(LLMEngine):
             # Schedule iteration
             if self.pass_stage_data is not None and self.pass_stage_data[8] == self.stage_data[8]:
                 (seq_group_metadata_list, scheduler_outputs,
-                allow_async_output_proc, need_disable_spec
+                allow_async_output_proc, need_disable_spec, best_proposed_lengths
                 ) = self.scheduler[virtual_engine].schedule()
             else:
                 (seq_group_metadata_list, scheduler_outputs,
-                allow_async_output_proc, need_disable_spec
+                allow_async_output_proc, need_disable_spec, best_proposed_lengths
                 ) = self.scheduler[virtual_engine].schedule(self.stage_data)
             self.pass_stage_data = self.stage_data
             pre_disable = self.disable_speculative_decoding
 
-            if  not self.ilp_manager.profile and (self.strategy == "daspec"  or self.strategy == "smart_spec")and \
+            if  not self.ilp_manager.profile and (self.strategy == "ucb" or self.strategy == "daspec"  or self.strategy == "smart_spec")and \
                 not scheduler_outputs.is_empty() and scheduler_outputs.num_prefill_groups == 0 and \
                 not self.proposer_worker_to_cpu:
                 if need_disable_spec:
@@ -372,6 +373,8 @@ class _AsyncLLMEngine(LLMEngine):
                 # We use ExecuteModelRequest to pass the last sampled_token_ids
                 # to each of the non-last PP stages for in-place prepare_input.
                 last_sampled_token_ids=last_sampled_token_ids)
+            if execute_model_req.num_lookahead_slots != 0:
+                execute_model_req.num_lookahead_slots = best_proposed_lengths
 
             if allow_async_output_proc:
                 execute_model_req.async_callback = self.async_callbacks[
@@ -1285,6 +1288,29 @@ class AsyncLLMEngine(EngineClient):
     def change_speculative_action(self, action:int,strategy= None, save_action_time_history:bool=False, profile:bool=False,file_name:str=None):
         """Change the speculative action."""
         virtual_engine = 0
+        if action == 10:
+            # Get current GPU memory usage
+            total_memory = torch.cuda.get_device_properties(0).total_memory
+            reserved_memory = torch.cuda.memory_reserved(0)
+            allocated_memory = torch.cuda.memory_allocated(0)
+            free_memory = total_memory - allocated_memory
+            
+            logger.info(f"GPU memory: total={total_memory/1024**3:.2f}GB, "
+                    f"reserved={reserved_memory/1024**3:.2f}GB, "
+                    f"allocated={allocated_memory/1024**3:.2f}GB, "
+                    f"free={free_memory/1024**3:.2f}GB")
+            torch.cuda.empty_cache()
+            total_memory = torch.cuda.get_device_properties(0).total_memory
+            reserved_memory = torch.cuda.memory_reserved(0)
+            allocated_memory = torch.cuda.memory_allocated(0)
+            free_memory = total_memory - allocated_memory
+            
+            logger.info(f"GPU memory: total={total_memory/1024**3:.2f}GB, "
+                    f"reserved={reserved_memory/1024**3:.2f}GB, "
+                    f"allocated={allocated_memory/1024**3:.2f}GB, "
+                    f"free={free_memory/1024**3:.2f}GB")
+            return
+       
         if action == 9:
             # Create directory if it doesn't exist
             output_dir = "throughput_history"
@@ -1301,6 +1327,12 @@ class AsyncLLMEngine(EngineClient):
             logger.info(f"Saved throughput history to {filename}")
             self.engine.model_executor.save_selected_probs()
             return
+        if strategy == "ucb" and action == 11:
+            self.engine.scheduler[virtual_engine].ucbspec.round_robin = False
+            return
+        elif strategy == "ucb" and action == 12:
+            self.engine.scheduler[virtual_engine].ucbspec.round_robin = True
+            return
         if strategy == "threshold":
             self.engine.strategy = strategy
             self.engine.model_executor.set_disable_by_batch_size(action)
@@ -1313,11 +1345,18 @@ class AsyncLLMEngine(EngineClient):
             logger.info(f"change_speculative_action: {strategy}, {profile}")
             if strategy == "smart_spec":
                 self.engine.scheduler[virtual_engine].daspec_spec = None
+                self.engine.scheduler[virtual_engine].ucbspec = None
             elif strategy == "daspec":
+                self.engine.scheduler[virtual_engine].smart_spec = None
+                self.engine.scheduler[virtual_engine].ucbspec = None
+            elif strategy == "ucb":
+                self.engine.scheduler[virtual_engine].daspec_spec = None
                 self.engine.scheduler[virtual_engine].smart_spec = None
             else:
                 self.engine.scheduler[virtual_engine].daspec_spec = None
                 self.engine.scheduler[virtual_engine].smart_spec = None
+                self.engine.scheduler[virtual_engine].ucbspec = None
+        
         self.engine.ilp_manager.change_speculative_action(action,save_action_time_history, profile,file_name)
 
 

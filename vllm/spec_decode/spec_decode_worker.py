@@ -888,9 +888,11 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
                        scoring_timer.elapsed_time_ms,
                        verification_timer.elapsed_time_ms)
         num_accepted_tokens = num_accepted_tokens.item()
-        # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposal_length
+        # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposal_length 8:uuid
         self.stage_times = (proposal_timer.elapsed_time_ms,scoring_timer.elapsed_time_ms,verification_timer.elapsed_time_ms,len(execute_model_req.seq_group_metadata_list),num_accepted_tokens,context_length, SequenceStage.DECODE.value,execute_model_req.num_lookahead_slots,uuid.uuid4())
-
+        if (accepted_token_ids == 151649).any():
+            print("stop thinking!!")
+            self.spec_decode_sampler.is_thinking = False
         return self._create_output_sampler_list(
             execute_model_req.seq_group_metadata_list,
             accepted_token_ids,
@@ -926,6 +928,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
 
         # Get probabilities of target model, including bonus tokens.
         proposal_verifier_probs = proposal_scores.probs[spec_indices]
+        proposal_verifier_token_ids = proposal_scores.token_ids[spec_indices]
         # Check if proposal_verifier_probs contains values other than 0 and 1
     
         # Get non-speculative sampled tokens from target model.
@@ -952,6 +955,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
 
         accepted_token_ids = self.spec_decode_sampler(
             target_with_bonus_probs=proposal_verifier_probs,
+            target_token_ids=proposal_verifier_token_ids,
             bonus_token_ids=bonus_token_ids,
             draft_probs=proposal_probs,
             draft_token_ids=proposal_token_ids,
@@ -1564,6 +1568,14 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
     
     def save_selected_probs(self):
         self.spec_decode_sampler.save_selected_probs()
+    
+    def begin_thinking(self):
+        print("begin_thinking!!!!!!!!!!!")
+        self.spec_decode_sampler.is_thinking = True
+    
+    def end_thinking(self):
+        print("end_thinking!!!!!!!!!!!")
+        self.spec_decode_sampler.is_thinking = False
 
 def split_num_cache_blocks_evenly(scorer_cache_block_size_bytes: int,
                                   proposer_cache_block_size_bytes: int,

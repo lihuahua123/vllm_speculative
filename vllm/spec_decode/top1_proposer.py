@@ -84,9 +84,10 @@ class Top1Proposer(SpeculativeProposer):
             # print("maybe_sampler_output",maybe_sampler_output[0].sampled_token_probs)
             # print("maybe_sampler_output",torch.unique(maybe_sampler_output[0].sampled_token_probs))
             # sampled_token_probs shape: [batch_size, vocab_size]
+            # 这块虽然有一点点时间损失，但不是主要原因
             # batch_size = maybe_sampler_output[0].sampled_token_probs.shape[0]
             # steps_num = proposal_len
-            # budget = batch_size * (steps_num-2)
+            # budget = batch_size * (steps_num)
             # # 初始化堆，用于存储候选token
             # heap = []
             # # 初始化被选中的token列表
@@ -94,24 +95,30 @@ class Top1Proposer(SpeculativeProposer):
             # num_selected_tokens = [0 for _ in range(batch_size)]
             # for i in range(batch_size):
             #     probs = maybe_sampler_output[0].sampled_token_probs[i]
-            #     token_idx = torch.multinomial(probs, num_samples=1)
-            #     selected_probs = probs[token_idx]
+            #     token_idx = maybe_sampler_output[0].sampled_token_ids[i] #torch.multinomial(probs, num_samples=1)
+            #     selected_probs = probs[token_idx].item()
             #     heapq.heappush(heap, (-selected_probs, 0, i, token_idx))
             # num_selected = 0
             # while num_selected < budget:
             #     if len(heap) == 0:
             #         break
-            #     _, step_idx,req_idx, token_idx = heapq.heappop(heap)
+            #     selected_probs, step_idx,req_idx, token_idx = heapq.heappop(heap)
+            #     org_selected_probs = -selected_probs
+            #     if org_selected_probs < 0.5:
+            #         break
             #     selected_tokens[req_idx][step_idx] = token_idx
             #     if step_idx < proposal_len - 1 :
             #         probs = maybe_sampler_output[step_idx+1].sampled_token_probs[req_idx]
-            #         token_idx = torch.multinomial(probs, num_samples=1)
-            #         selected_probs = probs[token_idx]
+            #         token_idx = maybe_sampler_output[step_idx+1].sampled_token_ids[req_idx] #torch.multinomial(probs, num_samples=1)
+            #         selected_probs = probs[token_idx].item()
             #         #print("selected_probs",step_idx+1,req_idx,selected_probs)
             #         heapq.heappush(heap, (-selected_probs, step_idx+1, req_idx, token_idx))
             #         num_selected += 1
             #         num_selected_tokens[req_idx] += 1
-            #print("selected_tokens_num", num_selected_tokens)
+            # # Clear the heap
+            # heap.clear()
+
+            # print("selected_tokens_num", num_selected_tokens)
                
             (
                 proposal_lens,
@@ -136,14 +143,13 @@ class Top1Proposer(SpeculativeProposer):
             nonzero_proposal_len_indices=nonzero_proposal_len_indices,
             sampler_transposed=transposed,
         )
-        # TETRIS print("proposal_tokens.shape", proposal_tokens.shape,proposal_probs.shape)
+        # TETRIS print("proposal_tokens.shape", proposal_tokens.shape,proposal_probs.shape) 这部分导致好慢好慢
         # proposal_tokens = torch.tensor(selected_tokens, device=self._device)
-        # # print("proposal_tokens", proposal_tokens)
-        # for i,plen in enumerate(proposal_lens):
+        # for i,plen in enumerate(proposal_lens): # 哪怕是5个投机长度，之后缩短验证长度，也很慢
         #     if proposal_lens[i] > 0:
         #         proposal_lens[i] = num_selected_tokens[i]
-        # proposal_probs = proposal_probs[:, :proposal_len, :]
-        # execute_model_req.num_lookahead_slots = org_proposal_len
+
+
         proposals = SpeculativeProposals(proposal_token_ids=proposal_tokens,
                                          proposal_probs=proposal_probs,
                                          proposal_lens=proposal_lens,

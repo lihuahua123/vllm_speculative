@@ -25,6 +25,7 @@ On the client side, run:
 """
 import argparse
 import asyncio
+import json
 import gc
 import json
 import os
@@ -387,7 +388,7 @@ async def benchmark(
         
         #request_rate_list = [5,5,40]
         #input_requests_list = [input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+120],input_requests[start_index+120:]]
-        request_rate_list = [40]
+        request_rate_list = [20]
         input_requests_list = [input_requests[start_index+120:]]
         # request_rate_list = [2,5,5,25]
         # input_requests_list = [input_requests[start_index:start_index+20],
@@ -440,7 +441,12 @@ async def benchmark(
         outputs_list  += outputs
         end_time = time.time()
     #print(f"receive response time cost: {end_time - begin_time}")
+    texts = []
+    for output in outputs_list:
+        texts.append(output.generated_text)
     
+    with open("texts2.json", "w", encoding="utf-8") as f:
+        json.dump(texts, f, ensure_ascii=False, indent=2)
     
     if profile:
         print("Stopping profiler...")

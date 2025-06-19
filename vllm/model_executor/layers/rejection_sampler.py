@@ -64,10 +64,12 @@ class RejectionSampler(SpecDecodeStochasticBaseSampler):
         self.selected_draft_probs = []
         self.target_probs = []
         self.draft_probs = []
+        self.is_thinking = False
 
     def forward(
         self,
         target_with_bonus_probs: torch.Tensor,
+        target_token_ids: torch.Tensor,
         bonus_token_ids: torch.Tensor,
         draft_probs: torch.Tensor,
         draft_token_ids: torch.Tensor,
@@ -116,6 +118,21 @@ class RejectionSampler(SpecDecodeStochasticBaseSampler):
             self._raise_if_incorrect_input(target_with_bonus_probs,
                                            draft_token_ids, bonus_token_ids,
                                            draft_probs)
+        
+        # batch_size, k, _ = draft_probs.shape
+        # batch_indices = torch.arange(batch_size,
+        #                              device=target_with_bonus_probs.device)
+        # probs_indicies = torch.arange(k, device=target_with_bonus_probs.device)
+
+        # draft_probs[batch_indices[:, None], probs_indicies,
+        #                                      :] = 0.0
+        # draft_probs[batch_indices[:, None], probs_indicies,
+        #                                      draft_token_ids] = 1.0
+        # target_with_bonus_probs[batch_indices[:, None], probs_indicies,
+        #                                      :] = 0.0
+        # target_with_bonus_probs[batch_indices[:, None], probs_indicies,
+        #                                      target_token_ids[:, :k]] = 1.0
+        
 
         batch_size, k, _ = draft_probs.shape
 
@@ -181,10 +198,14 @@ class RejectionSampler(SpecDecodeStochasticBaseSampler):
         """
 
         batch_size, k, vocab_size = draft_probs.shape
-
+        
         # shape [batch_size, k]
-        accepted = self._get_accepted(target_probs, draft_probs,
-                                      draft_token_ids, seeded_seqs)
+        # if self.is_thinking:
+        #     accepted = self._get_accepted(target_probs, draft_probs,
+        #                               draft_token_ids, seeded_seqs)
+        # else:
+        accepted = self._get_accepted2(target_probs, draft_probs,
+                                    draft_token_ids, seeded_seqs)
 
         recovered_probs = self._get_recovered_probs(
             target_probs, draft_probs).reshape(batch_size * k, vocab_size)
@@ -257,7 +278,7 @@ class RejectionSampler(SpecDecodeStochasticBaseSampler):
         return uniform_rand
 
 
-    def _get_accepted2(
+    def _get_accepted(
         self,
         target_probs: torch.Tensor,
         draft_probs: torch.Tensor,
@@ -277,11 +298,12 @@ class RejectionSampler(SpecDecodeStochasticBaseSampler):
         # 计算信息熵和自适应阈值
         epsilon = 1e-10
         alpha = 0.1  # hyperparameter from paper (0.1 for LLaMA3)
-        beta = 0.1   # hyperparameter from paper
+        beta = 0.4   # hyperparameter from paper
         entropy = -torch.sum(target_probs * torch.log(target_probs + epsilon), dim=-1)
         max_probs = torch.max(target_probs, dim=-1).values
         adaptive_threshold = torch.minimum(-alpha * entropy + beta, max_probs)
-        
+        adaptive_threshold = torch.clamp(adaptive_threshold, min=0.0)
+        # print("adaptive_threshold", adaptive_threshold)
         # 获取目标概率和草稿概率
         selected_target_probs = target_probs[batch_indices, prob_indices, draft_token_ids]
         selected_draft_probs = draft_probs[batch_indices, prob_indices, draft_token_ids]
@@ -296,17 +318,11 @@ class RejectionSampler(SpecDecodeStochasticBaseSampler):
         
         # 计算接受条件
         above_threshold = selected_target_probs >= adaptive_threshold
-        # capped_ratio = torch.minimum(
-        #     selected_target_probs / selected_draft_probs,
-        #     torch.ones_like(selected_target_probs))
-        capped_ratio = torch.minimum(
-            selected_target_probs / selected_draft_probs,
-            torch.full((1, ), 1, device=target_probs.device))
-        accepted = (uniform_rand < capped_ratio) & above_threshold
+        accepted =  above_threshold
         
         return accepted
     
-    def _get_accepted(
+    def _get_accepted2(
         self,
         target_probs: torch.Tensor,  # [batch_size, k, vocab_size]
         draft_probs: torch.Tensor,  # [batch_size, k, vocab_size]
@@ -360,12 +376,14 @@ class RejectionSampler(SpecDecodeStochasticBaseSampler):
         # shape [batch_size, k]
         selected_target_probs = target_probs[batch_indices, probs_indicies,
                                              draft_token_ids]
-        self.target_probs.append(target_probs)
-        self.draft_probs.append(draft_probs)
-        self.selected_target_probs.append(selected_target_probs)
-        self.selected_draft_probs.append(selected_draft_probs)
-        # print("selected_target_probs",selected_target_probs)
-        # print("selected_draft_probs",selected_draft_probs)
+
+        
+        
+        # self.target_probs.append(target_probs)
+        # self.draft_probs.append(draft_probs)
+        # self.selected_target_probs.append(selected_target_probs)
+        # self.selected_draft_probs.append(selected_draft_probs)
+
         uniform_rand = self._create_uniform_samples(seeded_seqs, batch_size,
                                                     k - 1, target_probs.device)
         capped_ratio = torch.minimum(
@@ -373,6 +391,7 @@ class RejectionSampler(SpecDecodeStochasticBaseSampler):
             torch.full((1, ), 1, device=target_probs.device))
         # accepted = torch.zeros_like(capped_ratio, dtype=torch.bool)
         accepted = uniform_rand < capped_ratio
+
         return accepted
     
     

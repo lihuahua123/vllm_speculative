@@ -283,7 +283,8 @@ class Sampler(nn.Module):
         
         # Compute the log probabilities.
         logprobs = torch.log_softmax(logits, dim=-1, dtype=torch.float)
-        
+        self.should_modify_greedy_probs_inplace = False
+
         # Sample the next tokens.
         maybe_deferred_sample_results, maybe_sampled_tokens_tensor = _sample(
             probs,
@@ -293,7 +294,7 @@ class Sampler(nn.Module):
             include_gpu_probs_tensor=self.include_gpu_probs_tensor,
             modify_greedy_probs=self._should_modify_greedy_probs_inplace,
         )
-
+        
         if self.include_gpu_probs_tensor:
             # Since we will defer sampler result Pythonization,
             # preserve GPU-side tensors in support of later
@@ -688,7 +689,7 @@ def _sample_with_torch(
                 # Store sampled tokens in output tensor.
                 sampled_token_ids_tensor[
                     long_sample_indices] = greedy_samples.unsqueeze(-1)
-
+           
             if modify_greedy_probs:
                 # If required, modify the probabilities such that sampling from
                 # the modified distribution would always sample the argmax

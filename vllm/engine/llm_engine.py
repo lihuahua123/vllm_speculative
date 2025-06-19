@@ -1410,7 +1410,7 @@ class LLMEngine:
         ) and not self._skip_scheduling_next_step:
             # Schedule iteration
             (seq_group_metadata_list, scheduler_outputs,
-            allow_async_output_proc, need_disable_spec
+            allow_async_output_proc, need_disable_spec, best_proposal_length
              ) = self.scheduler[virtual_engine].schedule()
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
@@ -2311,6 +2311,7 @@ class LLMEngine:
             self.disable_speculative_decoding = disable_speculative_decoding
             print("set_disable_speculative_decoding",disable_speculative_decoding)
             self.model_executor.set_disable_speculative_decoding(disable_speculative_decoding)
+
 
 if envs.is_set("VLLM_USE_V1") and envs.VLLM_USE_V1:
     from vllm.v1.engine.llm_engine import LLMEngine as V1LLMEngine
