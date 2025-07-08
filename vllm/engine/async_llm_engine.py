@@ -325,9 +325,9 @@ class _AsyncLLMEngine(LLMEngine):
                     self.set_disable_speculative_decoding(True)
                 else:
                     self.set_disable_speculative_decoding(False)
-            #print("scheduler_outputs.num_prefill_groups",scheduler_outputs.num_prefill_groups,len(seq_group_metadata_list))
-            # if not self.ilp_manager.profile and self.strategy == "daspec" and not scheduler_outputs.is_empty(): 
-            #     self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
+            #if self.ilp_manager.offload and not self.ilp_manager.profile and (self.strategy == "daspec" or  self.strategy == "ucb" )and not scheduler_outputs.is_empty(): 
+                #if not (self.scheduler[virtual_engine].ucbspec is not None and self.scheduler[virtual_engine].ucbspec.round_robin):
+            self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
 
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
@@ -1285,9 +1285,10 @@ class AsyncLLMEngine(EngineClient):
     async def add_lora(self, lora_request: LoRARequest) -> None:
         self.engine.add_lora(lora_request)
 
-    def change_speculative_action(self, action:int,strategy= None, save_action_time_history:bool=False, profile:bool=False,file_name:str=None):
+    def change_speculative_action(self, action:int,strategy= None, save_action_time_history:bool=False, profile:bool=False,file_name:str=None, offload:bool=False,ucb_file_name:str=None):
         """Change the speculative action."""
         virtual_engine = 0
+        self.engine.ilp_manager.offload = offload
         if action == 10:
             # Get current GPU memory usage
             total_memory = torch.cuda.get_device_properties(0).total_memory
@@ -1329,9 +1330,15 @@ class AsyncLLMEngine(EngineClient):
             return
         if strategy == "ucb" and action == 11:
             self.engine.scheduler[virtual_engine].ucbspec.round_robin = False
+            self.engine.scheduler[virtual_engine].ucbspec.load_state(ucb_file_name)
+            self.engine.ilp_manager.offload = offload
+            print("load ucb state",ucb_file_name,self.engine.scheduler[virtual_engine].ucbspec.round_robin)
             return
         elif strategy == "ucb" and action == 12:
+            print("save ucb state",ucb_file_name,self.engine.scheduler[virtual_engine].ucbspec.round_robin)
             self.engine.scheduler[virtual_engine].ucbspec.round_robin = True
+            self.engine.scheduler[virtual_engine].ucbspec.save_state(ucb_file_name)
+            self.engine.ilp_manager.offload = offload
             return
         if strategy == "threshold":
             self.engine.strategy = strategy
@@ -1357,7 +1364,7 @@ class AsyncLLMEngine(EngineClient):
                 self.engine.scheduler[virtual_engine].smart_spec = None
                 self.engine.scheduler[virtual_engine].ucbspec = None
         
-        self.engine.ilp_manager.change_speculative_action(action,save_action_time_history, profile,file_name)
+        self.engine.ilp_manager.change_speculative_action(action,save_action_time_history, profile,file_name, offload)
 
 
 # TODO(v1): Remove this class proxy when V1 goes default.

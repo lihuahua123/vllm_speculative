@@ -442,6 +442,7 @@ class LLMEngine:
         # the next step without re-scheduling.
         self._skip_scheduling_next_step = False
         self.has_been_disabled_speculative_decoding = False
+        self.has_been_increase_block_number = False
         self.next_step_increase_blcok_number = False
         self.last_batch_size = 0
         self.max_resolve_batch_size = 0
@@ -2213,22 +2214,26 @@ class LLMEngine:
             logger.warning("Model executor does not support switching to neural draft model")
     
     def increase_or_decrease_block_number(self,scheduler_outputs,virtual_engine):
-        if self.next_step_increase_blcok_number:
+        have_load_neural_model = self.model_executor.have_load_neural_model()[0]
+        if not have_load_neural_model and self.next_step_increase_blcok_number:
             self.next_step_increase_blcok_number = False
             self.increase_block_number()
             return
+        
+        #if not have_load_neural_model:
+        # if len(scheduler_outputs.scheduled_seq_groups)> 5: 
+        #     self.set_disable_speculative_decoding(True)
         can_increase_space, can_decrease_space = False, False
         # logger.info(f"scheduler_outputs.scheduled_seq_groups: {len(scheduler_outputs.scheduled_seq_groups)}, scheduler_outputs.num_prefill_groups: {scheduler_outputs.num_prefill_groups}, len(self.scheduler[virtual_engine].waiting): {len(self.scheduler[virtual_engine].waiting)},running: {len(self.scheduler[virtual_engine].running)}")
-        # FIXME 具有滞后性 如果预先调度，则增加overhead，否则具有滞后性，没准下一次就用不上了
-        if self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks < self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks:
-            if len(scheduler_outputs.scheduled_seq_groups) ==  scheduler_outputs.num_prefill_groups and  len(self.scheduler[virtual_engine].waiting) > 10:
-                can_increase_space = True # prefill 满了，可以增加空间
-            elif scheduler_outputs.num_prefill_groups == 0 and len(self.scheduler[virtual_engine].running) - len(scheduler_outputs.scheduled_seq_groups) > 10:
-                can_increase_space = True # decode 满了，可以增加空间
+        # FIXME 具有滞后性 如果预先调度，则增加overhead，否则具有滞后性，没准下一次就用不上了, 所以需要改条件
+        if  self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks < self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks \
+            and self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks() < 150:
+                can_increase_space = True
         else:
-            if  len(self.scheduler[virtual_engine].waiting) == 0 and \
+            # len(self.scheduler[virtual_engine].running) < 2 and 
+            if  len(self.scheduler[virtual_engine].running) < 2 and  len(self.scheduler[virtual_engine].waiting) == 0 and \
                 self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks == self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks and \
-                self.cache_config.num_virtual_blocks + 10 <  self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks():
+                self.cache_config.num_virtual_blocks + 100 <  self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks():
                 can_decrease_space = True
         if can_increase_space:
             logger.info("increase block number")
@@ -2238,6 +2243,7 @@ class LLMEngine:
             
         if can_decrease_space:
             logger.info("decrease block number")
+            self.set_disable_speculative_decoding(False)
             self.decrease_block_number()
             self.load_neural_model_async()
 

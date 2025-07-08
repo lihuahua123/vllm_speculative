@@ -356,7 +356,9 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         self._disable_log_stats = disable_log_stats
         self._num_spec_prefill_steps = num_spec_prefill_steps
         self.num_accepted_tokens = 0
-        self.proposer_worker_to_cpu = False
+        self.proposer_worker_to_cpu = False # 是否开始迁移到CPU
+        self.proposer_worker_on_cpu = False # 是否在CPU上
+        self.event = None
         self.need_decrease_block_number = False
         self.using_ngram_draft_model = False
         self.stage_times = None
@@ -890,9 +892,9 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         num_accepted_tokens = num_accepted_tokens.item()
         # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposal_length 8:uuid
         self.stage_times = (proposal_timer.elapsed_time_ms,scoring_timer.elapsed_time_ms,verification_timer.elapsed_time_ms,len(execute_model_req.seq_group_metadata_list),num_accepted_tokens,context_length, SequenceStage.DECODE.value,execute_model_req.num_lookahead_slots,uuid.uuid4())
-        if (accepted_token_ids == 151649).any():
-            print("stop thinking!!")
-            self.spec_decode_sampler.is_thinking = False
+        # if (accepted_token_ids == 151649).any():
+        #     print("stop thinking!!")
+        #     self.spec_decode_sampler.is_thinking = False
         return self._create_output_sampler_list(
             execute_model_req.seq_group_metadata_list,
             accepted_token_ids,
@@ -1360,10 +1362,6 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
     def stop_profile(self):
         if isinstance(self.scorer_worker, WorkerBase):
             self.scorer_worker.stop_profile()
-        
-    def get_proposer_worker_to_cpu(self):
-        # print("get_proposer_worker_to_cpu",self.proposer_worker_to_cpu)
-        return self.need_decrease_block_number
     
     def get_speculative_metrics(self):
         # if hasattr(self.spec_decode_sampler, "ratio"):
@@ -1422,6 +1420,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
             try:
                 model = self.old_proposer_worker.model_runner.model
                 model.to("cpu", non_blocking=True)
+                self.proposer_worker_on_cpu = True
                 logger.info(f"模型迁移到CPU完成，耗时: {time.time() - begin_time} 秒")
             except Exception as e:
                 logger.error(f"模型迁移到CPU时发生错误: {str(e)}")
@@ -1430,8 +1429,38 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         _global_executor.submit(move_model_to_cpu)
         
         self.proposer_worker_to_cpu = True
-        logger.info(f"已启动异步线程将模型迁移到CPU")
+        logger.info(f"已启动异步线程将模型迁移到CPU，耗时: {time.time() - begin_time} 秒")
 
+    
+    def load_neural_model_async(self):
+        logger.info("load_neural_model_async!!!!!!!!!!!")
+            
+        if not hasattr(self, 'old_proposer_worker') or self.old_proposer_worker is None:
+            logger.error("No saved neural draft model found")
+            return False
+        
+        # Move the neural model back to GPU
+        if hasattr(self.old_proposer_worker, 'model_runner') and hasattr(self.old_proposer_worker.model_runner, 'model'):
+            logger.info("Moving neural draft model back to CUDA")
+            start_time = time.time()
+            def move_model_to_cuda():
+                self.event = torch.cuda.Event(enable_timing=False)
+                self.old_proposer_worker.model_runner.model.to("cuda", non_blocking=True)
+                self.event.record()
+            _global_executor.submit(move_model_to_cuda)
+            end_time = time.time()
+            logger.info(f"Time taken to move neural draft model back to CUDA: {end_time - start_time} seconds")
+        
+    def have_load_neural_model(self):
+        if self.event is not None and self.event.query():
+            self.proposer_worker_on_cpu = False
+            self.proposer_worker_to_cpu = False
+            self.event = None
+            return True
+        if self.proposer_worker_on_cpu:
+            return False
+        return True
+    
     def switch_draft_model_to_ngram(self):
         if hasattr(self, 'using_ngram_draft_model') and self.using_ngram_draft_model:
             return True
@@ -1479,25 +1508,8 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
                    f"ngram_min={ngram_prompt_lookup_min}, ngram_max={ngram_prompt_lookup_max}")
         
         self.using_ngram_draft_model = True
-        # self.proposer_worker_to_cpu = False
         
         return True
-    
-    def load_neural_model_async(self):
-        logger.info("load_neural_model_async!!!!!!!!!!!")
-            
-        if not hasattr(self, 'old_proposer_worker') or self.old_proposer_worker is None:
-            logger.error("No saved neural draft model found")
-            return False
-        
-        # Move the neural model back to GPU
-        if hasattr(self.old_proposer_worker, 'model_runner') and hasattr(self.old_proposer_worker.model_runner, 'model'):
-            logger.info("Moving neural draft model back to CUDA")
-            start_time = time.time()
-            self.old_proposer_worker.model_runner.model.to("cuda", non_blocking=True)
-            end_time = time.time()
-            logger.info(f"Time taken to move neural draft model back to CUDA: {end_time - start_time} seconds")
-        
     
     def switch_draft_model_to_neural(self):
         """Switch from NGram draft model back to neural draft model.

@@ -260,9 +260,6 @@ class ExecutorBase(ABC):
         exception."""
         self.check_health()
     
-    def get_proposer_worker_to_cpu(self):
-        return self.collective_rpc("get_proposer_worker_to_cpu")
-    
     def get_speculative_metrics(self):
         return self.collective_rpc("get_speculative_metrics", need_worker_output=False)
      
@@ -286,6 +283,9 @@ class ExecutorBase(ABC):
     
     def load_neural_model_async(self):
         return self.collective_rpc("load_neural_model_async")
+    
+    def have_load_neural_model(self):
+        return self.collective_rpc("have_load_neural_model")
     
     def set_ngram_prompt_lookup_window_size(self,ngram_prompt_lookup_min,ngram_prompt_lookup_max):
         return self.collective_rpc("set_ngram_prompt_lookup_window_size", kwargs=dict(ngram_prompt_lookup_min=ngram_prompt_lookup_min,ngram_prompt_lookup_max=ngram_prompt_lookup_max))

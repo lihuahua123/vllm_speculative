@@ -9,6 +9,35 @@ import argparse
 import sys
 import requests
 import psutil
+import json
+from typing import List, Tuple
+
+def check_server_health(host: str, port: int, server_process: subprocess.Popen, max_retries: int = 30, retry_interval: int = 5) -> bool:
+    """检查服务器是否健康运行"""
+    url = f"http://{host}:{port}/health"
+    for i in range(max_retries):
+        # 首先检查进程是否还在运行
+        if not check_server_process_alive(server_process):
+            return False
+            
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                print(f"服务器健康检查通过，尝试次数: {i+1}")
+                return True
+        except requests.exceptions.RequestException as e:
+            print(f"服务器健康检查失败 (尝试 {i+1}/{max_retries}): {e}")
+        time.sleep(retry_interval)
+    return False
+
+def check_server_process_alive(process: subprocess.Popen) -> bool:
+    """检查服务器进程是否还在运行"""
+    if process.poll() is not None:
+        # 进程已经结束
+        return_code = process.returncode
+        print(f"服务器进程已结束，返回码: {return_code}")
+        return False
+    return True
 
 def parse_args():
     parser = argparse.ArgumentParser(description="运行vLLM服务器并执行多个请求率的基准测试")
@@ -33,7 +62,7 @@ def parse_args():
     parser.add_argument("--strategy", type=str, default="baseline", 
                         choices=["baseline", "ilp", "no-spec"], help="策略名称")
     parser.add_argument("--sub-strategy", type=str, default="ngram", 
-                        choices=["ngram", "deep", "nospec", "daspec", "smart_spec", "threshold","ucb"], help="子策略名称")
+                        choices=["ngram", "deep", "nospec", "daspec", "smart_spec", "threshold","ucb","ucb-offload"], help="子策略名称")
     parser.add_argument("--speculative-len", type=int, default=1, help="speculative长度")
     parser.add_argument("--draft-model", type=str, default="", help="draft模型")
     parser.add_argument("--profile",action="store_true", help="是否开启profile")
@@ -43,6 +72,7 @@ def parse_args():
     parser.add_argument("--enable-trace", type=str, default="False", help="是否开启trace")
     parser.add_argument("--burstiness", type=float, default=1.0, help="burstiness")
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.50, help="gpu memory utilization")
+    parser.add_argument("--explore", type=str, default="False", help="是否开启explore")
     return parser.parse_args()
 
 
@@ -89,7 +119,14 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     server_process = subprocess.Popen(exec_cmd, env=my_env)
     # 等待服务器启动
     print("等待服务器启动...")
-    time.sleep(30)
+    
+    # 使用健康检查而不是固定等待时间
+    if check_server_health(host, port, server_process):
+        print("服务器启动成功！")
+    else:
+        print("服务器启动失败或超时")
+        server_process.terminate()
+        raise RuntimeError("服务器启动失败")
    
     return server_process
 
@@ -133,11 +170,11 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
     subprocess.run(benchmark_cmd)
     print(f"完成请求率为 {request_rate} QPS 的基准测试，结果保存在 {os.path.join(result_dir, result_filename)}")
     
-def send_speculative_action(host, port, action,strategy="ilp",save_action_time_history=False, profile=False,file_name=None):
+def send_speculative_action(host, port, action,strategy="ilp",save_action_time_history=False, profile=False,file_name=None, offload=False,ucb_file_name=None):
     """向服务器发送speculative_action请求"""
     url = f"http://{host}:{port}/speculative_action"
-    data = {"action": action,"strategy":strategy,"save_action_time_history":save_action_time_history, "profile":profile,"file_name":file_name}
-    
+    data = {"action": action,"strategy":strategy,"save_action_time_history":save_action_time_history, "profile":profile,"file_name":file_name,"offload":offload,"ucb_file_name":ucb_file_name}
+    print(f"data: {data}")
     # 创建一个会话对象，显式禁用所有代理
     session = requests.Session()
     session.trust_env = False  # 不使用环境变量中的代理设置
@@ -322,14 +359,17 @@ def main():
             if sub_strategy == "ucb":
                 # 设置sub_strategy为ucb
                 send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json")
+                # action 为 12 设置为 round_robin
+                send_speculative_action(args.host, args.port, 12,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json",ucb_file_name=f"explore_ucb")
+                
                 run_benchmark(
                     host=args.host,
                     port=args.port,
                     model=args.model,
                     dataset_name=args.dataset_name,
                     dataset_path=args.dataset_path,
-                    num_prompts=50,
-                    request_rate=5,
+                    num_prompts=200,
+                    request_rate=30,
                     result_dir=args.result_dir,
                     strategy=args.strategy,
                     text=benchmark_file_name,
@@ -338,8 +378,8 @@ def main():
                     enable_trace="False",
                     burstiness=args.burstiness
                 )
-                # action 为 11 设置round_robin为True
-                send_speculative_action(args.host, args.port, 11,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json")
+                # action 为 11 设置round_robin为False
+                send_speculative_action(args.host, args.port, 11,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json",ucb_file_name=f"explore_ucb")
                 
                 run_benchmark(
                     host=args.host,
@@ -359,7 +399,50 @@ def main():
                 )
                 # 保存trace 文件
                 # send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json")
-                send_speculative_action(args.host, args.port, 10,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json")
+                send_speculative_action(args.host, args.port, 10,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json",ucb_file_name=f"explore_ucb")
+            if sub_strategy == "ucb-offload":
+                 # 设置sub_strategy为ucb
+                send_speculative_action(args.host, args.port, -1,strategy="ucb",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucboffload.json",offload=True,ucb_file_name=f"explore_ucb")
+                if args.explore == "True":
+                    send_speculative_action(args.host, args.port, 12,strategy="ucb",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucboffload.json",offload=True,ucb_file_name=f"explore_ucb")
+                    run_benchmark(
+                        host=args.host,
+                        port=args.port,
+                        model=args.model,
+                        dataset_name=args.dataset_name,
+                        dataset_path=args.dataset_path,
+                        num_prompts=200,
+                        request_rate=30,
+                        result_dir=args.result_dir,
+                        strategy=args.strategy,
+                        text=benchmark_file_name,
+                        start_index=0,
+                        output_len=args.output_len,
+                        enable_trace="False",
+                        burstiness=args.burstiness
+                    )
+                # action 为 11 设置round_robin为False
+                send_speculative_action(args.host, args.port, 11,strategy="ucb",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucboffload.json",offload=True,ucb_file_name=f"explore_ucb")
+                
+                run_benchmark(
+                    host=args.host,
+                    port=args.port,
+                    model=args.model,
+                    dataset_name=args.dataset_name,
+                    dataset_path=args.dataset_path,
+                    num_prompts=args.num_prompts,
+                    request_rate=rate,
+                    result_dir=args.result_dir,
+                    strategy=args.strategy,
+                    text=benchmark_file_name,
+                    start_index=start_index,
+                    output_len=args.output_len,
+                    enable_trace=args.enable_trace,
+                    burstiness=args.burstiness
+                )
+                # 保存trace 文件
+                # send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json")
+                send_speculative_action(args.host, args.port, 10,strategy="ucb",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucboffload.json",offload=True,ucb_file_name=f"explore_ucb")
     finally:
         # 在 finally 里
         server_process.send_signal(signal.SIGINT)

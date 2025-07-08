@@ -242,8 +242,8 @@ class CacheEngine:
         self.num_gpu_blocks = new_num_blocks
         
         # 强制执行垃圾回收
-        gc.collect()
-        torch.cuda.empty_cache()
+        #gc.collect()
+        #torch.cuda.empty_cache()
         allocated = torch.cuda.memory_allocated() / (1024 * 1024 * 1024)  # 转换为GB
         reserved = torch.cuda.memory_reserved() / (1024 * 1024 * 1024)
         logger.info(f"decrease_gpu_blocks 显存使用情况: 已分配 {allocated:.2f} GB, 已预留 {reserved:.2f} GB")
@@ -297,11 +297,11 @@ class CacheEngine:
         self.num_gpu_blocks = new_num_blocks
         
         # 执行垃圾回收
-        gc.collect()
-        torch.cuda.empty_cache()
+        #gc.collect()
+        #torch.cuda.empty_cache()
         
-        allocated = torch.cuda.memory_allocated() / (1024 * 1024 * 1024)  # 转换为GB
-        reserved = torch.cuda.memory_reserved() / (1024 * 1024 * 1024)
+        # allocated = torch.cuda.memory_allocated() / (1024 * 1024 * 1024)  # 转换为GB
+        # reserved = torch.cuda.memory_reserved() / (1024 * 1024 * 1024)
         logger.info(f"after increase_gpu_blocks 显存使用情况: 已分配 {allocated:.2f} GB, 已预留 {reserved:.2f} GB")
         end_time = time.time()
         logger.info(f"increase_gpu_blocks 时间: {end_time - begin_time:.2f} 秒")

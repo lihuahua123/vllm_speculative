@@ -61,13 +61,17 @@ async def change_speculative_action(request: Request) -> Response:
     - other fields: the sampling parameters (See `SamplingParams` for details).
     """
     request_dict = await request.json()
+    print(f"request_dict: {request_dict}")
     action = request_dict.pop("action")
     save_action_time_history = request_dict.pop("save_action_time_history", False)
     profile = request_dict.pop("profile", False)
     file_name = request_dict.pop("file_name", None)
     strategy = request_dict.pop("strategy", None)
+    offload = request_dict.pop("offload", False)
+    ucb_file_name = request_dict.pop("ucb_file_name", None)
     assert engine is not None
-    engine.change_speculative_action(action,strategy,save_action_time_history, profile,file_name)
+   
+    engine.change_speculative_action(action,strategy,save_action_time_history, profile,file_name, offload,ucb_file_name)
     return Response(status_code=200)
 
 @with_cancellation

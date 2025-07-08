@@ -159,7 +159,8 @@ class ILPOptimizationManager:
 
 
     
-    def change_speculative_action(self, action:int, save_action_time_history=False, profile=False,file_name=None):
+    def change_speculative_action(self, action:int, save_action_time_history=False, profile=False,file_name=None, offload=False):
+        self.offload = offload
         self.profile = profile
         if action >= 0:
             self.static_action = self.optimizer.actions[action]

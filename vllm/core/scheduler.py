@@ -22,6 +22,7 @@ from vllm.sequence import (Sequence, SequenceData, SequenceGroup,
                            SequenceGroupMetadataDelta, SequenceStage,
                            SequenceStatus)
 from vllm.utils import Device, PyObjectCache
+from vllm.core.spec_scheduler import *
 # Save speculative metrics cache to pkl file, overwriting each time
 import pickle
 import os
@@ -211,393 +212,6 @@ class SchedulerOutputs:
             if g.seq_group.prompt_adapter_request is not None
         }
 
-class SmartSpec:
-    def __init__(self, model, draft_model, max_proposed_length=5):
-        """
-        初始化SmartSpec。
-        :param model: 模型，用于计算执行时间。
-        :param max_proposed_length: 最大推测长度。
-        """
-        self.model = model
-        self.draft_model = draft_model
-        self.max_proposed_length = max_proposed_length
-        self.prev_alphas = []  # 用于存储历史token接受率
-        self.smoothed = -1
-        self.explore_for_low_alpha_cnt = 0
-
-    def moving_average(self, window_size=10):
-        """
-        计算历史token接受率的移动平均值。
-        :param window_size: 移动平均的窗口大小。
-        :return: 移动平均值。
-        """
-        if len(self.prev_alphas) == 0:
-            return 0.7  # 默认值，如果没有历史数据
-        window = self.prev_alphas[-window_size:]
-        return sum(window) / len(window)
-    
-    def estimate_generated_length(self, alpha, k):
-        """
-        估计生成的token长度。带bonus的
-        :param alpha: token接受率。
-        :param k: 推测长度。
-        :return: 生成的token长度。
-        """
-        if alpha == 1:
-            return k + 1  # 如果接受率为1，生成k+1个token
-        return (1 - alpha ** (k + 1)) / (1 - alpha)
-    
-    def estimate_batch_execution_time(self, context_length, batch_size, proposed_length, speculative_metrics=None):
-        """
-        估计批处理的执行时间。
-        :param batch_size: 批处理大小。
-        :param context_length: 上下文长度。
-        :return: 执行时间。
-        """
-      
-        draft = self.draft_model.predict([[context_length,batch_size]])[0]
-        target = self.model.predict([[context_length, batch_size*proposed_length]])[0]
-
-        return draft *  proposed_length + target
-    def goodput_estimation(self, context_length, batch_size, proposed_length, alpha, speculative_metrics=None):
-        """
-        计算goodput。
-        :param batch_size: 批处理大小。
-        :param proposed_length: 推测长度。
-        :return: goodput值。
-        """
-        if proposed_length == 0:
-            # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposed_length
-            time_predict = self.model.predict([[context_length, 0]])[0]
-            return batch_size/time_predict
-        generated_length = batch_size * self.estimate_generated_length(alpha, proposed_length)
-        execution_time = self.estimate_batch_execution_time(context_length,batch_size,proposed_length, speculative_metrics)
-        return generated_length / execution_time
-
-    def optimize_proposed_length(self, context_length, batch_size, speculative_metrics=None,context_lengths=None):
-        """
-        优化推测长度，选择最大化goodput的长度。
-        :param batch_size: 批处理大小。
-        :return: 最优的推测长度。
-        """
-        best_goodput = -1
-        best_length = 0
-        min_k = 0
-        alpha = self.moving_average() #self.exponential_smoothing()
-
-        for k in range(min_k, self.max_proposed_length + 1):
-            goodput = self.goodput_estimation(context_length,batch_size, k, alpha, speculative_metrics)
-            #print("proposed_length",k,"goodput",goodput)
-            if goodput > best_goodput:
-                best_goodput = goodput
-                best_length = k
-        return best_length, best_goodput
-def goodput_estimation_unpack(args):
-    return DASpec.goodput_estimation(*args)   
-class DASpec:
-    def __init__(self, model, draft_model,max_proposed_length=5):
-        """
-        初始化DASpec
-        :param model: 模型，用于计算执行时间。
-        :param max_proposed_length: 最大推测长度。
-        """
-        self.model = load(model)
-        self.draft_model = load(draft_model)
-        self.max_proposed_length = max_proposed_length
-        self.prev_alphas = []  # 用于存储历史token接受率
-        self.smoothed = -1
-        self.continue_low_alpha = 0
-        #self.generated_token_num_predict_model = generated_token_num_predict_model
-        # train_table_avg
-        with open('./train_table_avg_specbench.pkl', 'rb') as f:
-        #with open('./train_table_avg_llama.pkl', 'rb') as f:
-        #with open('./train_table_avg_alpaca.pkl', 'rb') as f:
-            self.train_table_avg = pickle.load(f)
-        self.correction_factors = {k:{b:1 for b in range(1,300)} for k in range(self.max_proposed_length + 1)}
-         # goodput_estimation 必须是静态方法或全局函数
-        from functools import partial
-        self.goodput_estimation_func = partial(self.goodput_estimation)  # 如果是静态方法可直接用
-
-    def exponential_smoothing(self, alpha=0.1):
-        """
-        计算指数平滑的alpha值。
-        :param alpha: 平滑系数。
-        :return: 平滑系数。
-        """
-        if len(self.prev_alphas) == 0:
-            return 0.7
-        if self.smoothed == -1:
-            self.smoothed = self.prev_alphas[-1]
-            return self.smoothed
-        actual = self.prev_alphas[-1]
-        self.smoothed = alpha * actual + (1 - alpha) * self.smoothed
-        return self.smoothed
-    
-    def moving_average(self, window_size=10):
-        """
-        计算历史token接受率的移动平均值。
-        :param window_size: 移动平均的窗口大小。
-        :return: 移动平均值。
-        """
-        if len(self.prev_alphas) == 0:
-            return 0.7  # 默认值，如果没有历史数据
-        window = self.prev_alphas[-window_size:]
-        #print("window",window)
-        return sum(window) / len(window)
-    def moving_average_history(self, speculative_metrics_history, window_size=10):
-        if len(speculative_metrics_history) == 0:
-            return 0
-        window_history = speculative_metrics_history[-window_size:]
-        #  0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposal_length
-        scoring_time = 0
-        verification_time = 0
-        for i in range(len(window_history)):
-            scoring_time += window_history[i][1]
-            #verification_time += window_history[i][2]
-        scoring_time = scoring_time / len(window_history)
-        #verification_time = verification_time / len(window_history)
-        return scoring_time
-    
-    def online_correction_factor(self,k,batch_size,actual_accepted_tokens):
-        # After each batch, update:
-        observed = actual_accepted_tokens
-        predicted = self.train_table_avg[k][batch_size]
-        correction = observed / (predicted + 1e-6)
-        # Use a moving average for correction
-        self.correction_factors[k][batch_size] = 0.5 * self.correction_factors[k][batch_size] + 0.5 * correction
-        # print("correction_factors",self.correction_factors[k][batch_size],k,batch_size)
-  
-    def estimate_generated_length(self, alpha, k, batch_size):
-        """
-        估计生成的token长度。带bonus的
-        :param alpha: token接受率。
-        :param k: 推测长度。
-        :return: 生成的token长度。
-        """
-        if alpha == 1:
-            return batch_size * (k + 1) # 如果接受率为1，生成k+1个token
-        Analytical_length = batch_size * (1 - alpha ** (k + 1)) / (1 - alpha)
-        if self.train_table_avg[k][batch_size] < 0:
-            return Analytical_length
-        p10 = self.train_table_avg[k][batch_size] * self.correction_factors[k][batch_size]
-        return p10 #max(p10,Analytical_length)
-       
-    
-    def estimate_batch_execution_time(self, context_length, batch_size, proposed_length, speculative_metrics=None,draft_predict=None,average_scoring_time=0):
-        """
-        估计批处理的执行时间。
-        :param batch_size: 批处理大小。
-        :param context_length: 上下文长度。
-        :return: 执行时间。
-        """
-        # 0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposed_length
-        # 假设执行时间是线性的，基于模型系数 FIXME 万一前面的和后面的batch size 不一样，得到的时间也不一样
-        
-
-        draft = self.draft_model.predict([[context_length, batch_size, proposed_length]])[0]
-        target = self.model.predict([[context_length, batch_size*(proposed_length+1),1]])[0]
-        return draft + target # verification
-    
-    
-    @staticmethod
-    def goodput_estimation_parallel(context_length, batch_size, proposed_length, alpha, speculative_metrics, draft_predict, model, draft_model, train_table_avg, correction_factors):
-        """
-        计算goodput。
-        :param batch_size: 批处理大小。
-        :param proposed_length: 推测长度。
-        :return: goodput值。
-        """
-        def estimate_generated_length(alpha, k, batch_size, train_table_avg, correction_factors):
-            if alpha == 1:
-                return batch_size * (k + 1)
-            Analytical_length = batch_size * (1 - alpha ** (k + 1)) / (1 - alpha)
-            if train_table_avg[k][batch_size] < 0:
-                return Analytical_length
-            p10 = train_table_avg[k][batch_size] * correction_factors[k][batch_size]
-            return max(p10, Analytical_length)
-
-        def estimate_batch_execution_time(context_length, batch_size, proposed_length, speculative_metrics, draft_predict, model, draft_model):
-            draft = draft_model.predict([[context_length, batch_size, proposed_length]])[0]
-            target = model.predict([[context_length, batch_size * (proposed_length + 1), 1]])[0]
-            return draft + target
-
-        if proposed_length == 0:
-            time_predict = model.predict([[context_length, batch_size, 1]])[0]
-            return batch_size / time_predict
-        generated_length = estimate_generated_length(alpha, proposed_length, batch_size, train_table_avg, correction_factors)
-        execution_time = estimate_batch_execution_time(context_length, batch_size, proposed_length, speculative_metrics, draft_predict, model, draft_model)
-        return generated_length / execution_time
-
-    def goodput_estimation(self,context_length, batch_size, proposed_length, alpha, speculative_metrics, draft_predict):
-        """
-        计算goodput。
-        :param batch_size: 批处理大小。
-        :param proposed_length: 推测长度。
-        :return: goodput值。
-        """
-        draft_predict = draft_predict
-        model = self.model
-        draft_model = self.draft_model
-        train_table_avg = self.train_table_avg
-        correction_factors = self.correction_factors
-        def estimate_generated_length(alpha, k, batch_size, train_table_avg, correction_factors):
-            if alpha == 1:
-                return batch_size * (k + 1)
-            Analytical_length = batch_size * (1 - alpha ** (k + 1)) / (1 - alpha)
-            if train_table_avg[k][batch_size] < 0:
-                return Analytical_length
-            p10 = train_table_avg[k][batch_size] * correction_factors[k][batch_size]
-            return max(p10, Analytical_length)
-
-        def estimate_batch_execution_time(context_length, batch_size, proposed_length, speculative_metrics, draft_predict, model, draft_model):
-            draft = draft_model.predict([[context_length, batch_size, proposed_length]])[0]
-            target = model.predict([[context_length, batch_size * (proposed_length + 1), 1]])[0]
-            return draft + target
-
-        if proposed_length == 0:
-            time_predict = model.predict([[context_length, batch_size, 1]])[0]
-            return batch_size / time_predict
-        generated_length = estimate_generated_length(alpha, proposed_length, batch_size, train_table_avg, correction_factors)
-        execution_time = estimate_batch_execution_time(context_length, batch_size, proposed_length, speculative_metrics, draft_predict, model, draft_model)
-        return generated_length / execution_time
-    
-    def optimize_proposed_length(self, context_length, batch_size, speculative_metrics=None):
-        best_goodput = -1
-        best_length = 0
-        alpha = self.moving_average()
-        next_alpha = alpha
-        draft_predict = None
-        results = []
-        args_list = [
-            (context_length, batch_size, k, next_alpha, speculative_metrics, draft_predict, self.model, self.draft_model, self.train_table_avg, self.correction_factors)
-            for k in range(0, self.max_proposed_length + 1)
-        ]
-
-        for k in [0,self.max_proposed_length]:#range(0, self.max_proposed_length + 1):
-            results.append([k,self.goodput_estimation(context_length, batch_size, k, next_alpha, speculative_metrics, draft_predict)])
-
-        # start = time.time()
-        # results = list(process_pool.map(goodput_estimation_unpack, args_list))
-        # print("并行总耗时", time.time() - start)
-        # results = list(process_pool.map(goodput_estimation_unpack, args_list))
-        for k, goodput in results:
-            if goodput > best_goodput:
-                best_goodput = goodput
-                best_length = k
-        return best_length
-        
-class UCBSpec:
-    def __init__(self, 
-                 K: int,                 # 候选γ值数量
-                 L: int,                 # 最大推测长度
-                 delta: float = 0.1,    # 置信参数
-                ):
-        # === 状态空间 ===
-        self.arm_stats = {
-            'n': np.zeros(K),            # 选择次数
-            'throughput_hat': np.zeros(K), # 平均吞吐量估计
-            'cr': np.zeros(K)            # 置信半径
-        }
-        self.gamma_values = np.linspace(1, L, K)  # γ的候选值（论文6.2节）
-        self.last_update_time = time.time()
-        self.round_robin = True
-        self.t = 0
-        # === 超参数 ===
-        self.K = K
-        self.L = L
-        self.delta = delta
-
-    def select_arm(self) -> int:
-        """ 选择γ值索引（改进UCB公式） """
-        if self.round_robin:  # 初始轮次：Round-Robin
-            return self.t % self.K
-        
-        # 计算吞吐量UCB（论文6.2节思想）
-        ucb = self.arm_stats['throughput_hat'] + self._calc_confidence_radius()
-        return np.argmax(ucb)
-
-    def _calc_confidence_radius(self) -> np.ndarray:
-        """ 基于吞吐量方差调整置信半径 """
-        t = self.arm_stats['n'].sum()
-        return np.sqrt(
-            2 * np.log(t**2 / self.delta) / (self.arm_stats['n'] + 1e-6)
-        )
-
-    def update(self, arm_idx: int, generated_tokens: int, elasped_time: float):
-        """ 
-        更新吞吐量统计量
-        :param generated_tokens: 本轮生成的token总数（含拒绝token）
-        """
-        throughput = generated_tokens / (elasped_time + 1e-6)  # tokens/sec
-        self.t += 1
-        # 更新统计量（指数加权平均）
-        n_prev = self.arm_stats['n'][arm_idx]
-        self.arm_stats['throughput_hat'][arm_idx] = (
-            n_prev * self.arm_stats['throughput_hat'][arm_idx] + throughput
-        ) / (n_prev + 1)
-        self.arm_stats['n'][arm_idx] += 1
-
-class UCBSpecToken:
-    def __init__(self, 
-                 K: int,            # 候选超参数数量
-                 L: int,            # 最大推测长度
-                 delta: float = 0.1 # 置信参数
-                ):
-        """
-        初始化UCBSPEC算法（对应论文Algorithm 4）
-        """
-        # === 状态空间 ===
-        self.arm_stats = {          # 每个arm的统计量
-            'n': np.zeros(K),       # 被选择次数n_i,t
-            'mu_hat': np.zeros(K),  # 平均接受token数μ̂_i,t
-            'cr': np.zeros(K)       # 置信半径cr_i,t
-        }
-        self.t = 1                  # 当前轮次
-        self.history = []           # 历史记录 (arm_idx, accepted_len)
-        # === 超参数 ===
-        self.K = K # 假设有3种超参数配置，最大长度L=4
-        self.L = L
-        self.delta = delta
-        self.round_robin = True
-        print("self.t",self.t,self.K,self.L,self.delta)
-
-    def select_arm(self) -> int:
-        """
-        选择超参数索引（论文Algorithm 4第4行）
-        """
-        if self.round_robin:  # 初始轮次：Round-Robin
-            return self.t % self.K
-        time_start = time.time()
-        # 计算UCB上界（论文公式）
-        for i in range(self.K):
-            n = self.arm_stats['n'][i]
-            self.arm_stats['cr'][i] = self.L/2 * np.sqrt(
-                (1+n)/n**2 * (1 + 2*np.log(self.K*self.t**2*(1+n)**0.5/self.delta))
-            )
-        
-        ucb = self.arm_stats['mu_hat'] + self.arm_stats['cr']
-        print("ucb",ucb,"time",time.time() - time_start)
-        return np.argmax(ucb)  # 选择UCB最大的arm
-
-    def update(self, 
-               arm_idx: int, 
-               accepted_len: int
-              ) -> None:
-        """
-        更新统计量（论文Algorithm 4第11行）
-        :param accepted_len: 本轮接受的token数 y_I_t,t ∈ [1,L+1]
-        """
-       
-        self.t += 1
-        self.history.append((arm_idx, accepted_len))
-        
-        # 更新统计量
-        n_prev = self.arm_stats['n'][arm_idx]
-        self.arm_stats['mu_hat'][arm_idx] = (
-            n_prev * self.arm_stats['mu_hat'][arm_idx] + accepted_len
-        ) / (n_prev + 1)
-        self.arm_stats['n'][arm_idx] += 1
-                    
 @dataclass
 class SchedulerRunningOutputs:
     """The requests that are scheduled from a running queue.
@@ -818,166 +432,6 @@ class PartialPrefillMetadata:
         )
 
 
-class OnlineDASpec:
-    def __init__(self, verify_model_path, draft_model_path, max_proposed_length=5):
-        """
-        初始化在线DASpec
-        """
-        self.max_proposed_length = max_proposed_length
-        self.prev_alphas = []
-        self.correction_factors = {k:{b:1 for b in range(1,300)} for k in range(self.max_proposed_length + 1)}
-    
-        
-        # 加载在线模型
-        try:
-            with open(verify_model_path, 'rb') as f:
-                self.verify_model = pickle.load(f)
-            with open(draft_model_path, 'rb') as f:
-                self.draft_model = pickle.load(f)
-            print(f"成功加载在线模型: {verify_model_path}, {draft_model_path}")
-        except Exception as e:
-            print(f"加载在线模型失败: {e}")
-            self.verify_model = None
-            self.draft_model = None
-        
-        # 加载训练表
-        try:
-            with open('./train_table_avg_llama.pkl', 'rb') as f:
-                self.train_table_avg = pickle.load(f)
-        except:
-            print("警告: 无法加载train_table_avg_llama.pkl")
-            self.train_table_avg = {}
-    
-    def moving_average(self, window_size=10):
-        if len(self.prev_alphas) == 0:
-            return 0.7
-        window = self.prev_alphas[-window_size:]
-        return sum(window) / len(window)
-
-    def moving_average_history(self, speculative_metrics_history, window_size=10):
-        if len(speculative_metrics_history) == 0:
-            return 0
-        window_history = speculative_metrics_history[-window_size:]
-        #  0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage 7: proposal_length
-        scoring_time = 0
-        verification_time = 0
-        for i in range(len(window_history)):
-            scoring_time += window_history[i][1]
-            #verification_time += window_history[i][2]
-        scoring_time = scoring_time / len(window_history)
-        #verification_time = verification_time / len(window_history)
-        return scoring_time
-    def online_correction_factor(self,k,batch_size,actual_accepted_tokens):
-        # After each batch, update:
-        observed = actual_accepted_tokens
-        predicted = self.train_table_avg[k][batch_size]
-        correction = observed / (predicted + 1e-6)
-        # Use a moving average for correction
-        self.correction_factors[k][batch_size] = 0.5 * self.correction_factors[k][batch_size] + 0.5 * correction
-        # print("correction_factors",self.correction_factors[k][batch_size],k,batch_size)
-  
-    def estimate_generated_length(self, alpha, k, batch_size):
-        """
-        估计生成的token长度。带bonus的
-        :param alpha: token接受率。
-        :param k: 推测长度。
-        :return: 生成的token长度。
-        """
-        if alpha == 1:
-            return batch_size * (k + 1) # 如果接受率为1，生成k+1个token
-        Analytical_length = batch_size * (1 - alpha ** (k + 1)) / (1 - alpha)
-        if self.train_table_avg[k][batch_size] < 0:
-            return Analytical_length
-        p10 = self.train_table_avg[k][batch_size] * self.correction_factors[k][batch_size]
-        return max(p10,Analytical_length)
-   
-    
-    def estimate_batch_execution_time(self, context_length, batch_size, proposed_length, moving_average_scoring_time):
-        if self.draft_model is None or self.verify_model is None:
-            return 0.1
-        
-        draft_features = {
-            'context_length': context_length,
-            'batch_size': batch_size,
-            'gamma': proposed_length
-        }
-        draft_time = self.draft_model.predict_one(draft_features)
-        if draft_time is None:
-            draft_time = 0.01
-        
-        verify_features = {
-            'context_length': context_length,
-            'batch_size': batch_size * (proposed_length + 1),
-            'gamma': 1
-        }
-        verify_time = self.verify_model.predict_one(verify_features)
-        verify_time = max(moving_average_scoring_time, verify_time)
-        if verify_time is None:
-            verify_time = 0.01
-        
-        return draft_time + verify_time
-    
-    def goodput_estimation(self, context_length, batch_size, proposed_length, alpha, speculative_metrics_history):
-        if proposed_length == 0:
-            verify_features = {
-                'context_length': context_length,
-                'batch_size': batch_size,
-                'gamma': 1
-            }
-            time_predict =  self.verify_model.predict_one(verify_features)
-            if time_predict is None or time_predict <= 0:
-                time_predict = 0.01
-            return batch_size / time_predict
-        
-        generated_length = self.estimate_generated_length(alpha, proposed_length, batch_size)
-        execution_time = self.estimate_batch_execution_time(context_length, batch_size, proposed_length, self.moving_average_history(speculative_metrics_history))
-        print("proposed_length", proposed_length, "generated_length", generated_length, "execution_time", execution_time)
-        if execution_time <= 0:
-            execution_time = 0.01
-        
-        return generated_length / execution_time
-    
-    def optimize_proposed_length(self, context_length, batch_size, speculative_metrics_history=None):
-        best_goodput = -1
-        best_length = 0
-        alpha = self.moving_average()
-        for k in range(0, self.max_proposed_length + 1):
-            goodput = self.goodput_estimation(context_length, batch_size, k, alpha, speculative_metrics_history)
-            if goodput > best_goodput:
-                best_goodput = goodput
-                best_length = k
-        
-        return best_length
-    
-    def update_with_feedback(self, context_length, batch_size, proposed_length, 
-                           actual_draft_time, actual_verify_time, num_accepted_tokens):
-        if self.draft_model is None or self.verify_model is None:
-            return
-        
-        try:
-            if proposed_length > 0:
-                draft_features = {
-                    'context_length': context_length,
-                    'batch_size': batch_size,
-                    'gamma': proposed_length
-                }
-                #self.draft_model.learn_one(draft_features, actual_draft_time)
-            
-            verify_features = {
-                'context_length': context_length,
-                'batch_size': batch_size * (proposed_length + 1) if proposed_length > 0 else batch_size,
-                'gamma': 1
-            }
-            #self.verify_model.learn_one(verify_features, actual_verify_time)
-            
-            # if proposed_length > 0:
-            #     acceptance_rate = num_accepted_tokens / (proposed_length * batch_size)
-            #     self.prev_alphas.append(acceptance_rate)
-            #     if len(self.prev_alphas) > 100:
-            #         self.prev_alphas = self.prev_alphas[-50:]
-            
-        except Exception as e:
-            print(f"在线学习更新失败: {e}")
 
 class Scheduler:
 
@@ -1111,8 +565,12 @@ class Scheduler:
         if self.scheduler_config.num_lookahead_slots > 0 and os.path.exists(verify_model_profile) and os.path.exists(draft_model_profile):
             self.smart_spec = SmartSpec(load(verify_model_profile_smart), load(draft_model_profile_smart), self.scheduler_config.num_lookahead_slots)
             #self.daspec_spec = OnlineDASpec(verify_model_online, draft_model_online, self.scheduler_config.num_lookahead_slots) #DASpec(load(verify_model_profile), load(draft_model_profile), None, self.scheduler_config.num_lookahead_slots)
-            self.daspec_spec = DASpec(verify_model_profile, draft_model_profile, self.scheduler_config.num_lookahead_slots) #DASpec(load(verify_model_profile), load(draft_model_profile), None, self.scheduler_config.num_lookahead_slots)
-            self.ucbspec = UCBSpec(self.scheduler_config.num_lookahead_slots+1,self.scheduler_config.num_lookahead_slots)
+            self.daspec_spec = None #DASpec(verify_model_profile, draft_model_profile, self.scheduler_config.num_lookahead_slots) #DASpec(load(verify_model_profile), load(draft_model_profile), None, self.scheduler_config.num_lookahead_slots)
+            #self.ucbspec = UCBSpec2(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            # self.ucbspec = ContextualUCBSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            # self.ucbspec = LinUCBSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)#
+            #self.ucbspec = ThompsonSamplingSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            self.ucbspec = LinearThompsonSamplingSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
         else:
             self.smart_spec = None  
             self.daspec_spec = None
@@ -2114,13 +1572,13 @@ class Scheduler:
         # Schedule sequence groups.
         # This function call changes the internal states of the scheduler
         # such as self.running, self.swapped, and self.waiting.
-        if speculative_metrics is not None and speculative_metrics[7] > 0:
+        if speculative_metrics is not None and speculative_metrics[7] > 0 and not self.proposer_worker_to_cpu:
             #  0: draft, 1: scoring, 2: verification 3: batch size 4: num_accepted_tokens 5: context_length 6: stage (SequenceStage.DECODE.value) 7: proposal_length
             metric_value = float(speculative_metrics[4]/(speculative_metrics[7]*speculative_metrics[3]))
             self.speculative_metrics_cache.append(metric_value)
             self.speculative_metrics_history.append(speculative_metrics)
             if self.ucbspec is not None:
-                self.ucbspec.update(speculative_metrics[7],speculative_metrics[4]+speculative_metrics[3],speculative_metrics[0]+speculative_metrics[1]+speculative_metrics[2])
+                self.ucbspec.update(speculative_metrics[7],speculative_metrics[3], speculative_metrics[4]+speculative_metrics[3],speculative_metrics[0]+speculative_metrics[1]+speculative_metrics[2])
             if self.daspec_spec is not None: #and self.daspec_spec.train_table_avg[speculative_metrics[7]][speculative_metrics[3]] < 0:
                 new = speculative_metrics[4] + speculative_metrics[3]
                 self.daspec_spec.online_correction_factor(speculative_metrics[7],speculative_metrics[3],new)
@@ -2129,7 +1587,7 @@ class Scheduler:
         if speculative_metrics is not None and speculative_metrics[6] == SequenceStage.DECODE.value and speculative_metrics[7] == 0:
             # 即使是decode 且proposal_length为0，也要更新ucbspec，因为ucbspec是根据proposal_length来更新
             if self.ucbspec is not None:
-                self.ucbspec.update(speculative_metrics[7],speculative_metrics[3],speculative_metrics[0]+speculative_metrics[1]+speculative_metrics[2])
+                self.ucbspec.update(speculative_metrics[7],speculative_metrics[3], speculative_metrics[3],speculative_metrics[0]+speculative_metrics[1]+speculative_metrics[2])
         best_batch = None 
         if not self.profile and self.smart_spec is not None and len(self.running) > 0: 
             self.smart_spec.prev_alphas = self.speculative_metrics_cache
@@ -2294,16 +1752,25 @@ class Scheduler:
         # Move to next cache (if exists)
         self.cache_id = self.next_cache_id
         best_proposed_lengths = self.scheduler_config.num_lookahead_slots
-        if  not self.profile and self.ucbspec is not None  and len(self.running) > 0 and not self.proposer_worker_to_cpu: 
-            if self.last_batch_size != len(self.running):
-                best_proposed_lengths = self.ucbspec.select_arm()
+        is_decode = (scheduler_outputs.num_prefill_groups == 0)
+        if  is_decode and not self.profile and self.ucbspec is not None  and len(self.running) > 0 and not self.proposer_worker_to_cpu: 
+            if not self.ucbspec.round_robin and self.last_batch_size != len(self.running): # 真正测试
+                best_proposed_lengths = self.ucbspec.select_arm(len(seq_group_metadata_list))
                 self.last_batch_size = len(self.running)
                 if best_proposed_lengths == 0: 
                     self.need_disable_spec = True
                 else:
                     self.need_disable_spec = False
                 print("best_batch",best_batch, "best_proposed_lengths", best_proposed_lengths)
-        if  not self.profile and self.daspec_spec is not None  and len(self.running) > 0 and not self.proposer_worker_to_cpu: 
+            if self.ucbspec.round_robin: # 探索
+                best_proposed_lengths = self.ucbspec.select_arm(len(seq_group_metadata_list))
+                self.last_batch_size = len(self.running)
+                if best_proposed_lengths == 0: 
+                    self.need_disable_spec = True
+                else:
+                    self.need_disable_spec = False
+                print("best_batch",best_batch, "best_proposed_lengths", best_proposed_lengths)
+        if  is_decode and not self.profile and self.daspec_spec is not None  and len(self.running) > 0 and not self.proposer_worker_to_cpu: 
             self.daspec_spec.prev_alphas = self.speculative_metrics_cache
             if self.last_batch_size != len(self.running):
                 best_batch, best_proposed_lengths = self.daspec_spec_schedule()
