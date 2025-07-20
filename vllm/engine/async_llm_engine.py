@@ -140,12 +140,93 @@ class RequestTracker:
         self._new_requests: asyncio.Queue[Tuple[AsyncStream,
                                                 dict]] = asyncio.Queue()
         self.new_requests_event = asyncio.Event()
+        
+        # 请求率监控和预测相关变量
+        self._request_arrival_times: List[float] = []  # 存储最近的请求到达时间
+        self._window_size: int = 100  # 滑动窗口大小
+        self._rate_history: List[float] = []  # 存储历史请求率
+        self._rate_history_size: int = 10  # 历史请求率的最大存储数量
+        self._last_rate_calculation_time: float = 0  # 上次计算请求率的时间
+        self._rate_calculation_interval: float = 5.0  # 请求率计算间隔（秒）
+        self.current_rate = 0.0
 
     def __contains__(self, item):
         return item in self._request_streams
 
     def __len__(self) -> int:
         return len(self._request_streams)
+
+    def _calculate_current_request_rate(self) -> float:
+        """计算当前基于滑动窗口的请求率 (请求数/秒)"""
+        current_time = time.time()
+        
+        # 清理过期的请求到达时间（超过滑动窗口大小或时间窗口）
+        time_window = 60.0  # 60秒的时间窗口
+        cutoff_time = current_time - time_window
+        
+        # 移除过期的时间戳
+        self._request_arrival_times = [
+            t for t in self._request_arrival_times if t > cutoff_time
+        ]
+        
+        # 如果没有足够的数据点，返回0
+        if len(self._request_arrival_times) < 2:
+            return 0.0
+        
+        # 计算请求率：请求数量 / 时间跨度
+        time_span = current_time - self._request_arrival_times[0]
+        if time_span > 0:
+            rate = (len(self._request_arrival_times) - 1) / time_span
+        else:
+            rate = 0.0
+        
+        return rate
+
+    def _predict_future_request_rate(self) -> float:
+        """基于历史数据预测未来的请求率"""
+        if len(self._rate_history) < 2:
+            return 0.0
+        
+        # 使用指数移动平均算法进行预测
+        alpha = 0.3  # 平滑系数
+        recent_rates = self._rate_history[-5:]  # 使用最近5个数据点
+        
+        if len(recent_rates) == 1:
+            return recent_rates[0]
+        
+        # 计算指数移动平均
+        ema = recent_rates[0]
+        for rate in recent_rates[1:]:
+            ema = alpha * rate + (1 - alpha) * ema
+        
+        # 简单的趋势预测：计算最近几个点的斜率
+        if len(recent_rates) >= 3:
+            # 使用最后3个点计算趋势
+            x = list(range(len(recent_rates)))
+            y = recent_rates
+            
+            # 计算简单的线性回归斜率
+            n = len(x)
+            sum_x = sum(x)
+            sum_y = sum(y)
+            sum_xy = sum(x[i] * y[i] for i in range(n))
+            sum_x2 = sum(x[i] ** 2 for i in range(n))
+            
+            if n * sum_x2 - sum_x * sum_x != 0:
+                slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x)
+                # 预测下一个时间点的值
+                predicted_rate = ema + slope
+                return max(0, predicted_rate)  # 确保预测值非负
+        
+        return ema
+
+    def _update_rate_history(self, current_rate: float) -> None:
+        """更新请求率历史记录"""
+        self._rate_history.append(current_rate)
+        
+        # 保持历史记录在指定大小内
+        if len(self._rate_history) > self._rate_history_size:
+            self._rate_history.pop(0)
 
     def propagate_exception(self,
                             exc: Exception,
@@ -202,7 +283,7 @@ class RequestTracker:
         loop iteration."""
         if request_id in self._request_streams:
             raise KeyError(f"Request {request_id} already exists.")
-
+        
         abort_request = partial(self.abort_request, verbose=verbose)
         stream = AsyncStream(request_id, abort_request)
         self._new_requests.put_nowait((stream, {
@@ -211,7 +292,40 @@ class RequestTracker:
         }))
 
         self.new_requests_event.set()
-
+        
+        # 请求率监控和预测代码
+        current_time = time.time()
+        self._request_arrival_times.append(current_time)
+        
+        # 保持滑动窗口大小
+        if len(self._request_arrival_times) > self._window_size:
+            self._request_arrival_times.pop(0)
+        
+        # 计算当前请求率
+        current_rate = self._calculate_current_request_rate()
+        self.current_rate = current_rate
+        # 定期更新历史记录和进行预测
+        if (current_time - self._last_rate_calculation_time) >= self._rate_calculation_interval:
+            self._update_rate_history(current_rate)
+            self._last_rate_calculation_time = current_time
+        
+        # 预测未来请求率
+        # predicted_rate = self._predict_future_request_rate()
+        
+        # 打印请求率统计信息
+        active_requests = len(self._request_streams)
+        pending_requests = self._new_requests.qsize()
+        
+        logger.info(
+            f"[REQUEST_RATE_MONITOR] Request {request_id} added. "
+            f"Current rate: {current_rate:.2f} req/s, "
+            # f"Predicted rate: {predicted_rate:.2f} req/s, "
+            f"Active requests: {active_requests}, "
+            f"Pending requests: {pending_requests}, "
+            f"Rate history size: {len(self._rate_history)}"
+        )
+        
+        
         if verbose:
             logger.info("Added request %s.", request_id)
 
@@ -278,7 +392,7 @@ class _AsyncLLMEngine(LLMEngine):
         self.pass_stage_data = None
 
     async def step_async(
-        self, virtual_engine: int
+        self, virtual_engine: int, request_tracker = None
     ) -> List[Union[RequestOutput, PoolingRequestOutput]]:
         """Performs one decoding iteration and returns newly generated results.
         The workers are ran asynchronously if possible.
@@ -300,7 +414,8 @@ class _AsyncLLMEngine(LLMEngine):
 
         # Clear outputs for each new scheduler iteration
         ctx.request_outputs.clear()
-        
+
+        current_qps = request_tracker.current_rate if request_tracker is not None else 0.0
         # skip the scheduler if there are any remaining steps in the seq groups.
         # This ensures that the scheduler is only called again when the current
         # batch has completed.
@@ -310,15 +425,15 @@ class _AsyncLLMEngine(LLMEngine):
             if self.pass_stage_data is not None and self.pass_stage_data[8] == self.stage_data[8]:
                 (seq_group_metadata_list, scheduler_outputs,
                 allow_async_output_proc, need_disable_spec, best_proposed_lengths
-                ) = self.scheduler[virtual_engine].schedule()
+                ) = self.scheduler[virtual_engine].schedule(current_qps = current_qps)
             else:
                 (seq_group_metadata_list, scheduler_outputs,
                 allow_async_output_proc, need_disable_spec, best_proposed_lengths
-                ) = self.scheduler[virtual_engine].schedule(self.stage_data)
+                ) = self.scheduler[virtual_engine].schedule(self.stage_data,current_qps = current_qps)
             self.pass_stage_data = self.stage_data
             pre_disable = self.disable_speculative_decoding
 
-            if  not self.ilp_manager.profile and (self.strategy == "ucb" or self.strategy == "daspec"  or self.strategy == "smart_spec")and \
+            if  not self.ilp_manager.profile and (self.strategy == "ucb" or self.strategy == "daspec"  or self.strategy == "smart_spec" or self.strategy == "epsilon_greedy")and \
                 not scheduler_outputs.is_empty() and scheduler_outputs.num_prefill_groups == 0 and \
                 not self.proposer_worker_to_cpu:
                 if need_disable_spec:
@@ -326,8 +441,10 @@ class _AsyncLLMEngine(LLMEngine):
                 else:
                     self.set_disable_speculative_decoding(False)
             #if self.ilp_manager.offload and not self.ilp_manager.profile and (self.strategy == "daspec" or  self.strategy == "ucb" )and not scheduler_outputs.is_empty(): 
-                #if not (self.scheduler[virtual_engine].ucbspec is not None and self.scheduler[virtual_engine].ucbspec.round_robin):
-            self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
+            #    if not (self.scheduler[virtual_engine].ucbspec is not None and self.scheduler[virtual_engine].ucbspec.round_robin):
+            # if self.strategy != "nospec":
+            if self.strategy == "epsilon_greedy":
+                self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
 
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
@@ -360,7 +477,6 @@ class _AsyncLLMEngine(LLMEngine):
             # will cause one virtual engine's microbatch to block the pipeline.
             last_sampled_token_ids = \
                 self._get_last_sampled_token_ids(virtual_engine)
-
             execute_model_req = ExecuteModelRequest(
                 seq_group_metadata_list=seq_group_metadata_list,
                 blocks_to_swap_in=scheduler_outputs.blocks_to_swap_in,
@@ -814,7 +930,7 @@ class AsyncLLMEngine(EngineClient):
         if aborted_requests:
             await self._engine_abort(aborted_requests)
         begin_time = time.time()
-        request_outputs, stage_data = await self.engine.step_async(virtual_engine)
+        request_outputs, stage_data = await self.engine.step_async(virtual_engine, self._request_tracker)
         end_time = time.time()
         step_time = end_time - begin_time
 
@@ -1285,7 +1401,7 @@ class AsyncLLMEngine(EngineClient):
     async def add_lora(self, lora_request: LoRARequest) -> None:
         self.engine.add_lora(lora_request)
 
-    def change_speculative_action(self, action:int,strategy= None, save_action_time_history:bool=False, profile:bool=False,file_name:str=None, offload:bool=False,ucb_file_name:str=None):
+    def change_speculative_action(self, action:int,strategy= None, save_action_time_history:bool=False, profile:bool=False,file_name:str=None, offload:bool=False,ucb_file_name:str=None,select_strategy:str=None):  # noqa: E501
         """Change the speculative action."""
         virtual_engine = 0
         self.engine.ilp_manager.offload = offload
@@ -1311,7 +1427,7 @@ class AsyncLLMEngine(EngineClient):
                     f"allocated={allocated_memory/1024**3:.2f}GB, "
                     f"free={free_memory/1024**3:.2f}GB")
             return
-       
+        
         if action == 9:
             # Create directory if it doesn't exist
             output_dir = "throughput_history"
@@ -1328,23 +1444,44 @@ class AsyncLLMEngine(EngineClient):
             logger.info(f"Saved throughput history to {filename}")
             self.engine.model_executor.save_selected_probs()
             return
-        if strategy == "ucb" and action == 11:
-            self.engine.scheduler[virtual_engine].ucbspec.round_robin = False
-            self.engine.scheduler[virtual_engine].ucbspec.load_state(ucb_file_name)
-            self.engine.ilp_manager.offload = offload
-            print("load ucb state",ucb_file_name,self.engine.scheduler[virtual_engine].ucbspec.round_robin)
+        if action == 15:
+            print("change_select_strategy",select_strategy)
+            self.engine.model_executor.change_select_strategy(select_strategy)
             return
-        elif strategy == "ucb" and action == 12:
-            print("save ucb state",ucb_file_name,self.engine.scheduler[virtual_engine].ucbspec.round_robin)
-            self.engine.scheduler[virtual_engine].ucbspec.round_robin = True
-            self.engine.scheduler[virtual_engine].ucbspec.save_state(ucb_file_name)
+        if action == 11:
+            if strategy == "ucb":
+                self.engine.scheduler[virtual_engine].ucbspec.round_robin = False
+            elif strategy == "epsilon_greedy":
+                self.engine.scheduler[virtual_engine].epsilon_greedy_spec.round_robin = False
             self.engine.ilp_manager.offload = offload
             return
+        elif action == 12:
+            if strategy == "ucb":
+                self.engine.scheduler[virtual_engine].ucbspec.round_robin = True
+            elif strategy == "epsilon_greedy":
+                self.engine.scheduler[virtual_engine].epsilon_greedy_spec.round_robin = True
+            self.engine.ilp_manager.offload = offload
+            return
+        elif action == 13:
+            if strategy == "ucb":
+                self.engine.scheduler[virtual_engine].ucbspec.save_state(ucb_file_name)
+            elif strategy == "epsilon_greedy":
+                self.engine.scheduler[virtual_engine].epsilon_greedy_spec.save_state(ucb_file_name)
+            return
+        elif action == 14:
+            if strategy == "ucb":
+                self.engine.scheduler[virtual_engine].ucbspec.load_state(ucb_file_name)
+            elif strategy == "epsilon_greedy":
+                self.engine.scheduler[virtual_engine].epsilon_greedy_spec.load_state(ucb_file_name)
+            return
+        
         if strategy == "threshold":
             self.engine.strategy = strategy
             self.engine.model_executor.set_disable_by_batch_size(action)
             self.engine.scheduler[virtual_engine].daspec_spec = None
             self.engine.scheduler[virtual_engine].smart_spec = None
+            self.engine.scheduler[virtual_engine].epsilon_greedy_spec = None
+            self.engine.scheduler[virtual_engine].ucbspec = None
             return
         if strategy is not None:
             self.engine.strategy = strategy
@@ -1353,17 +1490,25 @@ class AsyncLLMEngine(EngineClient):
             if strategy == "smart_spec":
                 self.engine.scheduler[virtual_engine].daspec_spec = None
                 self.engine.scheduler[virtual_engine].ucbspec = None
+                self.engine.scheduler[virtual_engine].epsilon_greedy_spec = None
             elif strategy == "daspec":
                 self.engine.scheduler[virtual_engine].smart_spec = None
                 self.engine.scheduler[virtual_engine].ucbspec = None
+                self.engine.scheduler[virtual_engine].epsilon_greedy_spec = None
             elif strategy == "ucb":
                 self.engine.scheduler[virtual_engine].daspec_spec = None
                 self.engine.scheduler[virtual_engine].smart_spec = None
+                self.engine.scheduler[virtual_engine].epsilon_greedy_spec = None
+            elif strategy == "epsilon_greedy":
+                self.engine.scheduler[virtual_engine].daspec_spec = None
+                self.engine.scheduler[virtual_engine].smart_spec = None
+                self.engine.scheduler[virtual_engine].ucbspec = None
             else:
                 self.engine.scheduler[virtual_engine].daspec_spec = None
                 self.engine.scheduler[virtual_engine].smart_spec = None
                 self.engine.scheduler[virtual_engine].ucbspec = None
-        
+                self.engine.scheduler[virtual_engine].epsilon_greedy_spec = None
+        print("action",action)
         self.engine.ilp_manager.change_speculative_action(action,save_action_time_history, profile,file_name, offload)
 
 

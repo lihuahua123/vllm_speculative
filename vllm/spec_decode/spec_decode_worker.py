@@ -362,6 +362,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         self.need_decrease_block_number = False
         self.using_ngram_draft_model = False
         self.stage_times = None
+        self.select_strategy = None
 
     def init_device(self) -> None:
         """Initialize both scorer and proposer models.
@@ -519,11 +520,14 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         for sgm in execute_model_req.seq_group_metadata_list:
             all_prompt = all_prompt and sgm.is_prompt
             atleast_one_prompt = atleast_one_prompt or sgm.is_prompt
-            all_zero_spec_tokens = all_zero_spec_tokens and (
-                sgm.num_speculative_tokens == 0)
-            if sgm.skip_neural_net_proposer_step_num > 20:
+            
+            if sgm.skip_neural_net_proposer_step_num > 0:
                 sgm.num_speculative_tokens = 0
                 has_skip_neural_net_proposer_step_num = True
+            
+            all_zero_spec_tokens = all_zero_spec_tokens and (
+                sgm.num_speculative_tokens == 0)
+            
         if all_prompt and execute_model_req.seq_group_metadata_list:
             assert num_lookahead_slots == 0, (
                 "Prompt only runs should have num_lookahead_slots equal to 0. "
@@ -844,10 +848,11 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         # Pass last hidden states from target model to proposer
         execute_model_req.previous_hidden_states = self.previous_hidden_states
         self.previous_hidden_states = None
+        
         with Timer() as proposal_timer:
             # Generate proposals using draft worker.
             proposals = self.proposer_worker.get_spec_proposals(
-                execute_model_req, self._seq_with_bonus_token_in_last_step)
+                execute_model_req, self._seq_with_bonus_token_in_last_step, select_strategy=self.select_strategy)
             
         if not self._allow_zero_draft_token_step and proposals.no_proposals:
             #TODO: Fix it #5814
@@ -1589,6 +1594,10 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         print("end_thinking!!!!!!!!!!!")
         self.spec_decode_sampler.is_thinking = False
 
+    def change_select_strategy(self,select_strategy):
+        self.select_strategy = select_strategy
+    
+    
 def split_num_cache_blocks_evenly(scorer_cache_block_size_bytes: int,
                                   proposer_cache_block_size_bytes: int,
                                   total_num_gpu_blocks: int) -> int:

@@ -565,12 +565,28 @@ class Scheduler:
         if self.scheduler_config.num_lookahead_slots > 0 and os.path.exists(verify_model_profile) and os.path.exists(draft_model_profile):
             self.smart_spec = SmartSpec(load(verify_model_profile_smart), load(draft_model_profile_smart), self.scheduler_config.num_lookahead_slots)
             #self.daspec_spec = OnlineDASpec(verify_model_online, draft_model_online, self.scheduler_config.num_lookahead_slots) #DASpec(load(verify_model_profile), load(draft_model_profile), None, self.scheduler_config.num_lookahead_slots)
-            self.daspec_spec = None #DASpec(verify_model_profile, draft_model_profile, self.scheduler_config.num_lookahead_slots) #DASpec(load(verify_model_profile), load(draft_model_profile), None, self.scheduler_config.num_lookahead_slots)
-            #self.ucbspec = UCBSpec2(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            # self.daspec_spec = DASpec(verify_model_profile, draft_model_profile, self.scheduler_config.num_lookahead_slots) #DASpec(load(verify_model_profile), load(draft_model_profile), None, self.scheduler_config.num_lookahead_slots)
+            self.daspec_spec = DASpecWithExploration(verify_model_profile, draft_model_profile, max_proposed_length=self.scheduler_config.num_lookahead_slots)
+            # 不稳定 
+            self.ucbspec = UCBSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            self.epsilon_greedy_spec = EpsilonGreedySpecSimple(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            # 总是差一点
+            # self.ucbspec = UCBBinSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            # 效果很差
+            # self.ucbspec = PPOSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            # self.ucbspec = UCBBinSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
             # self.ucbspec = ContextualUCBSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            # 有好有坏
             # self.ucbspec = LinUCBSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)#
-            #self.ucbspec = ThompsonSamplingSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
-            self.ucbspec = LinearThompsonSamplingSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            # self.ucbspec = QlearningSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            # self.ucbspec = LinUCBSlidingWindow(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            # damie 不如UCBSpec self.ucbspec = ThompsonSamplingSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            # damie self.ucbspec = LinearThompsonSamplingSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            # damie ! 
+            # self.ucbspec = EpsilonGreedySpecSlidingWindow(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            # self.ucbspec = EpsilonGreedySpec3(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            # damie 
+            # self.ucbspec = EpsilonGreedySpecSlidingWindow(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
         else:
             self.smart_spec = None  
             self.daspec_spec = None
@@ -580,6 +596,7 @@ class Scheduler:
         self.last_batch_size = 0
         self.first_zero_proposed_length = -1
         self.need_disable_spec = False
+        self.last_best_proposed_lengths = self.scheduler_config.num_lookahead_slots
         # Create directory if it doesn't exist
         os.makedirs('logs', exist_ok=True)
 
@@ -849,10 +866,9 @@ class Scheduler:
                     prefill_seq_groups.append(scheduled_seq_group)
                     ret.prefill_seq_groups_list.append(seq_group)
                 else:
-                    if self.scheduler_config.num_lookahead_slots == 0:
+                    # if skip the proposal then continue skip the proposal
+                    if self.need_disable_spec:
                         seq_group.skip_neural_net_proposer_step_num += 1
-                    # if seq_group.skip_neural_net_proposer_step_num > 500:
-                    #     seq_group.num_speculative_tokens = 0
                     scheduled_seq_group.token_chunk_size = 1
                     decode_seq_groups.append(scheduled_seq_group)
                     scheduled_seq_group.seq_group.num_speculative_tokens = seq_group.num_speculative_tokens
@@ -1567,7 +1583,7 @@ class Scheduler:
         return no_single_seq
 
     def schedule(
-            self, speculative_metrics=None
+            self, speculative_metrics=None, current_qps=0.0
     ) -> Tuple[List[SequenceGroupMetadata], SchedulerOutputs, bool, bool]:
         # Schedule sequence groups.
         # This function call changes the internal states of the scheduler
@@ -1579,27 +1595,23 @@ class Scheduler:
             self.speculative_metrics_history.append(speculative_metrics)
             if self.ucbspec is not None:
                 self.ucbspec.update(speculative_metrics[7],speculative_metrics[3], speculative_metrics[4]+speculative_metrics[3],speculative_metrics[0]+speculative_metrics[1]+speculative_metrics[2])
+            if self.epsilon_greedy_spec is not None:
+                self.epsilon_greedy_spec.update(speculative_metrics[7],speculative_metrics[3], speculative_metrics[4]+speculative_metrics[3],speculative_metrics[0]+speculative_metrics[1]+speculative_metrics[2])
             if self.daspec_spec is not None: #and self.daspec_spec.train_table_avg[speculative_metrics[7]][speculative_metrics[3]] < 0:
                 new = speculative_metrics[4] + speculative_metrics[3]
                 self.daspec_spec.online_correction_factor(speculative_metrics[7],speculative_metrics[3],new)
-                self.daspec_spec.train_table_avg[speculative_metrics[7]][speculative_metrics[3]] = new
+                self.daspec_spec.chage_table(speculative_metrics[7],speculative_metrics[3],new)
+                # self.daspec_spec.update_with_feedback(speculative_metrics[5],speculative_metrics[3],speculative_metrics[7],speculative_metrics[0],speculative_metrics[1],speculative_metrics[2])
+                
         
-        if speculative_metrics is not None and speculative_metrics[6] == SequenceStage.DECODE.value and speculative_metrics[7] == 0:
+        if not self.proposer_worker_to_cpu and speculative_metrics is not None and speculative_metrics[6] == SequenceStage.DECODE.value and speculative_metrics[7] == 0:
             # 即使是decode 且proposal_length为0，也要更新ucbspec，因为ucbspec是根据proposal_length来更新
             if self.ucbspec is not None:
                 self.ucbspec.update(speculative_metrics[7],speculative_metrics[3], speculative_metrics[3],speculative_metrics[0]+speculative_metrics[1]+speculative_metrics[2])
-        best_batch = None 
-        if not self.profile and self.smart_spec is not None and len(self.running) > 0: 
-            self.smart_spec.prev_alphas = self.speculative_metrics_cache
-            best_batch, best_proposed_lengths = self.smart_spec_schedule(speculative_metrics)
-            #print("best batch",best_batch, "best_proposed_lengths", best_proposed_lengths)
-            self.scheduler_config.num_lookahead_slots = best_proposed_lengths
-            if self.scheduler_config.num_lookahead_slots == 0:
-                # print("zero!",len(self.running)) 
-                self.need_disable_spec = True
-            else:
-                self.need_disable_spec = False
+            if self.epsilon_greedy_spec is not None:
+                self.epsilon_greedy_spec.update(speculative_metrics[7],speculative_metrics[3], speculative_metrics[3],speculative_metrics[0]+speculative_metrics[1]+speculative_metrics[2])
         
+        best_batch = None
         scheduler_start_time = time.perf_counter()
         scheduler_outputs: SchedulerOutputs = self._schedule(best_batch)
         now = time.time()
@@ -1748,40 +1760,42 @@ class Scheduler:
                     seq_group.metrics.scheduler_time += scheduler_time
                 else:
                     seq_group.metrics.scheduler_time = scheduler_time
-
+        
         # Move to next cache (if exists)
         self.cache_id = self.next_cache_id
-        best_proposed_lengths = self.scheduler_config.num_lookahead_slots
+        best_proposed_lengths = self.last_best_proposed_lengths # self.scheduler_config.num_lookahead_slots
         is_decode = (scheduler_outputs.num_prefill_groups == 0)
+        
+         
+        if not self.profile and self.smart_spec is not None and len(self.running) > 0: 
+            self.smart_spec.prev_alphas = self.speculative_metrics_cache
+            best_batch, best_proposed_lengths = self.smart_spec_schedule(speculative_metrics)
+            print("smart_spec best_batch", len(seq_group_metadata_list), "best_proposed_lengths", best_proposed_lengths)
+        
+                
         if  is_decode and not self.profile and self.ucbspec is not None  and len(self.running) > 0 and not self.proposer_worker_to_cpu: 
-            if not self.ucbspec.round_robin and self.last_batch_size != len(self.running): # 真正测试
-                best_proposed_lengths = self.ucbspec.select_arm(len(seq_group_metadata_list))
-                self.last_batch_size = len(self.running)
-                if best_proposed_lengths == 0: 
-                    self.need_disable_spec = True
-                else:
-                    self.need_disable_spec = False
-                print("best_batch",best_batch, "best_proposed_lengths", best_proposed_lengths)
-            if self.ucbspec.round_robin: # 探索
-                best_proposed_lengths = self.ucbspec.select_arm(len(seq_group_metadata_list))
-                self.last_batch_size = len(self.running)
-                if best_proposed_lengths == 0: 
-                    self.need_disable_spec = True
-                else:
-                    self.need_disable_spec = False
-                print("best_batch",best_batch, "best_proposed_lengths", best_proposed_lengths)
+            best_proposed_lengths = self.ucbspec.select_arm(len(seq_group_metadata_list),current_qps)
+            print("ucb best_batch", len(seq_group_metadata_list), "best_proposed_lengths", best_proposed_lengths)
+        
+        if  is_decode and not self.profile and self.epsilon_greedy_spec is not None  and len(self.running) > 0 and not self.proposer_worker_to_cpu: 
+            best_proposed_lengths = self.epsilon_greedy_spec.select_arm(len(seq_group_metadata_list),current_qps)
+            print("epsilon_greedy best_batch", len(seq_group_metadata_list), "best_proposed_lengths", best_proposed_lengths)
+            
         if  is_decode and not self.profile and self.daspec_spec is not None  and len(self.running) > 0 and not self.proposer_worker_to_cpu: 
-            self.daspec_spec.prev_alphas = self.speculative_metrics_cache
+            self.daspec_spec.change_prev_alphas(self.speculative_metrics_cache)
             if self.last_batch_size != len(self.running):
                 best_batch, best_proposed_lengths = self.daspec_spec_schedule()
                 # FIXME:这个会拖慢速度
                 # self.scheduler_config.num_lookahead_slots = best_proposed_lengths
-                self.last_batch_size = len(self.running)
-                print("best_batch",best_batch, "best_proposed_lengths", best_proposed_lengths)
-                if best_proposed_lengths == 0: 
-                    self.need_disable_spec = True
-                else:
-                    self.need_disable_spec = False
+                print("daspec best_batch",len(seq_group_metadata_list), "best_proposed_lengths", best_proposed_lengths)
+                
+        
+        self.last_best_proposed_lengths = best_proposed_lengths
+        self.last_batch_size = len(seq_group_metadata_list)
+        if best_proposed_lengths == 0: 
+            self.need_disable_spec = True
+        else:
+            self.need_disable_spec = False
         return (seq_group_metadata_list, scheduler_outputs,
                 allow_async_output_proc, self.need_disable_spec,best_proposed_lengths)
 

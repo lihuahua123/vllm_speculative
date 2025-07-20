@@ -62,7 +62,7 @@ def parse_args():
     parser.add_argument("--strategy", type=str, default="baseline", 
                         choices=["baseline", "ilp", "no-spec"], help="策略名称")
     parser.add_argument("--sub-strategy", type=str, default="ngram", 
-                        choices=["ngram", "deep", "nospec", "daspec", "smart_spec", "threshold","ucb","ucb-offload"], help="子策略名称")
+                        choices=["ngram", "deep", "nospec", "daspec", "smart_spec", "threshold","ucb","ucb-offload","epsilon_greedy"], help="子策略名称")
     parser.add_argument("--speculative-len", type=int, default=1, help="speculative长度")
     parser.add_argument("--draft-model", type=str, default="", help="draft模型")
     parser.add_argument("--profile",action="store_true", help="是否开启profile")
@@ -73,6 +73,7 @@ def parse_args():
     parser.add_argument("--burstiness", type=float, default=1.0, help="burstiness")
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.50, help="gpu memory utilization")
     parser.add_argument("--explore", type=str, default="False", help="是否开启explore")
+    parser.add_argument("--select-strategy", type=str, default=None, help="select策略")
     return parser.parse_args()
 
 
@@ -160,6 +161,7 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
         "--result-filename", result_filename,
         "--start-index", str(start_index),
         "--burstiness", str(burstiness),
+        "--ignore-eos"
     ]
     if enable_trace.lower() == "true":
         benchmark_cmd.append("--enable-trace")
@@ -170,10 +172,10 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
     subprocess.run(benchmark_cmd)
     print(f"完成请求率为 {request_rate} QPS 的基准测试，结果保存在 {os.path.join(result_dir, result_filename)}")
     
-def send_speculative_action(host, port, action,strategy="ilp",save_action_time_history=False, profile=False,file_name=None, offload=False,ucb_file_name=None):
+def send_speculative_action(host, port, action,strategy="ilp",save_action_time_history=False, profile=False,file_name=None, offload=False,ucb_file_name=None,select_strategy=None):
     """向服务器发送speculative_action请求"""
     url = f"http://{host}:{port}/speculative_action"
-    data = {"action": action,"strategy":strategy,"save_action_time_history":save_action_time_history, "profile":profile,"file_name":file_name,"offload":offload,"ucb_file_name":ucb_file_name}
+    data = {"action": action,"strategy":strategy,"save_action_time_history":save_action_time_history, "profile":profile,"file_name":file_name,"offload":offload,"ucb_file_name":ucb_file_name,"select_strategy":select_strategy}
     print(f"data: {data}")
     # 创建一个会话对象，显式禁用所有代理
     session = requests.Session()
@@ -278,6 +280,9 @@ def main():
                 if not send_speculative_action(args.host, args.port, 0,strategy=args.sub_strategy,profile=profile):
                     print("发送speculative_action请求失败")
                     return
+                # action 15 设置选择的策略
+                send_speculative_action(args.host, args.port, 15,strategy="deep",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_deep.json",select_strategy=args.select_strategy)
+                    
                 time.sleep(5)
                 run_benchmark(
                         host=args.host,
@@ -355,29 +360,29 @@ def main():
                     burstiness=args.burstiness
                 )
                 # 保存trace 文件
-                send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_threshold.json")
+                # send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_threshold.json")
             if sub_strategy == "ucb":
                 # 设置sub_strategy为ucb
                 send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json")
-                # action 为 12 设置为 round_robin
-                send_speculative_action(args.host, args.port, 12,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json",ucb_file_name=f"explore_ucb")
+                # # action 为 12 设置为 round_robin
+                # send_speculative_action(args.host, args.port, 12,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json",ucb_file_name=f"explore_ucb")
                 
-                run_benchmark(
-                    host=args.host,
-                    port=args.port,
-                    model=args.model,
-                    dataset_name=args.dataset_name,
-                    dataset_path=args.dataset_path,
-                    num_prompts=200,
-                    request_rate=30,
-                    result_dir=args.result_dir,
-                    strategy=args.strategy,
-                    text=benchmark_file_name,
-                    start_index=0,
-                    output_len=args.output_len,
-                    enable_trace="False",
-                    burstiness=args.burstiness
-                )
+                # run_benchmark(
+                #     host=args.host,
+                #     port=args.port,
+                #     model=args.model,
+                #     dataset_name=args.dataset_name,
+                #     dataset_path=args.dataset_path,
+                #     num_prompts=200,
+                #     request_rate=30,
+                #     result_dir=args.result_dir,
+                #     strategy=args.strategy,
+                #     text=benchmark_file_name,
+                #     start_index=0,
+                #     output_len=args.output_len,
+                #     enable_trace="False",
+                #     burstiness=args.burstiness
+                # )
                 # action 为 11 设置round_robin为False
                 send_speculative_action(args.host, args.port, 11,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json",ucb_file_name=f"explore_ucb")
                 
@@ -399,11 +404,14 @@ def main():
                 )
                 # 保存trace 文件
                 # send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json")
-                send_speculative_action(args.host, args.port, 10,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json",ucb_file_name=f"explore_ucb")
+                # send_speculative_action(args.host, args.port, 10,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json",ucb_file_name=f"explore_ucb")
             if sub_strategy == "ucb-offload":
                  # 设置sub_strategy为ucb
                 send_speculative_action(args.host, args.port, -1,strategy="ucb",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucboffload.json",offload=True,ucb_file_name=f"explore_ucb")
+                send_speculative_action(args.host, args.port, 15,strategy="ucb",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucboffload.json",offload=True,ucb_file_name=f"explore_ucb",select_strategy=args.select_strategy)
+                
                 if args.explore == "True":
+                    print("explore True")
                     send_speculative_action(args.host, args.port, 12,strategy="ucb",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucboffload.json",offload=True,ucb_file_name=f"explore_ucb")
                     run_benchmark(
                         host=args.host,
@@ -411,18 +419,23 @@ def main():
                         model=args.model,
                         dataset_name=args.dataset_name,
                         dataset_path=args.dataset_path,
-                        num_prompts=200,
-                        request_rate=30,
+                        num_prompts=args.num_prompts,
+                        request_rate=rate,
                         result_dir=args.result_dir,
                         strategy=args.strategy,
                         text=benchmark_file_name,
                         start_index=0,
                         output_len=args.output_len,
-                        enable_trace="False",
+                        enable_trace=args.enable_trace,
                         burstiness=args.burstiness
                     )
-                # action 为 11 设置round_robin为False
-                send_speculative_action(args.host, args.port, 11,strategy="ucb",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucboffload.json",offload=True,ucb_file_name=f"explore_ucb")
+                    # action 为 13 设置save explore_ucb
+                    send_speculative_action(args.host, args.port, 13,strategy="ucb",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucboffload.json",offload=True,ucb_file_name=f"explore_ucb")
+                    # action 为 14 设置load explore_ucb
+                    send_speculative_action(args.host, args.port, 14,strategy="ucb",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucboffload.json",offload=True,ucb_file_name=f"explore_ucb")
+                    print("explore True 2")
+                # action 为 11 设置round robin为False
+                send_speculative_action(args.host, args.port, 11,strategy="ucb",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucboffload.json",offload=True,ucb_file_name=f"explore_ucb",select_strategy=args.select_strategy)
                 
                 run_benchmark(
                     host=args.host,
@@ -435,14 +448,63 @@ def main():
                     result_dir=args.result_dir,
                     strategy=args.strategy,
                     text=benchmark_file_name,
-                    start_index=start_index,
+                    start_index=args.start_index,
                     output_len=args.output_len,
                     enable_trace=args.enable_trace,
                     burstiness=args.burstiness
                 )
                 # 保存trace 文件
                 # send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json")
-                send_speculative_action(args.host, args.port, 10,strategy="ucb",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucboffload.json",offload=True,ucb_file_name=f"explore_ucb")
+                # send_speculative_action(args.host, args.port, 10,strategy="ucb",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucboffload.json",offload=True,ucb_file_name=f"explore_ucb")
+            if sub_strategy == "epsilon_greedy":
+                    # 设置sub_strategy为ucb
+                    send_speculative_action(args.host, args.port, -1,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"explore_epsilon_greedy")
+                    # action 15 设置选择的策略
+                    send_speculative_action(args.host, args.port, 15,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"explore_epsilon_greedy",select_strategy=args.select_strategy)
+                    
+                    if args.explore == "True":
+                        print("explore True")
+                        send_speculative_action(args.host, args.port, 12,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"explore_epsilon_greedy")
+                        run_benchmark(
+                            host=args.host,
+                            port=args.port,
+                            model=args.model,
+                            dataset_name=args.dataset_name,
+                            dataset_path=args.dataset_path,
+                            num_prompts=args.num_prompts,
+                            request_rate=rate,
+                            result_dir=args.result_dir,
+                            strategy=args.strategy,
+                            text=benchmark_file_name,
+                            start_index=0,
+                            output_len=args.output_len,
+                            enable_trace=args.enable_trace,
+                            burstiness=args.burstiness
+                        )
+                        # action 为 13 设置save explore_ucb
+                        send_speculative_action(args.host, args.port, 13,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"epsilon_greedy")
+                        # action 为 14 设置load explore_ucb
+                        send_speculative_action(args.host, args.port, 14,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"epsilon_greedy")
+                        print("explore True 2")
+                    # action 为 11 设置round robin为False
+                    send_speculative_action(args.host, args.port, 11,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"epsilon_greedy",select_strategy=args.select_strategy)
+                    
+                    run_benchmark(
+                        host=args.host,
+                        port=args.port,
+                        model=args.model,
+                        dataset_name=args.dataset_name,
+                        dataset_path=args.dataset_path,
+                        num_prompts=args.num_prompts,
+                        request_rate=rate,
+                        result_dir=args.result_dir,
+                        strategy=args.strategy,
+                        text=benchmark_file_name,
+                        start_index=args.start_index,
+                        output_len=args.output_len,
+                        enable_trace=args.enable_trace,
+                        burstiness=args.burstiness
+                    )
     finally:
         # 在 finally 里
         server_process.send_signal(signal.SIGINT)

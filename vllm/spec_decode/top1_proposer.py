@@ -4,13 +4,42 @@ from typing import List, Optional, Set, Tuple
 
 import torch
 import heapq
+import numpy as np
 from vllm.model_executor.layers.sampler import SamplerOutput
 from vllm.sequence import ExecuteModelRequest, SequenceGroupMetadata
 from vllm.spec_decode.interfaces import (SpeculativeProposals,
                                          SpeculativeProposer)
 from vllm.spec_decode.proposer_worker_base import ProposerWorkerBase
 from vllm.spec_decode.util import sampler_output_to_torch
+from vllm.spec_decode.interfaces import SpeculativeProposals
+from torch_scatter import scatter_max
 
+def select_proposals_no_priority(capacity: int, proposals: SpeculativeProposals) -> SpeculativeProposals:
+    
+    drafts_values = torch.gather(proposals.proposal_probs, dim=-1, index=proposals.proposal_token_ids.unsqueeze(-1)).squeeze(-1)
+    drafts_values = drafts_values.cumsum(dim=-1)
+    drafts_values_flatten = drafts_values.flatten()
+    _, best_indices = torch.topk(drafts_values_flatten, capacity, largest=True)
+    indices = best_indices // drafts_values.size(1)
+    vals = (best_indices % drafts_values.size(1)) + 1
+    best_frontier, _  = scatter_max(vals, indices, dim_size=proposals.proposal_lens.size(0))
+    proposals.proposal_lens = best_frontier
+    return proposals
+
+def select_by_threshold(capacity: int, proposals: SpeculativeProposals, threshold: float) -> SpeculativeProposals:
+    # 1. 计算每行是否满足阈值条件
+    drafts_values = torch.gather(proposals.proposal_probs, dim=-1, index=proposals.proposal_token_ids.unsqueeze(-1)).squeeze(-1)
+    # print("drafts_values1",drafts_values)
+    mask = drafts_values > threshold  # shape: [n_rows, n_cols]
+    
+    # 2. 计算连续True的累积乘积（一旦遇到False，后续全为0）
+    cumprod_mask = mask.cumprod(dim=-1)
+    
+    # 3. 找到每行最后一个1的位置（即最后一个连续True的列索引）
+    best_frontier = cumprod_mask.sum(dim=-1)  # 因为cumprod遇到False会变0，sum就是最后一个True的位置
+    # print("best_frontier",best_frontier)
+    proposals.proposal_lens = best_frontier
+    return proposals
 
 class Top1Proposer(SpeculativeProposer):
     """Helper class which separates out sequences which would exceed the max
@@ -40,11 +69,14 @@ class Top1Proposer(SpeculativeProposer):
         self._device = device
         self.max_proposal_len = max_proposal_len
         self._vocab_size = vocab_size
+        self.threshold_times = 0
 
+    
     def get_spec_proposals(
         self,
         execute_model_req: ExecuteModelRequest,
         seq_ids_with_bonus_token_in_last_step: Set[int],
+        select_strategy = None
     ) -> SpeculativeProposals:
         """Get speculative proposals given the input batch.
 
@@ -81,44 +113,7 @@ class Top1Proposer(SpeculativeProposer):
                 seq_ids_with_bonus_token_in_last_step=\
                     seq_ids_with_bonus_token_in_last_step,
             )
-            # print("maybe_sampler_output",maybe_sampler_output[0].sampled_token_probs)
-            # print("maybe_sampler_output",torch.unique(maybe_sampler_output[0].sampled_token_probs))
-            # sampled_token_probs shape: [batch_size, vocab_size]
-            # 这块虽然有一点点时间损失，但不是主要原因
-            # batch_size = maybe_sampler_output[0].sampled_token_probs.shape[0]
-            # steps_num = proposal_len
-            # budget = batch_size * (steps_num)
-            # # 初始化堆，用于存储候选token
-            # heap = []
-            # # 初始化被选中的token列表
-            # selected_tokens = [[0 for _ in range(proposal_len)] for _ in range(batch_size)]
-            # num_selected_tokens = [0 for _ in range(batch_size)]
-            # for i in range(batch_size):
-            #     probs = maybe_sampler_output[0].sampled_token_probs[i]
-            #     token_idx = maybe_sampler_output[0].sampled_token_ids[i] #torch.multinomial(probs, num_samples=1)
-            #     selected_probs = probs[token_idx].item()
-            #     heapq.heappush(heap, (-selected_probs, 0, i, token_idx))
-            # num_selected = 0
-            # while num_selected < budget:
-            #     if len(heap) == 0:
-            #         break
-            #     selected_probs, step_idx,req_idx, token_idx = heapq.heappop(heap)
-            #     org_selected_probs = -selected_probs
-            #     if org_selected_probs < 0.5:
-            #         break
-            #     selected_tokens[req_idx][step_idx] = token_idx
-            #     if step_idx < proposal_len - 1 :
-            #         probs = maybe_sampler_output[step_idx+1].sampled_token_probs[req_idx]
-            #         token_idx = maybe_sampler_output[step_idx+1].sampled_token_ids[req_idx] #torch.multinomial(probs, num_samples=1)
-            #         selected_probs = probs[token_idx].item()
-            #         #print("selected_probs",step_idx+1,req_idx,selected_probs)
-            #         heapq.heappush(heap, (-selected_probs, step_idx+1, req_idx, token_idx))
-            #         num_selected += 1
-            #         num_selected_tokens[req_idx] += 1
-            # # Clear the heap
-            # heap.clear()
-
-            # print("selected_tokens_num", num_selected_tokens)
+            
                
             (
                 proposal_lens,
@@ -155,7 +150,15 @@ class Top1Proposer(SpeculativeProposer):
                                          proposal_lens=proposal_lens,
                                          no_proposals=maybe_sampler_output
                                          is None)
-        # self.new_proposals_len = max(num_selected_tokens)
+        print("select_strategy",select_strategy)
+        if select_strategy == "capacity" and proposal_len > 1:
+            capacity = int((proposal_len - 1) * len(execute_model_req.seq_group_metadata_list))
+            proposals = select_proposals_no_priority(capacity=capacity, proposals=proposals)
+        if select_strategy == "threshold" and self.threshold_times < 100 and len(execute_model_req.seq_group_metadata_list) > 30:
+            self.threshold_times += 1
+            capacity = int((proposal_len) * len(execute_model_req.seq_group_metadata_list))
+            proposals = select_by_threshold(capacity=proposal_len, proposals=proposals, threshold=0.4)#select_proposals_no_priority(capacity=capacity, proposals=proposals)
+
         return proposals
 
     def _split_by_proposal_len(
@@ -177,6 +180,7 @@ class Top1Proposer(SpeculativeProposer):
             # (e.g. due to high traffic) or this is a prompt request.
             if (seq_group_metadata.is_prompt
                     or seq_group_metadata.num_speculative_tokens == 0):
+                
                 proposal_lens.append(0)
                 continue
 

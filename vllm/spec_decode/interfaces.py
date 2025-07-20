@@ -75,6 +75,7 @@ class SpeculativeProposer(ABC):
         # If set, this contains all sequence IDs that were assigned
         # bonus tokens in their last forward pass.
         seq_ids_with_bonus_token_in_last_step: Set[int],
+        select_strategy: str = None
     ) -> SpeculativeProposals:
         raise NotImplementedError
 

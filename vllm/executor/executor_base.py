@@ -316,6 +316,9 @@ class ExecutorBase(ABC):
     def end_thinking(self):
         return self.collective_rpc("end_thinking")
     
+    def change_select_strategy(self,select_strategy):
+        return self.collective_rpc("change_select_strategy", kwargs=dict(select_strategy=select_strategy))
+    
     
 class DistributedExecutorBase(ExecutorBase):
     """Abstract superclass of distributed executor implementations."""

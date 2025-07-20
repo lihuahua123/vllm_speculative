@@ -4,6 +4,7 @@ from vllm.sequence import (ExecuteModelRequest, SequenceData,
                            SequenceGroupMetadata, get_all_seq_ids)
 from vllm.spec_decode.interfaces import (SpeculativeProposals,
                                          SpeculativeScorer, SpeculativeScores)
+import time
 
 SeqId = int
 TargetSeqId = int
@@ -68,8 +69,12 @@ class MQAScorer(SpeculativeScorer):
                 seq_group_metadata_list=target_seq_group_metadata_list))
 
         target_sampler_output = target_sampler_output[0]
-
         k = execute_model_req.num_lookahead_slots
+        print("all_proposal_lengths",all_proposal_lengths,k)
+        # # 判断 all_proposal_lengths 是否所有值都相同
+        all_equal = all(x == all_proposal_lengths[0] for x in all_proposal_lengths)
+        # if all_equal:
+        #     k = all_proposal_lengths[0]
         bs = len(execute_model_req.seq_group_metadata_list)
         target_token_ids = target_sampler_output.sampled_token_ids
         target_probs = target_sampler_output.sampled_token_probs
@@ -79,6 +84,7 @@ class MQAScorer(SpeculativeScorer):
         # If all requests have the same number of query tokens, we can avoid
         # the for loop to build output for better performance.
         if min(all_proposal_lengths) == k:
+            time_begin = time.time()
             # Regular decodes only.
             assert all(not sg.is_prompt
                        for sg in target_seq_group_metadata_list
@@ -87,7 +93,10 @@ class MQAScorer(SpeculativeScorer):
             all_tokens = target_token_ids.reshape(bs, k + 1)
             all_probs = target_probs.reshape(bs, k + 1, self._vocab_size)
             all_logprobs = target_logprobs.reshape(bs, k + 1, self._vocab_size)
+            time_end = time.time()
+            print("all == k time_end - time_begin",time_end - time_begin)
         else:
+            time_begin = time.time()
             # We either have decodes with different lens or prefill+decodes.
             all_tokens = target_token_ids.new_full(size=(bs, k + 1),
                                                    fill_value=-1)
@@ -146,6 +155,9 @@ class MQAScorer(SpeculativeScorer):
                     i, :output_len] = target_logprobs[start_loc:end_loc]
                 start_loc = end_loc
                 i += 1
+            
+            time_end = time.time()
+            print("all != k time_end - time_begin",time_end - time_begin)
 
         hidden_states = None
         if target_sampler_output.hidden_states is not None:

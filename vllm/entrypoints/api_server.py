@@ -69,9 +69,10 @@ async def change_speculative_action(request: Request) -> Response:
     strategy = request_dict.pop("strategy", None)
     offload = request_dict.pop("offload", False)
     ucb_file_name = request_dict.pop("ucb_file_name", None)
+    select_strategy = request_dict.pop("select_strategy", None)
     assert engine is not None
    
-    engine.change_speculative_action(action,strategy,save_action_time_history, profile,file_name, offload,ucb_file_name)
+    engine.change_speculative_action(action,strategy,save_action_time_history, profile,file_name, offload,ucb_file_name,select_strategy)
     return Response(status_code=200)
 
 @with_cancellation
