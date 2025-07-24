@@ -385,9 +385,13 @@ async def benchmark(
         # for req in request_rate_list:
         #     input_requests_list.append(input_requests[start_index:start_index+req])
         #     start_index += req
+        # 这是ok的动态
+        # request_rate_list = [5,5,20]
+        # input_requests_list = [input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+120],input_requests[start_index+120:]]
         
-        request_rate_list = [5,5,20]
-        input_requests_list = [input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+120],input_requests[start_index+120:]]
+        request_rate_list = [5,25]
+        input_requests_list = [input_requests[start_index:start_index+100],input_requests[start_index+100:start_index+300]]
+ 
         # input_requests_list = [input_requests[start_index+120:]]
         # request_rate_list = [2,5,5,25]
         # input_requests_list = [input_requests[start_index:start_index+20],

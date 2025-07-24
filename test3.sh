@@ -1,20 +1,21 @@
 #python run_benchmark_tests.py --strategy ilp --sub-strategy ngram --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B         --dataset-name sharegpt         --dataset-path /data/sharegpt.json   --num-prompts 442 --request-rate 10 1>> a120new.log 2>> a120new_error.log 
-NUM_PROMPTS=200
+NUM_PROMPTS=300
 PROMPT_RATE=5
-FILE_NAME=dynamic_alpaca_llama3_tiaojiao32.log #  134 是100 sharegpt 136 是 $NUM_PROMPTS sharegpt
+FILE_NAME=dynamic_alpaca_llama3_tiaojiao49.log #  134 是100 sharegpt 136 是 $NUM_PROMPTS sharegpt
 SPECULATIVE_LEN=2
 START_INDEX=0
-ENABLE_TRACE="False"
+ENABLE_TRACE="True"
+SAVE_TRACE="True"
 num_gpu_blocks_override=4800 #26064 #9369 #A600 50% #4800 4090 # deep A6000 26064 llama8b A6000 xxx  通过下面命令行得到
 gpu_memory_utilization=0.85
 # python -m vllm.entrypoints.openai.api_server  --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B --gpu-memory-utilization 0.85 --speculative-model [ngram] --ngram_prompt_lookup_max 4 --num-speculative-tokens 4 --enforce-eager  --no-enable-prefix-caching --max-model-len 3000
 rm -rf $FILE_NAME
-data_set_name=sharegpt
-data_set_path=/data/sharegpt.json # $data_set_path
+# data_set_name=sharegpt
+# data_set_path=/data/sharegpt.json # $data_set_path
 # data_set_name=specbench    #--dataset-path tatsu-lab/alpaca
 # data_set_path=./question_shuffled.jsonl # $data_set_path
-# data_set_name=alpaca
-# data_set_path=tatsu-lab/alpaca
+data_set_name=alpaca
+data_set_path=tatsu-lab/alpaca
 burstiness=1.0
 # output_len=256 # 
 #model_name=/root/autodl-tmp/deepseek 
@@ -25,29 +26,31 @@ draft_model_name=/data/model/DeepSeek-R1-DRAFT-Qwen2.5-0.5B
 #/data/model/DeepSeek-R1-DRAFT-Qwen2.5-0.5B
 for i in 1 # 2 3 4 5
 do
-    for PROMPT_RATE in  25 # 10 15 # 20 25 #0.5 2 5 10
+    for PROMPT_RATE in  5 # 24 # 6 8 10 12 14 # 10 15 # 20 25 #0.5 2 5 10
     do
         # if [ $PROMPT_RATE -eq 5 ]; then
         #     explore="True"
         # else
         explore="False"
         # fi
-        #python run_benchmark_tests.py --strategy ilp --sub-strategy daspec --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len $SPECULATIVE_LEN --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
-        #sleep 3
-        python run_benchmark_tests.py --strategy ilp --sub-strategy epsilon_greedy  --explore $explore --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 3 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
+        # sleep 3
+        python run_benchmark_tests.py --strategy ilp --sub-strategy epsilon_greedy  --explore $explore --save-trace $SAVE_TRACE --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 3 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
         
-        python run_benchmark_tests.py --strategy ilp --sub-strategy ucb --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 3 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
-        python run_benchmark_tests.py --strategy ilp --sub-strategy smart_spec --explore $explore --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 3 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
+        python run_benchmark_tests.py --strategy ilp --sub-strategy ucb --explore $explore --save-trace $SAVE_TRACE --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 3 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
+        python run_benchmark_tests.py --strategy ilp --sub-strategy smart_spec --explore $explore --save-trace $SAVE_TRACE --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 3 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
+        python run_benchmark_tests.py --strategy ilp --sub-strategy threshold --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 3 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
         
-        python run_benchmark_tests.py --strategy ilp --sub-strategy deep --select-strategy capacity --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 3 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
+        python run_benchmark_tests.py --strategy ilp --sub-strategy deep --select-strategy capacity --save-trace $SAVE_TRACE --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 3 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
         
-        python run_benchmark_tests.py --strategy ilp --sub-strategy deep --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 1 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
+        python run_benchmark_tests.py --strategy ilp --sub-strategy deep --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 1 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
         
-        python run_benchmark_tests.py --strategy ilp --sub-strategy deep --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 3 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
+        # python run_benchmark_tests.py --strategy ilp --sub-strategy deep --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 2 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
+       
+        python run_benchmark_tests.py --strategy ilp --sub-strategy deep --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 3 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
         
-        # python run_benchmark_tests.py --strategy ilp --sub-strategy deep --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 5 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
+        # python run_benchmark_tests.py --strategy ilp --sub-strategy deep --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 5 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
         
-        python run_benchmark_tests.py --strategy ilp --sub-strategy nospec --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len $SPECULATIVE_LEN --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
+        python run_benchmark_tests.py --strategy ilp --sub-strategy nospec --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len $SPECULATIVE_LEN --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
         
         # sleep 3
         # python run_benchmark_tests.py --strategy ilp --sub-strategy smart_spec --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len $SPECULATIVE_LEN --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME

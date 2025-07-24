@@ -867,7 +867,7 @@ class Scheduler:
                     ret.prefill_seq_groups_list.append(seq_group)
                 else:
                     # if skip the proposal then continue skip the proposal
-                    if self.need_disable_spec:
+                    if self.need_disable_spec and (self.epsilon_greedy_spec is not None or self.smart_spec is not None):
                         seq_group.skip_neural_net_proposer_step_num += 1
                     scheduled_seq_group.token_chunk_size = 1
                     decode_seq_groups.append(scheduled_seq_group)

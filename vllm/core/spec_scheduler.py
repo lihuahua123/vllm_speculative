@@ -2183,9 +2183,21 @@ class EpsilonGreedySpecSimple:
         
         # 定义投机长度候选值
         self.spec_lengths = np.linspace(0, max_spec_length, K, dtype=int)
+        self.prior_weights = np.ones((200,self.K))
+        for context in range(200):
+            for arm_idx in range(self.K):
+                # 小context时，大臂权重更高；大context时，小臂权重更高
+                if context < 60:  # 小流量
+                    # 大臂权重更高：arm_idx越大，权重越大
+                    self.prior_weights[context][arm_idx] = 1.0 + 0.5 #arm_idx / self.K
+                    self.prior_weights[context][0] = 0
+                elif context > 80:  # 大流量
+                    # 小臂权重更高：arm_idx越小，权重越大
+                    self.prior_weights[context][arm_idx] = 1.0 + (self.K - arm_idx) / self.K
+                else:  # 中等流量，平衡策略
+                    self.prior_weights[context][arm_idx] = 1.0 + 0.5
+                    self.prior_weights[context][0] = 0
         
-        # print(f"EpsilonGreedySpec initialized: K={K}, L={max_spec_length}, context_bins={context_bins}, epsilon={epsilon}")
-
     def _get_context_bin(self, context: int) -> int:
         """
         将连续上下文（请求量）映射到离散的bin索引
@@ -2226,6 +2238,7 @@ class EpsilonGreedySpecSimple:
         self.arm_stats['avg_rewards'][arm_idx, context_bin] = (
             self.arm_stats['sum_rewards'][arm_idx, context_bin] / n
         )
+        
 
     def get_delta(self, context):
         # 使用sigmoid实现60附近的平滑过渡
@@ -2243,50 +2256,29 @@ class EpsilonGreedySpecSimple:
         Returns:
             选择的投机长度索引
         """
-        context_bin = self._get_context_bin(context)
+        
+        context_bin = context #self._get_context_bin(context)
         epsilon = min(
             self.epsilon, 
             1.0 / np.sqrt(self.bin_pulls[context_bin] + 1)
         )
+        
         # 上下文敏感调整（小流量多探索，大流量少探索）
-        if context < 20:
-            epsilon = epsilon * 1.5
-        elif context > 80:
-            epsilon = epsilon * 0.5
-        else:
-            epsilon = epsilon
+        epsilon = epsilon * 0.5
         
-        
-        # 1. 基于先验知识的多臂老虎机策略
-        # 利用已知规律：流量越大，选择的臂要越小
-        
-        # 2. 计算基于先验知识的权重
-        prior_weights = np.ones(self.K)
-        for arm_idx in range(self.K):
-            # 小context时，大臂权重更高；大context时，小臂权重更高
-            if context < 20:  # 小流量
-                # 大臂权重更高：arm_idx越大，权重越大
-                prior_weights[arm_idx] = 1.0 + 0.5
-                prior_weights[0] = 0
-            elif context > 80:  # 大流量
-                # 小臂权重更高：arm_idx越小，权重越大
-                prior_weights[arm_idx] = 1.0 + (self.K - arm_idx) / self.K
-            else:  # 中等流量，平衡策略
-                prior_weights[arm_idx] = 1.0 + 0.5
-                prior_weights[0] = 0
         
         # 3. 检查探索状态
-        total_pulls = np.sum(self.arm_stats['n'][:, context_bin])
-        min_exploration = self.K * 2  # 每个arm至少探索2次
+        total_pulls =self.bin_pulls[context_bin]
+        min_exploration = self.K  # 每个arm至少探索2次
         
         # 4. 结合先验知识和历史数据的策略
-        if (np.random.random() < self.epsilon or total_pulls < min_exploration) and context < 100:
+        if (np.random.random() < epsilon or total_pulls < min_exploration) and context < 80:
             # 探索阶段：结合先验知识和未探索程度
             exploration_probs = np.ones(self.K)
             for arm_idx in range(self.K):
                 # 基础概率 = 先验权重
-                base_prob = prior_weights[arm_idx]
-                # 未充分探索的arm获得额外概率
+                base_prob = self.prior_weights[context_bin][arm_idx]
+                # # 未充分探索的arm获得额外概率
                 if self.arm_stats['n'][arm_idx, context_bin] < 2:
                     base_prob *= 2.0
                 exploration_probs[arm_idx] = base_prob
@@ -2294,12 +2286,9 @@ class EpsilonGreedySpecSimple:
             exploration_probs = exploration_probs / np.sum(exploration_probs)
             selected_arm = np.random.choice(self.K, p=exploration_probs)
             
-            print(f"Prior-Guided Exploration: context={context}, "
-                  f"prior_weights={prior_weights}, "
-                  f"exploration_probs={exploration_probs}, "
-                  f"selected_arm={selected_arm}")
         else:
             # 利用阶段：结合先验知识和历史奖励
+            # time_start = time.time()  # 删除这行重复赋值
             avg_rewards = self.arm_stats['avg_rewards'][:, context_bin]
             
             # 计算综合得分：历史奖励 + 先验知识加成
@@ -2307,21 +2296,22 @@ class EpsilonGreedySpecSimple:
             for arm_idx in range(self.K):
                 if self.arm_stats['n'][arm_idx, context_bin] > 0:
                     # 有历史数据：历史奖励 + 先验知识加成
-                    combined_scores[arm_idx] = avg_rewards[arm_idx] + prior_weights[arm_idx] * 0.1
+                    combined_scores[arm_idx] = avg_rewards[arm_idx] + self.prior_weights[context_bin][arm_idx] * 0.1
                 else:
                     # 无历史数据：仅基于先验知识
-                    combined_scores[arm_idx] = prior_weights[arm_idx] * 0.5
+                    combined_scores[arm_idx] = self.prior_weights[context_bin][arm_idx] * 0.5
             
             selected_arm = np.argmax(combined_scores)
-            
-            print(f"Prior-Guided Exploitation: context={context}, "
-                  f"avg_rewards={avg_rewards}, "
-                  f"combined_scores={combined_scores}, "
-                  f"selected_arm={selected_arm}")
+            # print(f"Prior-Guided Exploitation time: {end_time - begin_time}")
+            # print(f"Prior-Guided Exploitation: context={context}, "
+            #       f"avg_rewards={avg_rewards}, "
+            #       f"combined_scores={combined_scores}, "
+            #       f"selected_arm={selected_arm}")
         
         # 4. 更新选择历史
         self.last_selected_arm[context] = selected_arm
         self.bin_pulls[context_bin] += 1
+
         return selected_arm
     def select_arm4(self, context: int, current_qps: float = None) -> int:
         """

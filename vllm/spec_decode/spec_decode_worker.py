@@ -520,8 +520,9 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         for sgm in execute_model_req.seq_group_metadata_list:
             all_prompt = all_prompt and sgm.is_prompt
             atleast_one_prompt = atleast_one_prompt or sgm.is_prompt
-            
-            if sgm.skip_neural_net_proposer_step_num > 0:
+            # if self.need_disable_spec:
+            # seq_group.skip_neural_net_proposer_step_num += 1
+            if sgm.skip_neural_net_proposer_step_num > 20:
                 sgm.num_speculative_tokens = 0
                 has_skip_neural_net_proposer_step_num = True
             
