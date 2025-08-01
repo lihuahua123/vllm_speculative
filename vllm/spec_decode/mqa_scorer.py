@@ -70,7 +70,7 @@ class MQAScorer(SpeculativeScorer):
 
         target_sampler_output = target_sampler_output[0]
         k = execute_model_req.num_lookahead_slots
-        print("all_proposal_lengths",all_proposal_lengths,k)
+        # print("all_proposal_lengths",all_proposal_lengths,k)
         # # 判断 all_proposal_lengths 是否所有值都相同
         all_equal = all(x == all_proposal_lengths[0] for x in all_proposal_lengths)
         # if all_equal:

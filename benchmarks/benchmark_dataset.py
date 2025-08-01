@@ -560,7 +560,7 @@ class BurstGPTDataset(BenchmarkDataset):
                 ))
         return samples
 
-    
+
 class HuggingFaceAlpacaDataset(BenchmarkDataset):
     """
     Dataset class for processing a HuggingFace dataset with conversation data
@@ -609,11 +609,12 @@ class HuggingFaceAlpacaDataset(BenchmarkDataset):
             input = item["input"]
             completion = item["output"]
 
-            prompt_ids = tokenizer(system_prompt  + prompt + " " + input).input_ids
+            prompt_ids = tokenizer(system_prompt + prompt + " " +
+                                   input).input_ids
             completion_ids = tokenizer(completion).input_ids
             prompt_len = len(prompt_ids)
             completion_len = len(completion_ids)
-            output_len = completion_len if dynamic_output else output_len
+            output_len = completion_len + 200 if dynamic_output else output_len
             assert isinstance(output_len, int) and output_len > 0
             if dynamic_output and not is_valid_sequence(
                     prompt_len, completion_len, max_prompt_len=6000):
@@ -626,6 +627,7 @@ class HuggingFaceAlpacaDataset(BenchmarkDataset):
                 # actual prompt len and output len
                 prompt = self.apply_multimodal_chat_transformation(
                     prompt, mm_content)
+            # print("output_len",output_len)
             sampled_requests.append(
                 SampleRequest(
                     prompt=prompt,
@@ -635,8 +637,8 @@ class HuggingFaceAlpacaDataset(BenchmarkDataset):
                 ))
         self.maybe_oversample_requests(sampled_requests, num_requests)
         return sampled_requests
-    
-    
+
+
 class SpecBenchDataset(BenchmarkDataset):
     """
     Dataset class for processing a HuggingFace dataset with conversation data
@@ -690,7 +692,7 @@ class SpecBenchDataset(BenchmarkDataset):
                 ))
         self.maybe_oversample_requests(sampled_requests, num_requests)
         return sampled_requests
-    
+
 # -----------------------------------------------------------------------------
 # HuggingFace Dataset Implementation
 # -----------------------------------------------------------------------------
@@ -800,7 +802,7 @@ class VisionArenaDataset(HuggingFaceDataset):
         super().__init__(**kwargs)
         if self.dataset_path != self.VISION_ARENA_DATASET_PATH:
             raise ValueError(f"Only support Vision Arena dataset.\
-                    This data path {self.dataset_path} is not valid.")
+                    This data path {self.dataset_path} is not valid."                                                                                                                                          )
         if self.dataset_subset is None and self.dataset_split != "train":
             raise ValueError("Dataset split must be 'train'.")
 

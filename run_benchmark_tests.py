@@ -12,16 +12,24 @@ import psutil
 import json
 from typing import List, Tuple
 
-def check_server_health(host: str, port: int, server_process: subprocess.Popen, max_retries: int = 30, retry_interval: int = 5) -> bool:
+
+def check_server_health(host: str,
+                        port: int,
+                        server_process: subprocess.Popen,
+                        max_retries: int = 30,
+                        retry_interval: int = 5) -> bool:
     """检查服务器是否健康运行"""
     url = f"http://{host}:{port}/health"
     for i in range(max_retries):
         # 首先检查进程是否还在运行
         if not check_server_process_alive(server_process):
             return False
-            
+
         try:
-            response = requests.get(url, timeout=10)
+            # 创建一个会话对象，显式禁用所有代理
+            session = requests.Session()
+            session.trust_env = False  # 不使用环境变量中的代理设置
+            response = session.get(url, timeout=10, proxies={})
             if response.status_code == 200:
                 print(f"服务器健康检查通过，尝试次数: {i+1}")
                 return True
@@ -41,27 +49,27 @@ def check_server_process_alive(process: subprocess.Popen) -> bool:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="运行vLLM服务器并执行多个请求率的基准测试")
-    
+
     # 服务器参数
     parser.add_argument("--model", type=str, required=True, help="要测试的模型名称或路径")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="服务器主机地址")
     parser.add_argument("--port", type=int, default=8010, help="服务器端口")
-    
+
     # 基准测试参数
-    parser.add_argument("--dataset-name", type=str, default="sharegpt", 
+    parser.add_argument("--dataset-name", type=str, default="sharegpt",
                         choices=["sharegpt", "burstgpt", "sonnet", "random", "hf", "alpaca","specbench"],
                         help="基准测试数据集名称")
     parser.add_argument("--dataset-path", type=str, required=True, help="数据集路径")
     parser.add_argument("--num-prompts", type=int, default=100, help="测试的提示数量")
     parser.add_argument("--result-dir", type=str, default="benchmark_results", help="结果保存目录")
-    
+
     # 请求率参数
-    parser.add_argument("--request-rates", type=float, nargs="+", default=[8], 
+    parser.add_argument("--request-rates", type=float, nargs="+", default=[8],
                        help="要测试的请求率列表")
-    
-    parser.add_argument("--strategy", type=str, default="baseline", 
+
+    parser.add_argument("--strategy", type=str, default="baseline",
                         choices=["baseline", "ilp", "no-spec"], help="策略名称")
-    parser.add_argument("--sub-strategy", type=str, default="ngram", 
+    parser.add_argument("--sub-strategy", type=str, default="ngram",
                         choices=["ngram", "deep", "nospec", "daspec", "smart_spec", "threshold","ucb","ucb-offload","epsilon_greedy"], help="子策略名称")
     parser.add_argument("--speculative-len", type=int, default=1, help="speculative长度")
     parser.add_argument("--draft-model", type=str, default="", help="draft模型")
@@ -81,7 +89,7 @@ def parse_args():
 def start_server(model, host, port, strategy,sub_strategy,draft_model,speculative_len=1,num_gpu_blocks_override=28845,gpu_memory_utilization=0.85):
     """启动vLLM服务器"""
     print(f"正在启动vLLM服务器，模型: {model}, 地址: {host}:{port}...")
-    
+
     num_gpu_blocks_override = num_gpu_blocks_override #2140 4090 0.75 mem #4800 4090 0.85 mem #28845 a6000
 
     # 设置环境变量
@@ -121,7 +129,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     server_process = subprocess.Popen(exec_cmd, env=my_env)
     # 等待服务器启动
     print("等待服务器启动...")
-    
+
     # 使用健康检查而不是固定等待时间
     if check_server_health(host, port, server_process):
         print("服务器启动成功！")
@@ -129,14 +137,14 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
         print("服务器启动失败或超时")
         server_process.terminate()
         raise RuntimeError("服务器启动失败")
-   
+
     return server_process
 
-def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts, 
+def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
                  request_rate, result_dir, strategy, text, start_index=0,output_len=-1,enable_trace="False",burstiness=1.0):
     """运行单个请求率的基准测试"""
     print(f"正在运行基准测试，strategy: {strategy}, 请求率: {request_rate} QPS...")
-    
+
     os.makedirs(result_dir, exist_ok=True)
     time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
     result_filename = f"benchmark_{text}_{dataset_name}_{num_prompts}_{request_rate}_{time_str}.json"
@@ -172,7 +180,7 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
     print(f"benchmark_cmd: {benchmark_cmd}")
     subprocess.run(benchmark_cmd)
     print(f"完成请求率为 {request_rate} QPS 的基准测试，结果保存在 {os.path.join(result_dir, result_filename)}")
-    
+
 def send_speculative_action(host, port, action,strategy="ilp",save_action_time_history=False, profile=False,file_name=None, offload=False,ucb_file_name=None,select_strategy=None):
     """向服务器发送speculative_action请求"""
     url = f"http://{host}:{port}/speculative_action"
@@ -181,12 +189,12 @@ def send_speculative_action(host, port, action,strategy="ilp",save_action_time_h
     # 创建一个会话对象，显式禁用所有代理
     session = requests.Session()
     session.trust_env = False  # 不使用环境变量中的代理设置
-    
+
     try:
         print(f"正在向 {url} 发送请求，action={action}...")
         # 使用会话发送请求，并明确设置proxies为空字典
         response = session.post(url, json=data, proxies={})
-        
+
         if response.status_code == 200:
             print(f"请求成功！响应状态码: {response.status_code}")
         else:
@@ -195,7 +203,7 @@ def send_speculative_action(host, port, action,strategy="ilp",save_action_time_h
     except Exception as e:
         print(f"发送请求时出错: {e}")
         return False
-    
+
     return response.status_code == 200
 
 def kill_child_processes(parent_pid):
@@ -211,7 +219,7 @@ def kill_child_processes(parent_pid):
             p.kill()
     except Exception as e:
         print(f"Error killing child processes: {e}")
-        
+
 def main():
     args = parse_args()
     print(f"args: {args}")
@@ -286,7 +294,7 @@ def main():
                     return
                 # action 15 设置选择的策略
                 send_speculative_action(args.host, args.port, 15,strategy="deep",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_deep.json",select_strategy=args.select_strategy)
-                    
+
                 time.sleep(5)
                 run_benchmark(
                         host=args.host,
@@ -374,7 +382,7 @@ def main():
                 # # action 为 12 设置为 round_robin
                 if args.explore == "True":
                     send_speculative_action(args.host, args.port, 12,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json",ucb_file_name=f"explore_ucb")
-                    
+
                     run_benchmark(
                         host=args.host,
                         port=args.port,
@@ -393,7 +401,7 @@ def main():
                     )
                 # action 为 11 设置round_robin为False
                 send_speculative_action(args.host, args.port, 11,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json",ucb_file_name=f"explore_ucb")
-                
+
                 run_benchmark(
                     host=args.host,
                     port=args.port,
@@ -415,58 +423,14 @@ def main():
                     send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json")
                 # send_speculative_action(args.host, args.port, 10,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json",ucb_file_name=f"explore_ucb")
             if sub_strategy == "epsilon_greedy":
-                    # 设置sub_strategy为ucb
-                    send_speculative_action(args.host, args.port, -1,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"explore_epsilon_greedy")
-                    # action 15 设置选择的策略
-                    send_speculative_action(args.host, args.port, 15,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"explore_epsilon_greedy",select_strategy=args.select_strategy)
-                    
-                    if args.explore == "True":
-                        print("explore True")
-                        send_speculative_action(args.host, args.port, 12,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"explore_epsilon_greedy")
-                        run_benchmark(
-                            host=args.host,
-                            port=args.port,
-                            model=args.model,
-                            dataset_name=args.dataset_name,
-                            dataset_path=args.dataset_path,
-                            num_prompts=args.num_prompts,
-                            request_rate=rate,
-                            result_dir=args.result_dir,
-                            strategy=args.strategy,
-                            text=benchmark_file_name,
-                            start_index=0,
-                            output_len=args.output_len,
-                            enable_trace=args.enable_trace,
-                            burstiness=args.burstiness
-                        )
-                        if args.save_trace == "True":
-                            send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy1.json")
-                        run_benchmark(
-                            host=args.host,
-                            port=args.port,
-                            model=args.model,
-                            dataset_name=args.dataset_name,
-                            dataset_path=args.dataset_path,
-                            num_prompts=args.num_prompts,
-                            request_rate=rate,
-                            result_dir=args.result_dir,
-                            strategy=args.strategy,
-                            text=benchmark_file_name,
-                            start_index=0,
-                            output_len=args.output_len,
-                            enable_trace=args.enable_trace,
-                            burstiness=args.burstiness
-                        )
-                        if args.save_trace == "True":
-                            send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy2.json")
-                        # action 为 13 设置save explore_ucb
-                        send_speculative_action(args.host, args.port, 13,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"epsilon_greedy")
-                        # action 为 14 设置load explore_ucb
-                        send_speculative_action(args.host, args.port, 14,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"epsilon_greedy")
-                        print("explore True 2")
-                    # action 为 11 设置round robin为False
-                    send_speculative_action(args.host, args.port, 11,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"epsilon_greedy",select_strategy=args.select_strategy)
-                    
+                # 设置sub_strategy为ucb
+                send_speculative_action(args.host, args.port, -1,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"explore_epsilon_greedy")
+                # action 15 设置选择的策略
+                send_speculative_action(args.host, args.port, 15,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"explore_epsilon_greedy",select_strategy=args.select_strategy)
+
+                if args.explore == "True":
+                    print("explore True")
+                    send_speculative_action(args.host, args.port, 12,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"explore_epsilon_greedy")
                     run_benchmark(
                         host=args.host,
                         port=args.port,
@@ -478,13 +442,57 @@ def main():
                         result_dir=args.result_dir,
                         strategy=args.strategy,
                         text=benchmark_file_name,
-                        start_index=args.start_index,
+                        start_index=0,
                         output_len=args.output_len,
                         enable_trace=args.enable_trace,
                         burstiness=args.burstiness
                     )
                     if args.save_trace == "True":
-                        send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy3.json")
+                        send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy1.json")
+                    run_benchmark(
+                        host=args.host,
+                        port=args.port,
+                        model=args.model,
+                        dataset_name=args.dataset_name,
+                        dataset_path=args.dataset_path,
+                        num_prompts=args.num_prompts,
+                        request_rate=rate,
+                        result_dir=args.result_dir,
+                        strategy=args.strategy,
+                        text=benchmark_file_name,
+                        start_index=0,
+                        output_len=args.output_len,
+                        enable_trace=args.enable_trace,
+                        burstiness=args.burstiness
+                    )
+                    if args.save_trace == "True":
+                        send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy2.json")
+                    # action 为 13 设置save explore_ucb
+                    send_speculative_action(args.host, args.port, 13,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"epsilon_greedy")
+                    # action 为 14 设置load explore_ucb
+                    send_speculative_action(args.host, args.port, 14,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"epsilon_greedy")
+                    print("explore True 2")
+                # action 为 11 设置round robin为False
+                send_speculative_action(args.host, args.port, 11,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"epsilon_greedy",select_strategy=args.select_strategy)
+
+                run_benchmark(
+                    host=args.host,
+                    port=args.port,
+                    model=args.model,
+                    dataset_name=args.dataset_name,
+                    dataset_path=args.dataset_path,
+                    num_prompts=args.num_prompts,
+                    request_rate=rate,
+                    result_dir=args.result_dir,
+                    strategy=args.strategy,
+                    text=benchmark_file_name,
+                    start_index=args.start_index,
+                    output_len=args.output_len,
+                    enable_trace=args.enable_trace,
+                    burstiness=args.burstiness
+                )
+                if args.save_trace == "True":
+                    send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy3.json")
     finally:
         # 在 finally 里
         server_process.send_signal(signal.SIGINT)
@@ -496,5 +504,5 @@ def main():
             server_process.kill()
 
 if __name__ == "__main__":
-    main() 
+    main()
 #  python run_benchmark_tests.py --strategy ilp --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B         --dataset-name sharegpt         --dataset-path /data/sharegpt.json         --num-prompts 100 --request-rate 1

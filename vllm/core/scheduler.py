@@ -569,7 +569,13 @@ class Scheduler:
             self.daspec_spec = DASpecWithExploration(verify_model_profile, draft_model_profile, max_proposed_length=self.scheduler_config.num_lookahead_slots)
             # 不稳定 
             self.ucbspec = UCBSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
-            self.epsilon_greedy_spec = EpsilonGreedySpecSimple(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            # self.epsilon_greedy_spec = EpsilonGreedySpecSimple(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            self.epsilon_greedy_spec = ADABinGreedy(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            
+            # EpsilonGreedySpecSimple(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            # ADABinGreedy(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            
+            # EpsilonGreedySpecSimple(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
             # 总是差一点
             # self.ucbspec = UCBBinSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
             # 效果很差
