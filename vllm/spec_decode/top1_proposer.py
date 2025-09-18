@@ -150,7 +150,7 @@ class Top1Proposer(SpeculativeProposer):
                                          proposal_lens=proposal_lens,
                                          no_proposals=maybe_sampler_output
                                          is None)
-        print("select_strategy",select_strategy)
+        # print("select_strategy",select_strategy)
         if select_strategy == "capacity" and proposal_len > 1:
             capacity = int((proposal_len - 1) * len(execute_model_req.seq_group_metadata_list))
             proposals = select_proposals_no_priority(capacity=capacity, proposals=proposals)

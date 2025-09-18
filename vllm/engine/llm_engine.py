@@ -2279,7 +2279,6 @@ class LLMEngine:
             self.model_executor.increase_cache_blocks(increased_blocks)
             self.scheduler[virtual_engine].block_manager.increase_gpu_blocks(increased_blocks)
             self.scheduler[virtual_engine].block_manager.increase_usable_gpu_blocks(increased_blocks)
-            
         end_time = time.time()
         print(f"Time taken to increase block number: {end_time - start_time} seconds")
         return True

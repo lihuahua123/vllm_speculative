@@ -107,7 +107,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
         # "--ngram_prompt_lookup_max", "4",
         "--enforce-eager",
         "--no-enable-prefix-caching",
-        "--max-model-len", "3000",#"27432",
+        "--max-model-len", "2048",#"27432",
         # "--enable-chunked-prefill",
         # "--max_num_batched_tokens", "256",
         "--strategy", strategy,

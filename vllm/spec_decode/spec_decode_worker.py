@@ -1411,11 +1411,16 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         self.spec_decode_sampler.last_metrics = []
     
     def offload_proposer_worker(self):
+    
         if self.proposer_worker_to_cpu:
             return
         if not hasattr(self, 'old_proposer_worker') or self.old_proposer_worker is None:
             if hasattr(self.proposer_worker, 'model_runner') and hasattr(self.proposer_worker.model_runner, 'model'):
                 self.old_proposer_worker = self.proposer_worker
+                self.model = self.old_proposer_worker.model_runner.model
+            elif hasattr(self.proposer_worker, '_worker') and hasattr(self.proposer_worker._worker, 'worker') and hasattr(self.proposer_worker._worker.worker, 'model_runner') and hasattr(self.proposer_worker._worker.worker.model_runner, 'model'):
+                self.old_proposer_worker = self.proposer_worker._worker.worker  
+                self.model = self.old_proposer_worker.model_runner.model_runner.model       
             else:
                 return
 
@@ -1424,8 +1429,9 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         
         def move_model_to_cpu():
             try:
-                model = self.old_proposer_worker.model_runner.model
-                model.to("cpu", non_blocking=True)
+                # model = self.old_proposer_worker.model_runner.model
+                
+                self.model.to("cpu", non_blocking=True)
                 self.proposer_worker_on_cpu = True
                 logger.info(f"模型迁移到CPU完成，耗时: {time.time() - begin_time} 秒")
             except Exception as e:
@@ -1451,7 +1457,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
             start_time = time.time()
             def move_model_to_cuda():
                 self.event = torch.cuda.Event(enable_timing=False)
-                self.old_proposer_worker.model_runner.model.to("cuda", non_blocking=True)
+                self.model.to("cuda", non_blocking=True)
                 self.event.record()
             _global_executor.submit(move_model_to_cuda)
             end_time = time.time()

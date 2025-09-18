@@ -443,9 +443,8 @@ class _AsyncLLMEngine(LLMEngine):
             #if self.ilp_manager.offload and not self.ilp_manager.profile and (self.strategy == "daspec" or  self.strategy == "ucb" )and not scheduler_outputs.is_empty(): 
             #    if not (self.scheduler[virtual_engine].ucbspec is not None and self.scheduler[virtual_engine].ucbspec.round_robin):
             # if self.strategy != "nospec":
-            if self.strategy == "epsilon_greedy":
-                self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
-
+            # if self.strategy == "epsilon_greedy":
+            #     self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
 
@@ -497,8 +496,11 @@ class _AsyncLLMEngine(LLMEngine):
                     virtual_engine]
 
             # Execute the model.
+            begin_time = time.time()
             outputs = await self.model_executor.execute_model_async(
                 execute_model_req)
+            end_time = time.time()
+            print(f"execute_model_async time: {end_time - begin_time}")
             metrics = self.model_executor.get_speculative_metrics()[0]
             self.stage_data = metrics
             if self.ilp_manager.profile:

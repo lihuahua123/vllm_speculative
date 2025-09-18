@@ -94,7 +94,7 @@ class MQAScorer(SpeculativeScorer):
             all_probs = target_probs.reshape(bs, k + 1, self._vocab_size)
             all_logprobs = target_logprobs.reshape(bs, k + 1, self._vocab_size)
             time_end = time.time()
-            print("all == k time_end - time_begin",time_end - time_begin)
+            # print("all == k time_end - time_begin",time_end - time_begin)
         else:
             time_begin = time.time()
             # # We either have decodes with different lens or prefill+decodes.
