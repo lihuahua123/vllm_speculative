@@ -1784,7 +1784,7 @@ class Scheduler:
             print("ucb best_batch", len(seq_group_metadata_list), "best_proposed_lengths", best_proposed_lengths)
         if  is_decode and not self.profile and self.epsilon_greedy_spec is not None  and len(self.running) > 0 and not self.proposer_worker_to_cpu: 
             best_proposed_lengths = self.epsilon_greedy_spec.select_arm(len(seq_group_metadata_list),current_qps)
-            print("epsilon_greedy best_batch", len(seq_group_metadata_list), "best_proposed_lengths", best_proposed_lengths)
+            print("Nightjar best_batch", len(seq_group_metadata_list), "best_proposed_lengths", best_proposed_lengths)
             
         if  is_decode and not self.profile and self.daspec_spec is not None  and len(self.running) > 0 and not self.proposer_worker_to_cpu: 
             self.daspec_spec.change_prev_alphas(self.speculative_metrics_cache)

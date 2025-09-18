@@ -70,7 +70,7 @@ def parse_args():
     parser.add_argument("--strategy", type=str, default="baseline",
                         choices=["baseline", "ilp", "no-spec"], help="策略名称")
     parser.add_argument("--sub-strategy", type=str, default="ngram",
-                        choices=["ngram", "deep", "nospec", "daspec", "smart_spec", "threshold","ucb","ucb-offload","epsilon_greedy"], help="子策略名称")
+                        choices=["ngram", "deep", "nospec", "daspec", "smart_spec", "threshold","ucb","ucb-offload","Nightjar"], help="子策略名称")
     parser.add_argument("--speculative-len", type=int, default=1, help="speculative长度")
     parser.add_argument("--draft-model", type=str, default="", help="draft模型")
     parser.add_argument("--profile",action="store_true", help="是否开启profile")
@@ -422,15 +422,15 @@ def main():
                 if args.save_trace == "True":
                     send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json")
                 # send_speculative_action(args.host, args.port, 10,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json",ucb_file_name=f"explore_ucb")
-            if sub_strategy == "epsilon_greedy":
+            if sub_strategy == "Nightjar":
                 # 设置sub_strategy为ucb
-                send_speculative_action(args.host, args.port, -1,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"explore_epsilon_greedy")
+                send_speculative_action(args.host, args.port, -1,strategy="Nightjar",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_Nightjar.json",offload=True,ucb_file_name=f"explore_Nightjar")
                 # action 15 设置选择的策略
-                send_speculative_action(args.host, args.port, 15,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"explore_epsilon_greedy",select_strategy=args.select_strategy)
+                send_speculative_action(args.host, args.port, 15,strategy="Nightjar",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_Nightjar.json",offload=True,ucb_file_name=f"explore_Nightjar",select_strategy=args.select_strategy)
 
                 if args.explore == "True":
                     print("explore True")
-                    send_speculative_action(args.host, args.port, 12,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"explore_epsilon_greedy")
+                    send_speculative_action(args.host, args.port, 12,strategy="Nightjar",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_Nightjar.json",offload=True,ucb_file_name=f"explore_Nightjar")
                     run_benchmark(
                         host=args.host,
                         port=args.port,
@@ -448,7 +448,7 @@ def main():
                         burstiness=args.burstiness
                     )
                     if args.save_trace == "True":
-                        send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy1.json")
+                        send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_Nightjar1.json")
                     run_benchmark(
                         host=args.host,
                         port=args.port,
@@ -466,14 +466,14 @@ def main():
                         burstiness=args.burstiness
                     )
                     if args.save_trace == "True":
-                        send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy2.json")
+                        send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_Nightjar2.json")
                     # action 为 13 设置save explore_ucb
-                    send_speculative_action(args.host, args.port, 13,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"epsilon_greedy")
+                    send_speculative_action(args.host, args.port, 13,strategy="Nightjar",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_Nightjar.json",offload=True,ucb_file_name=f"Nightjar")
                     # action 为 14 设置load explore_ucb
-                    send_speculative_action(args.host, args.port, 14,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"epsilon_greedy")
+                    send_speculative_action(args.host, args.port, 14,strategy="Nightjar",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_Nightjar.json",offload=True,ucb_file_name=f"Nightjar")
                     print("explore True 2")
                 # action 为 11 设置round robin为False
-                send_speculative_action(args.host, args.port, 11,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"epsilon_greedy",select_strategy=args.select_strategy)
+                send_speculative_action(args.host, args.port, 11,strategy="Nightjar",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_Nightjar.json",offload=True,ucb_file_name=f"Nightjar",select_strategy=args.select_strategy)
 
                 run_benchmark(
                     host=args.host,
@@ -492,7 +492,7 @@ def main():
                     burstiness=args.burstiness
                 )
                 if args.save_trace == "True":
-                    send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy3.json")
+                    send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_Nightjar3.json")
     finally:
         # 在 finally 里
         server_process.send_signal(signal.SIGINT)

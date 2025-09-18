@@ -433,7 +433,7 @@ class _AsyncLLMEngine(LLMEngine):
             self.pass_stage_data = self.stage_data
             pre_disable = self.disable_speculative_decoding
 
-            if  not self.ilp_manager.profile and (self.strategy == "ucb" or self.strategy == "daspec"  or self.strategy == "smart_spec" or self.strategy == "epsilon_greedy")and \
+            if  not self.ilp_manager.profile and (self.strategy == "ucb" or self.strategy == "daspec"  or self.strategy == "smart_spec" or self.strategy == "Nightjar")and \
                 not scheduler_outputs.is_empty() and scheduler_outputs.num_prefill_groups == 0 and \
                 not self.proposer_worker_to_cpu:
                 if need_disable_spec:
@@ -443,7 +443,7 @@ class _AsyncLLMEngine(LLMEngine):
             #if self.ilp_manager.offload and not self.ilp_manager.profile and (self.strategy == "daspec" or  self.strategy == "ucb" )and not scheduler_outputs.is_empty(): 
             #    if not (self.scheduler[virtual_engine].ucbspec is not None and self.scheduler[virtual_engine].ucbspec.round_robin):
             # if self.strategy != "nospec":
-            # if self.strategy == "epsilon_greedy":
+            # if self.strategy == "Nightjar":
             #     self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
@@ -1453,27 +1453,27 @@ class AsyncLLMEngine(EngineClient):
         if action == 11:
             if strategy == "ucb":
                 self.engine.scheduler[virtual_engine].ucbspec.round_robin = False
-            elif strategy == "epsilon_greedy":
+            elif strategy == "Nightjar":
                 self.engine.scheduler[virtual_engine].epsilon_greedy_spec.round_robin = False
             self.engine.ilp_manager.offload = offload
             return
         elif action == 12:
             if strategy == "ucb":
                 self.engine.scheduler[virtual_engine].ucbspec.round_robin = True
-            elif strategy == "epsilon_greedy":
+            elif strategy == "Nightjar":
                 self.engine.scheduler[virtual_engine].epsilon_greedy_spec.round_robin = True
             self.engine.ilp_manager.offload = offload
             return
         elif action == 13:
             if strategy == "ucb":
                 self.engine.scheduler[virtual_engine].ucbspec.save_state(ucb_file_name)
-            elif strategy == "epsilon_greedy":
+            elif strategy == "Nightjar":
                 self.engine.scheduler[virtual_engine].epsilon_greedy_spec.save_state(ucb_file_name)
             return
         elif action == 14:
             if strategy == "ucb":
                 self.engine.scheduler[virtual_engine].ucbspec.load_state(ucb_file_name)
-            elif strategy == "epsilon_greedy":
+            elif strategy == "Nightjar":
                 self.engine.scheduler[virtual_engine].epsilon_greedy_spec.load_state(ucb_file_name)
             return
         
@@ -1501,7 +1501,7 @@ class AsyncLLMEngine(EngineClient):
                 self.engine.scheduler[virtual_engine].daspec_spec = None
                 self.engine.scheduler[virtual_engine].smart_spec = None
                 self.engine.scheduler[virtual_engine].epsilon_greedy_spec = None
-            elif strategy == "epsilon_greedy":
+            elif strategy == "Nightjar":
                 self.engine.scheduler[virtual_engine].daspec_spec = None
                 self.engine.scheduler[virtual_engine].smart_spec = None
                 self.engine.scheduler[virtual_engine].ucbspec = None
