@@ -296,17 +296,25 @@ class Top1Proposer(SpeculativeProposer):
         proposal_tokens, proposal_probs, *_ = sampler_output_to_torch(
             sampler_output, sampler_transposed)
 
+        # Truncate proposals to match proposal_len when depth is dynamically changed
+        # Medusa model may generate more tokens (num_heads) than proposal_len
+        if proposal_tokens.shape[1] > proposal_len:
+            proposal_tokens = proposal_tokens[:, :proposal_len]
+        if proposal_probs.shape[1] > proposal_len:
+            proposal_probs = proposal_probs[:, :proposal_len, :]
+       
         # Now, reformat the output GPU tensors such that each sequence has
         # a proposal. the proposal can be empty, e.g. [-1, -1, -1]
 
         entire_proposal_tokens = proposal_tokens.new_full(
-            size=(batch_size, *proposal_tokens.shape[1:]),
+            size=(batch_size, proposal_len),
             fill_value=-1,
         )
         entire_proposal_tokens[nonzero_proposal_len_indices] = proposal_tokens
         entire_proposal_probs = proposal_probs.new_zeros(
             batch_size,
-            *proposal_probs.shape[1:],
+            proposal_len,
+            self._vocab_size,
         )
         entire_proposal_probs[nonzero_proposal_len_indices] = proposal_probs
 

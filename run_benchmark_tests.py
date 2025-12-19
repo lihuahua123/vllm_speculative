@@ -107,7 +107,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
         # "--ngram_prompt_lookup_max", "4",
         "--enforce-eager",
         "--no-enable-prefix-caching",
-        "--max-model-len", "3000",#"27432",
+        "--max-model-len", "2048",#"27432",
         # "--enable-chunked-prefill",
         # "--max_num_batched_tokens", "256",
         "--strategy", strategy,
@@ -129,7 +129,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     server_process = subprocess.Popen(exec_cmd, env=my_env)
     # 等待服务器启动
     print("等待服务器启动...")
-
+    time.sleep(60)
     # 使用健康检查而不是固定等待时间
     if check_server_health(host, port, server_process):
         print("服务器启动成功！")

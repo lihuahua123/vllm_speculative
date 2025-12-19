@@ -2199,14 +2199,15 @@ class ADABinGreedy:
         for context in range(self.context_bins):
             for arm_idx in range(self.K):
                 if context < 60:  # 小流量
-                    self.prior_weights[context][
-                        arm_idx] = 1.0 + arm_idx / self.K
+                    self.prior_weights[context][arm_idx] = 0.5 #1.0 + 0.5
+                    # self.prior_weights[context][
+                    #     arm_idx] = 1.0 + arm_idx / self.K
                     self.prior_weights[context][0] = 0
                 elif context > 80:  # 大流量
                     self.prior_weights[context][arm_idx] = 1.0 + (
                         self.K - arm_idx) / self.K
                 else:  # 中等流量
-                    self.prior_weights[context][arm_idx] = 1.0 + 0.5
+                    self.prior_weights[context][arm_idx] = 0.5 #1.0 + 0.5
                     self.prior_weights[context][0] = 0
 
     def _get_context_bin(self, context: int) -> int:
@@ -2294,7 +2295,7 @@ class ADABinGreedy:
     def _get_exploration_prob(self, t: int) -> float:
         """动态调整探索概率μ_t ≈ t^(-1/3)"""
         epoch_time = t - self.epoch_start_time + 1
-        return min(1.0, (epoch_time)**(-1 / 3))
+        return min(1, (epoch_time)**(-1 / 3))
 
     def select_arm(self, context: int, current_qps: float = None) -> int:
         """
@@ -2304,20 +2305,21 @@ class ADABinGreedy:
         3. 动态调整探索概率
         4. 非平稳性检测触发重启
         """
+       
         self.total_rounds += 1
         t = self.total_rounds
         context_bin = context #self._get_context_bin(context)
 
         # === 1. 检查是否需要重启epoch ===
-        if self._nonstationarity_test(context):
-            self.current_epoch += 1
-            self.epoch_start_time = t
-            self.current_block = 1
-            self.current_bin = 1
-            self.bin_length = 1  # 重置bin长度
-            # 清空统计量（实际实现可能保留部分历史）
-            self.arm_stats['n'].fill(0)
-            self.arm_stats['sum_rewards'].fill(0)
+        # if self._nonstationarity_test(context):
+        #     self.current_epoch += 1
+        #     self.epoch_start_time = t
+        #     self.current_block = 1
+        #     self.current_bin = 1
+        #     self.bin_length = 1  # 重置bin长度
+        #     # 清空统计量（实际实现可能保留部分历史）
+        #     self.arm_stats['n'].fill(0)
+        #     self.arm_stats['sum_rewards'].fill(0)
 
         # === 2. 检查是否需要进入新block（指数增长）===
         if self.current_bin > self.bin_length:
@@ -2340,17 +2342,17 @@ class ADABinGreedy:
 
             explore_probs /= np.sum(explore_probs)
             selected_arm = np.random.choice(self.K, p=explore_probs)
+            # print(f"explore_probs")
         else:
             # 利用阶段：选择历史表现最好的arm（带先验调整）
             combined_scores = np.zeros(self.K)
-            for arm_idx in range(self.K):
+            
+            for arm_idx in range(1,self.K):
                 if self.arm_stats['n'][arm_idx, context_bin] > 0:
                     combined_scores[arm_idx] = (
-                        self.arm_stats['avg_rewards'][arm_idx, context_bin] +
-                        self.prior_weights[context_bin][arm_idx] * 0.1)
+                        self.arm_stats['avg_rewards'][arm_idx, context_bin] )
                 else:
-                    combined_scores[arm_idx] = self.prior_weights[context_bin][
-                        arm_idx] * 0.5
+                    combined_scores[arm_idx] = 100
             selected_arm = np.argmax(combined_scores)
 
         # === 4. 更新状态 ===
@@ -2370,7 +2372,7 @@ class ADABinGreedy:
         """
         # 计算奖励（吞吐量）
         reward = generated_tokens / (elapsed_time + 1e-6)
-
+        # print(f"reward: {reward}, generated_tokens: {generated_tokens}, elapsed_time: {elapsed_time}")
         context_bin = context #self._get_context_bin(context)
         # 更新统计量
         self._update_arm_stats(arm_idx, context_bin, reward)

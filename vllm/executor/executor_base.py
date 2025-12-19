@@ -282,10 +282,10 @@ class ExecutorBase(ABC):
         return self.collective_rpc("switch_draft_model_to_neural")
     
     def load_neural_model_async(self):
-        return self.collective_rpc("load_neural_model_async")
+        return self.collective_rpc("load_neural_model_async", need_worker_output=False)
     
     def have_load_neural_model(self):
-        return self.collective_rpc("have_load_neural_model")
+        return self.collective_rpc("have_load_neural_model", need_worker_output=False)
     
     def set_ngram_prompt_lookup_window_size(self,ngram_prompt_lookup_min,ngram_prompt_lookup_max):
         return self.collective_rpc("set_ngram_prompt_lookup_window_size", kwargs=dict(ngram_prompt_lookup_min=ngram_prompt_lookup_min,ngram_prompt_lookup_max=ngram_prompt_lookup_max))
@@ -294,19 +294,19 @@ class ExecutorBase(ABC):
         return self.collective_rpc("set_disable_by_batch_size", kwargs=dict(disable_by_batch_size=disable_by_batch_size))
     
     def set_disable_speculative_decoding(self,disable_speculative_decoding):
-        return self.collective_rpc("set_disable_speculative_decoding", kwargs=dict(disable_speculative_decoding=disable_speculative_decoding))
+        return self.collective_rpc("set_disable_speculative_decoding", kwargs=dict(disable_speculative_decoding=disable_speculative_decoding),need_worker_output=False)
     
     def get_disable_speculative_decoding(self):
         return self.collective_rpc("get_disable_speculative_decoding")
 
     def offload_proposer_worker(self):
-        return self.collective_rpc("offload_proposer_worker")
+        return self.collective_rpc("offload_proposer_worker",need_worker_output=False)
     
     def increase_cache_blocks(self,num_gpu_blocks: int) -> None:
-        return self.collective_rpc("increase_cache_blocks", kwargs=dict(num_gpu_blocks=num_gpu_blocks))
+        return self.collective_rpc("increase_cache_blocks", kwargs=dict(num_gpu_blocks=num_gpu_blocks), need_worker_output=False)
     
     def decrease_cache_blocks(self,num_gpu_blocks: int,block_migration_map=None) -> None:
-        return self.collective_rpc("decrease_cache_blocks", kwargs=dict(num_gpu_blocks=num_gpu_blocks,block_migration_map=block_migration_map))
+        return self.collective_rpc("decrease_cache_blocks", kwargs=dict(num_gpu_blocks=num_gpu_blocks,block_migration_map=block_migration_map), need_worker_output=False)
     
     def save_selected_probs(self):
         self.collective_rpc("save_selected_probs")

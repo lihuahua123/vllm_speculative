@@ -873,8 +873,8 @@ class Scheduler:
                     ret.prefill_seq_groups_list.append(seq_group)
                 else:
                     # if skip the proposal then continue skip the proposal
-                    if self.need_disable_spec and (self.epsilon_greedy_spec is not None or self.smart_spec is not None):
-                        seq_group.skip_neural_net_proposer_step_num += 1
+                    # if self.need_disable_spec and (self.epsilon_greedy_spec is not None or self.smart_spec is not None):
+                    #     seq_group.skip_neural_net_proposer_step_num += 1
                     scheduled_seq_group.token_chunk_size = 1
                     decode_seq_groups.append(scheduled_seq_group)
                     scheduled_seq_group.seq_group.num_speculative_tokens = seq_group.num_speculative_tokens
@@ -1772,7 +1772,7 @@ class Scheduler:
         best_proposed_lengths = self.last_best_proposed_lengths # self.scheduler_config.num_lookahead_slots
         is_decode = (scheduler_outputs.num_prefill_groups == 0)
         
-         
+        # print("waiting", len(self.waiting), "running", len(self.running), "seq_group_metadata_list", len(seq_group_metadata_list))
         if not self.profile and self.smart_spec is not None and len(self.running) > 0: 
             self.smart_spec.prev_alphas = self.speculative_metrics_cache
             best_batch, best_proposed_lengths = self.smart_spec_schedule(speculative_metrics)
@@ -1782,7 +1782,6 @@ class Scheduler:
         if  is_decode and not self.profile and self.ucbspec is not None  and len(self.running) > 0 and not self.proposer_worker_to_cpu: 
             best_proposed_lengths = self.ucbspec.select_arm(len(seq_group_metadata_list),current_qps)
             print("ucb best_batch", len(seq_group_metadata_list), "best_proposed_lengths", best_proposed_lengths)
-        
         if  is_decode and not self.profile and self.epsilon_greedy_spec is not None  and len(self.running) > 0 and not self.proposer_worker_to_cpu: 
             best_proposed_lengths = self.epsilon_greedy_spec.select_arm(len(seq_group_metadata_list),current_qps)
             print("epsilon_greedy best_batch", len(seq_group_metadata_list), "best_proposed_lengths", best_proposed_lengths)
