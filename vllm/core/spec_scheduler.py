@@ -2140,292 +2140,414 @@ class EpsilonGreedySpec:
         self.spec_lengths = state['spec_lengths']
 
 
+
+import numpy as np
+import math
+
 class ADABinGreedy:
-
-    def __init__(
-            self,
-            K: int,  # 候选投机长度数量
-            max_spec_length: int,  # 最大推测长度
-            context_bins: int = 250,  # 上下文分箱数量
-            delta: float = 0.1,  # 非平稳性检测阈值
-    ):
-        """
-        ADA-BINGREEDY算法实现，基于：
-        1. 分箱(bin)结构的探索机制
-        2. 动态调整的探索概率
-        3. 非平稳性检测和重启机制
-        
-        改进点：
-        - 将时间划分为epoch-block-bin三级结构
-        - 在bin级别实现探索/利用分离
-        - 动态调整探索概率μ_t
-        """
-        # === 状态空间 ===
-        self.arm_stats = {
-            'n': np.zeros((K, context_bins)),  # 每个arm-context组合的选择次数
-            'sum_rewards': np.zeros((K, context_bins)),  # 总奖励
-            'avg_rewards': np.zeros((K, context_bins)),  # 平均奖励
-            'last_reward': np.zeros((K, context_bins)),  # 上一次奖励
-        }
-
-        # === 算法参数 ===
+    def __init__(self, K: int, max_spec_length: int, num_log_bins: int = 12):
         self.K = K
-        self.L = max_spec_length
-        self.context_bins = context_bins
-        self.delta = delta
-
-        # === ADA-BINGREEDY特有参数 ===
-        self.current_epoch = 1
-        self.current_block = 1
-        self.current_bin = 1
-        self.epoch_start_time = 1
-        self.block_start_time = 1
-        self.bin_start_time = 1
-        self.total_rounds = 0
-
-        # 定义分箱结构（指数增长）
-        self.bin_length = 1  # 初始分箱长度
-        self.explore_prob = 1.0  # 初始探索概率
-        
-        # 为每个context_bin维护独立的探索计数（用于动态流量场景）
-        self.context_bin_rounds = np.zeros(context_bins, dtype=int)  # 每个context_bin的访问次数
-
-        # 投机长度候选值
+        self.num_log_bins = num_log_bins
         self.spec_lengths = np.linspace(0, max_spec_length, K, dtype=int)
 
-        # 先验权重（与原始实现相同）
-        self.prior_weights = np.ones((context_bins, K))
+        # === 状态存储 ===
+        self.arm_stats = {
+            'n': np.zeros((K, num_log_bins)),
+            'avg_rewards': np.zeros((K, num_log_bins)),
+        }
+
+        # === 先验权重初始化 ===
+        # 使用 num_log_bins 存储，节省内存并加速索引
+        self.prior_weights = np.ones((num_log_bins, K))
+        self.prior_strength = 5  # 先验强度：相当于预设了 5 次实验的观察值
         self._init_prior_weights()
 
+        # === 结构参数 ===
+        self.context_stats = [{
+            'current_block': 1,
+            'current_bin_idx': 1,
+            'bin_step_count': 0,
+            'is_exploration_bin': True
+        } for _ in range(num_log_bins)]
+
+        self.total_rounds = 0
+
     def _init_prior_weights(self):
-        """初始化上下文相关的先验权重"""
-        for context in range(self.context_bins):
+        """
+        初始化先验权重。
+        注意：我们将原始逻辑中基于 250个 context 的划分映射到 12个对数分箱中。
+        """
+        for b_idx in range(self.num_log_bins):
+            # 估算该 bin 代表的典型 Batch Size (取中值)
+            # 例如 Bin 0 -> BS 1, Bin 5 -> BS 24, Bin 7 -> BS 96
+            representative_context = 2 ** b_idx 
+            
             for arm_idx in range(self.K):
-                if context < 60:  # 小流量
-                    self.prior_weights[context][arm_idx] = 0.5  
-                    self.prior_weights[context][0] = 0
-                elif context > 80:  # 大流量
-                    self.prior_weights[context][arm_idx] = 1.0 + (
-                        self.K - arm_idx) / self.K
-                else:  # 中等流量
-                    self.prior_weights[context][arm_idx] = 0.5 
-                    self.prior_weights[context][0] = 0
+                if representative_context < 60:  # 小/中流量 (Bin 0 - Bin 5)
+                    self.prior_weights[b_idx][arm_idx] = 0.5
+                    self.prior_weights[b_idx][0] = 0     # 抑制不开启投机
+                elif representative_context > 80: # 大流量 (Bin 7 以后)
+                    # 投机长度越短，初始权重越高
+                    self.prior_weights[b_idx][arm_idx] = 1.0 + (self.K - arm_idx) / self.K
+                else:  # 过渡区 (60-80 之间，Bin 6)
+                    self.prior_weights[b_idx][arm_idx] = 0.5
+                    self.prior_weights[b_idx][0] = 0
 
     def _get_context_bin(self, context: int) -> int:
-        """将连续上下文映射到离散bin（简化版）"""
-        return min(context, self.context_bins - 1)
+        """对数分箱逻辑 """
+        if context <= 2:
+            return max(0, context - 1)
+        bin_idx = int(math.log2(context - 1)) + 1
+        return min(bin_idx, self.num_log_bins - 1)
 
-    def _update_arm_stats(self, arm_idx: int, context_bin: int, reward: float):
-        """更新arm统计量"""
-        self.arm_stats['n'][arm_idx, context_bin] += 1
-        self.arm_stats['sum_rewards'][arm_idx, context_bin] += reward
-        self.arm_stats['avg_rewards'][arm_idx, context_bin] = (
-            self.arm_stats['sum_rewards'][arm_idx, context_bin] /
-            max(1, self.arm_stats['n'][arm_idx, context_bin]))
-        self.arm_stats['last_reward'][arm_idx, context_bin] = reward
+    def select_arm(self, context: int, current_qps=None) -> int:
+        self.total_rounds += 1
+        ctx_idx = self._get_context_bin(context)
+        s = self.context_stats[ctx_idx]
+        
+        # 预计算基于先验权重的概率分布（用于探索阶段）
+        # 这样如果 prior_weights[ctx_idx][0] == 0，arm 0 就永远不会被选中
+        p_weights = self.prior_weights[ctx_idx]
+        p_dist = p_weights / np.sum(p_weights)
+        
+        # 1. 维护 Block 和 Bin 的级联结构
+        block_len = 2 ** (s['current_block'] - 1)
+        bin_len = max(1, int(math.sqrt(block_len)))
+
+        if s['bin_step_count'] >= bin_len:
+            s['bin_step_count'] = 0
+            s['current_bin_idx'] += 1
+            if (s['current_bin_idx'] - 1) * bin_len >= block_len:
+                s['current_block'] += 1
+                s['current_bin_idx'] = 1
+                # 更新 block 后的 bin 长度
+                block_len = 2 ** (s['current_block'] - 1)
+                bin_len = max(1, int(math.sqrt(block_len)))
+
+            # 决定新的 Bin 是否为探索分箱 [cite: 321]
+            explore_prob = 1.0 / math.sqrt(s['current_bin_idx'])
+            s['is_exploration_bin'] = (np.random.random() < explore_prob)
+
+        s['bin_step_count'] += 1
+
+        # 2. 决策逻辑
+        if s['is_exploration_bin']:
+            # === 修改点：探索阶段不再纯随机，而是加入先验权重 ===
+            # 使用 np.random.choice 进行加权采样
+            return np.random.choice(self.K, p=p_dist)
+        else:
+            # 利用阶段：结合先验权重的贝叶斯得分
+            # 同时也包含 epsilon-greedy 的随机探索 
+            epsilon = (self.total_rounds + 1) ** (-1/3)
+            
+            if np.random.random() < epsilon:
+                # 这里的 epsilon 随机步也改为基于先验的加权采样
+                return np.random.choice(self.K, p=p_dist)
+            
+            # 正常的利用逻辑（Argmax）
+            n = self.arm_stats['n'][:, ctx_idx]
+            avg_r = self.arm_stats['avg_rewards'][:, ctx_idx]
+            p_val = self.prior_weights[ctx_idx, :]
+            
+            # 贝叶斯平滑得分：(实测奖励*次数 + 先验权重*强度) / (总次数 + 强度)
+            combined_scores = (avg_r * n + p_val * self.prior_strength) / (n + self.prior_strength)
+            
+            # 引入极小扰动打破平分，并取最大值
+            return np.argmax(np.round(combined_scores, 3) + np.random.normal(0, 1e-6, self.K))
+
+    def update(self, arm_idx: int, context: int, generated_tokens: int, elapsed_time: float):
+        ctx_idx = self._get_context_bin(context)
+        reward = generated_tokens / (elapsed_time + 1e-6)
+        
+        # 增量更新经验平均奖励 [cite: 113]
+        self.arm_stats['n'][arm_idx, ctx_idx] += 1
+        n = self.arm_stats['n'][arm_idx, ctx_idx]
+        old_avg = self.arm_stats['avg_rewards'][arm_idx, ctx_idx]
+        self.arm_stats['avg_rewards'][arm_idx, ctx_idx] = old_avg + (reward - old_avg) / n
+
+# class ADABinGreedy:
+
+#     def __init__(
+#             self,
+#             K: int,  # 候选投机长度数量
+#             max_spec_length: int,  # 最大推测长度
+#             context_bins: int = 250,  # 上下文分箱数量
+#             delta: float = 0.1,  # 非平稳性检测阈值
+#     ):
+#         """
+#         ADA-BINGREEDY算法实现，基于：
+#         1. 分箱(bin)结构的探索机制
+#         2. 动态调整的探索概率
+#         3. 非平稳性检测和重启机制
+        
+#         改进点：
+#         - 将时间划分为epoch-block-bin三级结构
+#         - 在bin级别实现探索/利用分离
+#         - 动态调整探索概率μ_t
+#         """
+#         # === 状态空间 ===
+#         self.arm_stats = {
+#             'n': np.zeros((K, context_bins)),  # 每个arm-context组合的选择次数
+#             'sum_rewards': np.zeros((K, context_bins)),  # 总奖励
+#             'avg_rewards': np.zeros((K, context_bins)),  # 平均奖励
+#             'last_reward': np.zeros((K, context_bins)),  # 上一次奖励
+#         }
+
+#         # === 算法参数 ===
+#         self.K = K
+#         self.L = max_spec_length
+#         self.context_bins = context_bins
+#         self.delta = delta
+
+#         # === ADA-BINGREEDY特有参数 ===
+#         self.current_epoch = 1
+#         self.current_block = 1
+#         self.current_bin = 1
+#         self.epoch_start_time = 1
+#         self.block_start_time = 1
+#         self.bin_start_time = 1
+#         self.total_rounds = 0
+
+#         # 定义分箱结构（指数增长）
+#         self.bin_length = 1  # 初始分箱长度
+#         self.explore_prob = 1.0  # 初始探索概率
+        
+#         # 为每个context_bin维护独立的探索计数（用于动态流量场景）
+#         self.context_bin_rounds = np.zeros(context_bins, dtype=int)  # 每个context_bin的访问次数
+#         self.num_log_bins = 12
+#         # 投机长度候选值
+#         self.spec_lengths = np.linspace(0, max_spec_length, K, dtype=int)
+
+#         # 先验权重（与原始实现相同）
+#         self.prior_weights = np.ones((context_bins, K))
+#         self._init_prior_weights()
+
+#     def _init_prior_weights(self):
+#         """初始化上下文相关的先验权重"""
+#         for context in range(self.context_bins):
+#             for arm_idx in range(self.K):
+#                 if context < 60:  # 小流量
+#                     self.prior_weights[context][arm_idx] = 0.5  
+#                     self.prior_weights[context][0] = 0
+#                 elif context > 80:  # 大流量
+#                     self.prior_weights[context][arm_idx] = 1.0 + (
+#                         self.K - arm_idx) / self.K
+#                 else:  # 中等流量
+#                     self.prior_weights[context][arm_idx] = 0.5 
+#                     self.prior_weights[context][0] = 0
+
+#     def _get_context_bin(self, context: int) -> int:
+#         """
+#         优化点 2：对数分箱函数
+#         将连续的 Batch Size 映射到稀疏的分箱中
+#         """
+#         if context <= 2:
+#             return max(0, context - 1) # BS=1 -> 0, BS=2 -> 1
+        
+#         # 使用 log2 映射，BS=3~4 -> 2, BS=5~8 -> 3, BS=9~16 -> 4 ...
+#         bin_idx = int(math.log2(context - 1)) + 1
+#         return min(bin_idx, self.num_log_bins - 1)
+#     # def _get_context_bin(self, context: int) -> int:
+#     #     """将连续上下文映射到离散bin（简化版）"""
+#     #     return min(context, self.context_bins - 1)
+
+#     def _update_arm_stats(self, arm_idx: int, context_bin: int, reward: float):
+#         """更新arm统计量"""
+#         self.arm_stats['n'][arm_idx, context_bin] += 1
+#         self.arm_stats['sum_rewards'][arm_idx, context_bin] += reward
+#         self.arm_stats['avg_rewards'][arm_idx, context_bin] = (
+#             self.arm_stats['sum_rewards'][arm_idx, context_bin] /
+#             max(1, self.arm_stats['n'][arm_idx, context_bin]))
+#         self.arm_stats['last_reward'][arm_idx, context_bin] = reward
 
     
-    def _nonstationarity_test(self, current_context: int) -> bool:
-        """
-        改进的非平稳性检测，基于论文中的统计测试
-        比较当前bin与历史block的性能差异
-        """
-        if self.current_block == 1:  # 第一个block无需检测
-            return False
+#     def _nonstationarity_test(self, current_context: int) -> bool:
+#         """
+#         改进的非平稳性检测，基于论文中的统计测试
+#         比较当前bin与历史block的性能差异
+#         """
+#         if self.current_block == 1:  # 第一个block无需检测
+#             return False
 
-        context_bin = current_context
-        current_bin_size = self.current_bin
-        historical_block_size = 2 ** (self.current_block - 2)  # 上一个block的大小
+#         context_bin = current_context
+#         current_bin_size = self.current_bin
+#         historical_block_size = 2 ** (self.current_block - 2)  # 上一个block的大小
         
-        # 获取当前bin和历史block的统计量
-        current_bin_rewards = []
-        historical_block_rewards = []
+#         # 获取当前bin和历史block的统计量
+#         current_bin_rewards = []
+#         historical_block_rewards = []
         
-        # 这里简化实现，实际应该存储历史数据
-        # 假设我们只比较最近的两个时间窗口
-        for arm_idx in range(self.K):
-            n_current = self.arm_stats['n'][arm_idx, context_bin]
-            sum_current = self.arm_stats['sum_rewards'][arm_idx, context_bin]
+#         # 这里简化实现，实际应该存储历史数据
+#         # 假设我们只比较最近的两个时间窗口
+#         for arm_idx in range(self.K):
+#             n_current = self.arm_stats['n'][arm_idx, context_bin]
+#             sum_current = self.arm_stats['sum_rewards'][arm_idx, context_bin]
             
-            # 当前bin的统计量（简化：使用最近的部分数据）
-            current_avg = sum_current / max(1, n_current)
+#             # 当前bin的统计量（简化：使用最近的部分数据）
+#             current_avg = sum_current / max(1, n_current)
             
-            # 历史block的统计量（简化：使用较早的数据）
-            historical_avg = self.arm_stats['last_reward'][arm_idx, context_bin]
+#             # 历史block的统计量（简化：使用较早的数据）
+#             historical_avg = self.arm_stats['last_reward'][arm_idx, context_bin]
             
-            if n_current > 0 and not np.isnan(current_avg) and not np.isnan(historical_avg):
-                current_bin_rewards.append(current_avg)
-                historical_block_rewards.append(historical_avg)
+#             if n_current > 0 and not np.isnan(current_avg) and not np.isnan(historical_avg):
+#                 current_bin_rewards.append(current_avg)
+#                 historical_block_rewards.append(historical_avg)
         
-        if not current_bin_rewards or not historical_block_rewards:
-            return False
+#         if not current_bin_rewards or not historical_block_rewards:
+#             return False
         
-        # 计算统计量（简化版，论文中使用更复杂的concentration inequality）
-        current_mean = np.mean(current_bin_rewards)
-        historical_mean = np.mean(historical_block_rewards)
+#         # 计算统计量（简化版，论文中使用更复杂的concentration inequality）
+#         current_mean = np.mean(current_bin_rewards)
+#         historical_mean = np.mean(historical_block_rewards)
         
-        # 计算方差（简化）
-        current_var = np.var(current_bin_rewards) if len(current_bin_rewards) > 1 else 0
-        historical_var = np.var(historical_block_rewards) if len(historical_block_rewards) > 1 else 0
+#         # 计算方差（简化）
+#         current_var = np.var(current_bin_rewards) if len(current_bin_rewards) > 1 else 0
+#         historical_var = np.var(historical_block_rewards) if len(historical_block_rewards) > 1 else 0
         
-        # 计算统计显著性（简化版）
-        std_error = np.sqrt(current_var/len(current_bin_rewards) + historical_var/len(historical_block_rewards))
-        z_score = abs(current_mean - historical_mean) / (std_error + 1e-6)
+#         # 计算统计显著性（简化版）
+#         std_error = np.sqrt(current_var/len(current_bin_rewards) + historical_var/len(historical_block_rewards))
+#         z_score = abs(current_mean - historical_mean) / (std_error + 1e-6)
         
-        # 阈值设置（论文中使用更复杂的公式）
-        threshold = 2 * np.sqrt(np.log(self.current_block) / min(len(current_bin_rewards), len(historical_block_rewards)))
+#         # 阈值设置（论文中使用更复杂的公式）
+#         threshold = 2 * np.sqrt(np.log(self.current_block) / min(len(current_bin_rewards), len(historical_block_rewards)))
         
-        return z_score > threshold
+#         return z_score > threshold
 
-    # def _nonstationarity_test(self, current_context: int) -> bool:
-    #     """
-    #     非平稳性检测（简化版）
-    #     比较当前bin与历史block的性能差异
-    #     """
-    #     if self.current_block == 1:  # 第一个block无需检测
-    #         return False
+   
 
-    #     context_bin = current_context #self._get_context_bin(current_context)
-    #     current_bin_perf = self.arm_stats['avg_rewards'][:, context_bin]
-    #     historical_perf = self.arm_stats['avg_rewards'][:, context_bin]  # 简化为全历史
+#     def _get_exploration_prob(self, t: int, context_bin: int = None) -> float:
+#         """
+#         动态调整探索概率μ_t ≈ t^(-1/3)
+#         如果提供了context_bin，则基于该context_bin的访问次数计算（适用于动态流量）
+#         """
+#         if context_bin is not None and self.context_bin_rounds[context_bin] > 0:
+#             # 基于context_bin的访问次数计算探索概率（每个batch_size独立）
+#             context_t = self.context_bin_rounds[context_bin]
+#             # 使用更慢的衰减，确保每个batch_size都有足够的探索
+#             base_prob = (context_t + 1)**(-1 / 3)
+#             # 增加最小探索概率，确保不会完全停止探索
+#             min_explore_prob = 0  # 最小5%的探索概率
+#             return max(min_explore_prob, base_prob)
+#         else:
+#             # 全局探索概率（向后兼容）
+#             epoch_time = t - self.epoch_start_time + 1
+#             base_prob = (epoch_time)**(-1 / 3)
+#             min_explore_prob = 0.05
+#             return max(min_explore_prob, base_prob)
 
-    #     # 计算性能差异（实际应使用更复杂的统计测试）
-    #     perf_diff = np.max(np.abs(current_bin_perf - historical_perf))
-    #     return perf_diff > self.delta
-
-    def _get_exploration_prob(self, t: int, context_bin: int = None) -> float:
-        """
-        动态调整探索概率μ_t ≈ t^(-1/3)
-        如果提供了context_bin，则基于该context_bin的访问次数计算（适用于动态流量）
-        """
-        if context_bin is not None and self.context_bin_rounds[context_bin] > 0:
-            # 基于context_bin的访问次数计算探索概率（每个batch_size独立）
-            context_t = self.context_bin_rounds[context_bin]
-            # 使用更慢的衰减，确保每个batch_size都有足够的探索
-            base_prob = (context_t + 1)**(-1 / 3)
-            # 增加最小探索概率，确保不会完全停止探索
-            min_explore_prob = 0  # 最小5%的探索概率
-            return max(min_explore_prob, base_prob)
-        else:
-            # 全局探索概率（向后兼容）
-            epoch_time = t - self.epoch_start_time + 1
-            base_prob = (epoch_time)**(-1 / 3)
-            min_explore_prob = 0.05
-            return max(min_explore_prob, base_prob)
-
-    def select_arm(self, context: int, current_qps: float = None) -> int:
-        """
-        ADA-BINGREEDY的核心选择逻辑：
-        1. 维护epoch-block-bin三级结构
-        2. 在bin级别实现探索/利用分离
-        3. 动态调整探索概率
-        4. 非平稳性检测触发重启
-        """
+#     def select_arm(self, context: int, current_qps: float = None) -> int:
+#         """
+#         ADA-BINGREEDY的核心选择逻辑：
+#         1. 维护epoch-block-bin三级结构
+#         2. 在bin级别实现探索/利用分离
+#         3. 动态调整探索概率
+#         4. 非平稳性检测触发重启
+#         """
        
-        self.total_rounds += 1
-        t = self.total_rounds
-        context_bin = context #self._get_context_bin(context)
+#         self.total_rounds += 1
+#         t = self.total_rounds
+#         context_bin = context #self._get_context_bin(context)
         
-        # 更新该context_bin的访问计数（用于动态流量场景）
-        self.context_bin_rounds[context_bin] += 1
+#         # 更新该context_bin的访问计数（用于动态流量场景）
+#         self.context_bin_rounds[context_bin] += 1
 
-        # === 1. 检查是否需要重启epoch ===
-        # if self._nonstationarity_test(context):
-        #     self.current_epoch += 1
-        #     self.epoch_start_time = t
-        #     self.current_block = 1
-        #     self.current_bin = 1
-        #     self.bin_length = 1  # 重置bin长度
-        #     # 清空统计量（实际实现可能保留部分历史）
-        #     self.arm_stats['n'].fill(0)
-        #     self.arm_stats['sum_rewards'].fill(0)
+#         # === 1. 检查是否需要重启epoch ===
+#         # if self._nonstationarity_test(context):
+#         #     self.current_epoch += 1
+#         #     self.epoch_start_time = t
+#         #     self.current_block = 1
+#         #     self.current_bin = 1
+#         #     self.bin_length = 1  # 重置bin长度
+#         #     # 清空统计量（实际实现可能保留部分历史）
+#         #     self.arm_stats['n'].fill(0)
+#         #     self.arm_stats['sum_rewards'].fill(0)
 
-        # === 2. 检查是否需要进入新block（指数增长）===
-        if self.current_bin > self.bin_length:
-            self.current_block += 1
-            self.current_bin = 1
-            self.bin_length = 2 ** (self.current_block - 1)  # 指数增长
+#         # === 2. 检查是否需要进入新block（指数增长）===
+#         if self.current_bin > self.bin_length:
+#             self.current_block += 1
+#             self.current_bin = 1
+#             self.bin_length = 2 ** (self.current_block - 1)  # 指数增长
 
-        # === 2.5. 检查是否存在未探索的arm（优先探索）===
-        unexplored_arms = []
-        for arm_idx in range(self.K):
-            if self.prior_weights[context_bin][arm_idx] > 0:  # 只考虑有效的arm
-                if self.arm_stats['n'][arm_idx, context_bin] == 0:
-                    unexplored_arms.append(arm_idx)
+#         # === 2.5. 检查是否存在未探索的arm（优先探索）===
+#         unexplored_arms = []
+#         for arm_idx in range(self.K):
+#             if self.prior_weights[context_bin][arm_idx] > 0:  # 只考虑有效的arm
+#                 if self.arm_stats['n'][arm_idx, context_bin] == 0:
+#                     unexplored_arms.append(arm_idx)
         
-        # 如果存在未探索的arm，优先选择它们（强制探索）
-        if unexplored_arms:
-            selected_arm = np.random.choice(unexplored_arms)
-            print(f"force_explore unexplored arm {selected_arm} for context_bin {context_bin}")
-            self.current_bin += 1
-            return selected_arm
+#         # 如果存在未探索的arm，优先选择它们（强制探索）
+#         if unexplored_arms:
+#             selected_arm = np.random.choice(unexplored_arms)
+#             print(f"force_explore unexplored arm {selected_arm} for context_bin {context_bin}")
+#             self.current_bin += 1
+#             return selected_arm
 
-        # === 3. 分箱级别的探索/利用决策 ===
-        # 使用基于context_bin的探索概率（适用于动态流量）
-        explore_prob = self._get_exploration_prob(t, context_bin)
-        is_explore_bin = (np.random.random() < explore_prob)
-        # 如果存在某个arm在当前bin还未被探索（即self.arm_stats['n'][arm_idx, context_bin] <= 0），优先选此arm
+#         # === 3. 分箱级别的探索/利用决策 ===
+#         # 使用基于context_bin的探索概率（适用于动态流量）
+#         explore_prob = self._get_exploration_prob(t, context_bin)
+#         is_explore_bin = (np.random.random() < explore_prob)
+#         # 如果存在某个arm在当前bin还未被探索（即self.arm_stats['n'][arm_idx, context_bin] <= 0），优先选此arm
        
-        if is_explore_bin:
-            # 探索阶段：随机选择，侧重未充分探索的arm
-            explore_probs = np.ones(self.K)
-            for arm_idx in range(self.K):
-                base_prob = self.prior_weights[context_bin][arm_idx]
-                # 未充分探索的arm获得额外概率
-                if self.arm_stats['n'][arm_idx, context_bin] < 2:
-                    base_prob *= 10.0
-                explore_probs[arm_idx] = base_prob
+#         if is_explore_bin:
+#             # 探索阶段：随机选择，侧重未充分探索的arm
+#             explore_probs = np.ones(self.K)
+#             for arm_idx in range(self.K):
+#                 base_prob = self.prior_weights[context_bin][arm_idx]
+#                 # 未充分探索的arm获得额外概率
+#                 if self.arm_stats['n'][arm_idx, context_bin] < 2:
+#                     base_prob *= 10.0
+#                 explore_probs[arm_idx] = base_prob
 
-            explore_probs /= np.sum(explore_probs)
-            print(f"explore_mode")
-            selected_arm = np.random.choice(self.K, p=explore_probs)
-            # print(f"explore_probs")
-        else:
-            # 利用阶段：选择历史表现最好的arm（带先验调整）
-            # 注意：由于前面已经检查了未探索的arm，这里所有arm都应该已被探索过
+#             explore_probs /= np.sum(explore_probs)
+#             print(f"explore_mode")
+#             selected_arm = np.random.choice(self.K, p=explore_probs)
+#             # print(f"explore_probs")
+#         else:
+#             # 利用阶段：选择历史表现最好的arm（带先验调整）
+#             # 注意：由于前面已经检查了未探索的arm，这里所有arm都应该已被探索过
 
-            combined_scores = np.full(self.K, -np.inf)  # 初始化为负无穷，确保未探索的arm不会被选中
+#             combined_scores = np.full(self.K, -np.inf)  # 初始化为负无穷，确保未探索的arm不会被选中
             
-            prior_strength = 1  # 相当于给每个 arm 预设了 5 次实验的信心
-            for arm_idx in range(self.K):
-                if self.prior_weights[context_bin][arm_idx] > 0:
-                    n = self.arm_stats['n'][arm_idx, context_bin]
-                    empirical_avg = self.arm_stats['avg_rewards'][arm_idx, context_bin]
-                    prior_val = self.prior_weights[context_bin][arm_idx]
+#             prior_strength = 1  # 相当于给每个 arm 预设了 5 次实验的信心
+#             for arm_idx in range(self.K):
+#                 if self.prior_weights[context_bin][arm_idx] > 0:
+#                     n = self.arm_stats['n'][arm_idx, context_bin]
+#                     empirical_avg = self.arm_stats['avg_rewards'][arm_idx, context_bin]
+#                     prior_val = self.prior_weights[context_bin][arm_idx]
                     
-                    # 贝叶斯平滑得分公式
-                    combined_scores[arm_idx] = (empirical_avg * n + prior_val * prior_strength) / (n + prior_strength)
+#                     # 贝叶斯平滑得分公式
+#                     combined_scores[arm_idx] = (empirical_avg * n + prior_val * prior_strength) / (n + prior_strength)
                         
            
             
-            # 取三位小数，如果相同则按索引从小到大选择
-            rounded_scores = np.round(combined_scores, 3)
-            print("exploit mode, combined_scores:", rounded_scores)
-            selected_arm = np.argmax(rounded_scores)
+#             # 取三位小数，如果相同则按索引从小到大选择
+#             rounded_scores = np.round(combined_scores, 3)
+#             print("exploit mode, combined_scores:", rounded_scores)
+#             selected_arm = np.argmax(rounded_scores)
 
-        # === 4. 更新状态 ===
-        self.current_bin += 1
+#         # === 4. 更新状态 ===
+#         self.current_bin += 1
         
-        return selected_arm
+#         return selected_arm
 
-    def update(self, arm_idx: int, context: int, generated_tokens: int, elapsed_time: float):
-        """
-        更新Epsilon-Greedy统计量
+#     def update(self, arm_idx: int, context: int, generated_tokens: int, elapsed_time: float):
+#         """
+#         更新Epsilon-Greedy统计量
         
-        Args:
-            arm_idx: 选择的arm索引（投机长度）
-            context: 请求量（batch size）
-            generated_tokens: 生成的token总数（从scheduler传入的是 num_accepted_tokens + batch_size）
-            elapsed_time: 执行时间
-        """
+#         Args:
+#             arm_idx: 选择的arm索引（投机长度）
+#             context: 请求量（batch size）
+#             generated_tokens: 生成的token总数（从scheduler传入的是 num_accepted_tokens + batch_size）
+#             elapsed_time: 执行时间
+#         """
         
        
-        reward = generated_tokens / (elapsed_time + 1e-6)
+#         reward = generated_tokens / (elapsed_time + 1e-6)
         
-        # print(f"reward: {reward:.2f}, generated_tokens: {generated_tokens}, num_accepted_est: {num_accepted_tokens if arm_idx > 0 else 'N/A'}, elapsed_time: {elapsed_time:.4f}, arm_idx: {arm_idx}")
-        context_bin = context #self._get_context_bin(context)
-        # 更新统计量
-        self._update_arm_stats(arm_idx, context_bin, reward)
+#         # print(f"reward: {reward:.2f}, generated_tokens: {generated_tokens}, num_accepted_est: {num_accepted_tokens if arm_idx > 0 else 'N/A'}, elapsed_time: {elapsed_time:.4f}, arm_idx: {arm_idx}")
+#         context_bin = context #self._get_context_bin(context)
+#         # 更新统计量
+#         self._update_arm_stats(arm_idx, context_bin, reward)
         
 class EpsilonGreedySpecSimple:
     def __init__(self,
