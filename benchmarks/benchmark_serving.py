@@ -25,6 +25,7 @@ On the client side, run:
 """
 import argparse
 import asyncio
+import csv
 import json
 import gc
 import json
@@ -286,6 +287,7 @@ async def benchmark(
     lora_modules: Optional[Iterable[str]],
     enable_trace: bool = False,
     start_index: int = 0,
+    strategy_name: Optional[str] = None,
 ):
     if backend in ASYNC_REQUEST_FUNCS:
         request_func = ASYNC_REQUEST_FUNCS[backend]
@@ -556,7 +558,146 @@ async def benchmark(
 
     print("=" * 50)
 
+    # Export results to CSV
+    export_to_csv(metrics, result, benchmark_duration, model_id, request_rate, 
+                  burstiness, goodput_config_dict, selected_percentile_metrics,
+                  strategy_name=strategy_name)
+
     return result
+
+
+def export_to_csv(
+    metrics: BenchmarkMetrics,
+    result: dict[str, Any],
+    benchmark_duration: float,
+    model_id: str,
+    request_rate: float,
+    burstiness: float,
+    goodput_config_dict: dict[str, float],
+    selected_percentile_metrics: list[str],
+    strategy_name: Optional[str] = None,
+    csv_file: str = "benchmark_results.csv",
+):
+    """Export benchmark results to CSV file. Append if file exists, create if not."""
+    # Prepare CSV row data
+    row_data = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "strategy": strategy_name if strategy_name else "",
+        "model_id": model_id,
+        "request_rate": request_rate if request_rate != float("inf") else "inf",
+        "burstiness": burstiness,
+        "benchmark_duration_s": f"{benchmark_duration:.2f}",
+        "completed": metrics.completed,
+        "total_input_tokens": metrics.total_input,
+        "total_output_tokens": metrics.total_output,
+        "request_throughput_req_per_s": f"{metrics.request_throughput:.2f}",
+        "output_throughput_tok_per_s": f"{metrics.output_throughput:.2f}",
+        "total_token_throughput_tok_per_s": f"{metrics.total_token_throughput:.2f}",
+    }
+    
+    # Add goodput if available
+    if goodput_config_dict:
+        row_data["request_goodput"] = f"{metrics.request_goodput:.2f}"
+    else:
+        row_data["request_goodput"] = ""
+    
+    # Collect all percentile field names dynamically
+    percentile_fields = set()
+    
+    # Add metric statistics
+    metric_fields = ["ttft", "tpot", "itl", "e2el"]
+    for metric in metric_fields:
+        if metric in selected_percentile_metrics:
+            row_data[f"mean_{metric}_ms"] = f"{getattr(metrics, f'mean_{metric}_ms'):.2f}"
+            row_data[f"median_{metric}_ms"] = f"{getattr(metrics, f'median_{metric}_ms'):.2f}"
+            row_data[f"std_{metric}_ms"] = f"{getattr(metrics, f'std_{metric}_ms'):.2f}"
+            # Add percentiles dynamically
+            for p, value in getattr(metrics, f"percentiles_{metric}_ms"):
+                p_word = str(int(p)) if int(p) == p else str(p)
+                field_name = f"p{p_word}_{metric}_ms"
+                row_data[field_name] = f"{value:.2f}"
+                percentile_fields.add(field_name)
+        else:
+            # If metric not selected, fill with empty values
+            row_data[f"mean_{metric}_ms"] = ""
+            row_data[f"median_{metric}_ms"] = ""
+            row_data[f"std_{metric}_ms"] = ""
+    
+    # Check if file exists to determine if we need to write header
+    file_exists = os.path.exists(csv_file)
+    
+    # Get existing fieldnames from CSV if file exists
+    existing_fieldnames = []
+    if file_exists:
+        try:
+            with open(csv_file, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                existing_fieldnames = next(reader, [])
+        except Exception:
+            existing_fieldnames = []
+    
+    # Build fieldnames list
+    base_fieldnames = [
+        "timestamp", "strategy", "model_id", "request_rate", "burstiness", 
+        "benchmark_duration_s", "completed", "total_input_tokens", 
+        "total_output_tokens", "request_throughput_req_per_s",
+        "request_goodput", "output_throughput_tok_per_s", 
+        "total_token_throughput_tok_per_s",
+    ]
+    
+    # Add metric fields in order
+    metric_fieldnames = []
+    for metric in metric_fields:
+        metric_fieldnames.extend([
+            f"mean_{metric}_ms", f"median_{metric}_ms", f"std_{metric}_ms"
+        ])
+        # Add percentile fields for this metric, sorted by percentile value
+        metric_percentile_fields = [f for f in percentile_fields if f.endswith(f"_{metric}_ms")]
+        # Sort by extracting percentile number
+        def extract_percentile(field_name):
+            # Extract number from "p{number}_{metric}_ms"
+            try:
+                return int(field_name.split('_')[0][1:])
+            except:
+                return 0
+        metric_percentile_fields.sort(key=extract_percentile)
+        metric_fieldnames.extend(metric_percentile_fields)
+    
+    # Combine all fieldnames
+    all_fieldnames = base_fieldnames + metric_fieldnames
+    
+    # If file exists, use existing fieldnames and add any new ones
+    if existing_fieldnames:
+        # Add any new fields that don't exist
+        for field in all_fieldnames:
+            if field not in existing_fieldnames:
+                existing_fieldnames.append(field)
+        fieldnames = existing_fieldnames
+    else:
+        fieldnames = all_fieldnames
+    
+    # Ensure all row_data keys are in fieldnames
+    for key in row_data.keys():
+        if key not in fieldnames:
+            fieldnames.append(key)
+    
+    # Write to CSV
+    with open(csv_file, 'a', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        
+        # Write header if file is new
+        if not file_exists:
+            writer.writeheader()
+        
+        # Write data row (only include fields that exist in fieldnames)
+        filtered_row = {k: v for k, v in row_data.items() if k in fieldnames}
+        # Fill missing fields with empty string
+        for field in fieldnames:
+            if field not in filtered_row:
+                filtered_row[field] = ""
+        writer.writerow(filtered_row)
+    
+    print(f"Benchmark results exported to {csv_file}")
 
 
 def check_goodput_args(args):
@@ -727,6 +868,37 @@ def main(args: argparse.Namespace):
     
     goodput_config_dict = check_goodput_args(args)
 
+    # Parse strategy name
+    strategy_name = args.strategy_name
+    if strategy_name is None and args.result_filename:
+        # Try to parse strategy name from result_filename
+        # Format: sub_strategy_speculative_len.json or similar
+        filename_base = os.path.splitext(os.path.basename(args.result_filename))[0]
+        # Common patterns: "epsilon_greedy_3", "deep_1", "ucb_3", "threshold_2", "nospec_1"
+        parts = filename_base.split('_')
+        if len(parts) >= 2:
+            sub_strategy = parts[0]
+            # Map sub_strategy to friendly names
+            strategy_mapping = {
+                "epsilon_greedy": "Nightjar",
+                "ucb": "ucb",
+                "threshold": "threshold",
+                "nospec": "nospec",
+                "smart_spec": "smart_spec",
+                "daspec": "daspec",
+                "ngram": "ngram",
+            }
+            if sub_strategy == "deep":
+                # For deep, check if there's a number (speculative_len)
+                if len(parts) >= 2 and parts[1].isdigit():
+                    strategy_name = f"deep-{parts[1]}"
+                else:
+                    strategy_name = "deep"
+            elif sub_strategy in strategy_mapping:
+                strategy_name = strategy_mapping[sub_strategy]
+            else:
+                strategy_name = sub_strategy
+
     # Avoid GC processing "static" data - reduce pause times.
     gc.collect()
     gc.freeze()
@@ -755,6 +927,7 @@ def main(args: argparse.Namespace):
             lora_modules=args.lora_modules,
             enable_trace=args.enable_trace,
             start_index=args.start_index,
+            strategy_name=strategy_name,
         ))
 
     # Save config and results to json
@@ -964,6 +1137,13 @@ if __name__ == "__main__":
         "If not specified, results will be saved in "
         "{backend}-{args.request_rate}qps-{base_model_id}-{current_dt}.json"
         " format.",
+    )
+    parser.add_argument(
+        "--strategy-name",
+        type=str,
+        default=None,
+        help="Strategy name to be recorded in CSV (e.g., Nightjar, ucb, threshold, deep-1, nospec, etc.). "
+        "If not specified, will try to parse from result-filename.",
     )
     parser.add_argument(
         "--ignore-eos",

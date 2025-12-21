@@ -433,6 +433,6 @@ plt.xticks(fontsize=20)
 plt.yticks(fontsize=20)
 #plt.legend()
 plt.tight_layout()
-plt.savefig('./exps/figs/acceptance_rate_distribution_gamma.pdf')
+# plt.savefig('./exps/figs/acceptance_rate_distribution_gamma.pdf')
 plt.close()
 

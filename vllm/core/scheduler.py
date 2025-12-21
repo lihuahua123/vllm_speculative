@@ -562,11 +562,11 @@ class Scheduler:
         draft_model_online = 'llama-eagle-online_RiverDecisionTree.pkl'
         generated_token_num_predict_model = 'generated_data_num_predict_model_lr.pkl'
         # FIXME
-        if self.scheduler_config.num_lookahead_slots > 0 and os.path.exists(verify_model_profile) and os.path.exists(draft_model_profile):
+        if self.scheduler_config.num_lookahead_slots > 0 and os.path.exists(verify_model_profile_smart) and os.path.exists(draft_model_profile_smart):
             self.smart_spec = SmartSpec(load(verify_model_profile_smart), load(draft_model_profile_smart), self.scheduler_config.num_lookahead_slots)
             #self.daspec_spec = OnlineDASpec(verify_model_online, draft_model_online, self.scheduler_config.num_lookahead_slots) #DASpec(load(verify_model_profile), load(draft_model_profile), None, self.scheduler_config.num_lookahead_slots)
             # self.daspec_spec = DASpec(verify_model_profile, draft_model_profile, self.scheduler_config.num_lookahead_slots) #DASpec(load(verify_model_profile), load(draft_model_profile), None, self.scheduler_config.num_lookahead_slots)
-            self.daspec_spec = DASpecWithExploration(verify_model_profile, draft_model_profile, max_proposed_length=self.scheduler_config.num_lookahead_slots)
+            # self.daspec_spec = DASpecWithExploration(verify_model_profile, draft_model_profile, max_proposed_length=self.scheduler_config.num_lookahead_slots)
             # 不稳定 
             self.ucbspec = UCBSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
             # self.epsilon_greedy_spec = EpsilonGreedySpecSimple(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)

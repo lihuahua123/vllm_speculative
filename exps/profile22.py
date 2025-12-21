@@ -127,9 +127,6 @@ def train_and_evaluate_model(train_data, model_save_path=None, test_size=100, ra
         if model_save_path:
             dump(model, f"{model_save_path}_{name}.pkl")
     
-    
-
-
 def read_nospec_json_files(patternstr):
     """
     Read all JSON files in the parent directory that start with "nospec_300_new1".
@@ -349,8 +346,8 @@ def train_and_save_decision_tree(train_data, model_save_path=None, test_size=100
     print(f"测试集 MAE: {test_mae:.4f}")
     print(f"推理时间: {inference_time:.6f} 秒")
     
-train_and_evaluate_model(smart_train_data_d,model_save_path="./llama-eagle",test_size=100,random_state=42,n_estimators=100)
-train_and_evaluate_model(smart_train_data_v,model_save_path="./llama-Verify",test_size=100,random_state=42,n_estimators=100)
+train_and_evaluate_model(smart_train_data_d,model_save_path="./DeepSeek-R1-DRAFT-Qwen2.5-0.5B",test_size=100,random_state=42,n_estimators=100)
+train_and_evaluate_model(smart_train_data_v,model_save_path="./DeepSeek-R1-Qwen2.5-0.5B-Verify",test_size=100,random_state=42,n_estimators=100)
 
 # 使用专门的决策树函数训练和保存模型
 print("\n=== 使用专门的决策树模型进行训练 ===")
