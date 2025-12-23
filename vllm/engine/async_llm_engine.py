@@ -148,6 +148,8 @@ class RequestTracker:
         self._rate_history_size: int = 10  # 历史请求率的最大存储数量
         self._last_rate_calculation_time: float = 0  # 上次计算请求率的时间
         self._rate_calculation_interval: float = 5.0  # 请求率计算间隔（秒）
+        self._last_qps_update_time: float = 0  # 上次更新QPS的时间
+        self._qps_update_interval: float = 0.5  # QPS更新间隔（秒），定期更新以反映时间推移
         self.current_rate = 0.0
 
     def __contains__(self, item):
@@ -415,7 +417,17 @@ class _AsyncLLMEngine(LLMEngine):
         # Clear outputs for each new scheduler iteration
         ctx.request_outputs.clear()
 
-        current_qps = request_tracker.current_rate if request_tracker is not None else 0.0
+        # 定期更新QPS（基于时间间隔），确保QPS值能反映时间推移导致的过期数据清理
+        if request_tracker is not None:
+            current_time = time.time()
+            # 如果距离上次更新超过间隔时间，则重新计算QPS
+            if (current_time - request_tracker._last_qps_update_time) >= request_tracker._qps_update_interval:
+                current_rate = request_tracker._calculate_current_request_rate()
+                request_tracker.current_rate = current_rate
+                request_tracker._last_qps_update_time = current_time
+            current_qps = request_tracker.current_rate
+        else:
+            current_qps = 0.0
         # skip the scheduler if there are any remaining steps in the seq groups.
         # This ensures that the scheduler is only called again when the current
         # batch has completed.

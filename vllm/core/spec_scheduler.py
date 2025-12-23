@@ -2219,8 +2219,8 @@ class ADABinGreedy:
         self.total_rounds += 1
         ctx_idx = self._get_context_bin(context)
         s = self.context_stats[ctx_idx]
-        
-        if context > 10 or self.have_disabled:
+        print("context:", context,"ctx_idx:", ctx_idx,"current_qps:", current_qps)
+        if (context > 20 and current_qps > 2) or self.have_disabled:
             self.have_disabled = True
             return 0
         # 如果提供了 skip_neural_net_proposer_step_nums 列表，可以在这里使用
