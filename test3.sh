@@ -9,7 +9,7 @@ SAVE_TRACE="False"
 num_gpu_blocks_override=4938 #717 #26064 #9369 #A600 50% #4800 4090 # deep A6000 26064 llama8b A6000 xxx  通过下面命令行得到 788 for 33B vicuna and eagle 1285 for 13B vicuna and eagle
 gpu_memory_utilization=0.85
 # python -m vllm.entrypoints.openai.api_server  --model /root/autodl-tmp/DeepSeek-R1-Distill-Qwen-7B --gpu-memory-utilization 0.85 --speculative-model [ngram] --ngram_prompt_lookup_max 4 --num-speculative-tokens 4 --enforce-eager  --no-enable-prefix-caching --max-model-len 2048
-# rm -rf $FILE_NAME
+rm -rf $FILE_NAME
 data_set_name=sharegpt
 data_set_path=/root/autodl-tmp/sharegpt.json # $data_set_path
 # data_set_name=specbench    #--dataset-path tatsu-lab/alpaca
@@ -28,7 +28,7 @@ draft_model_name=/root/autodl-tmp/deep05b #/root/autodl-tmp/vllm-medusa-vicuna-7
 export HF_ENDPOINT='https://hf-mirror.com'
 for i in 1  # 2 3 4 5
 do
-    for PROMPT_RATE in 15 #5 10 15 20 25 #25 # 24 # 6 8 10 12 14 # 10 15 # 20 25 #0.5 2 5 10
+    for PROMPT_RATE in 10 #5 10 15 20 25 #25 # 24 # 6 8 10 12 14 # 10 15 # 20 25 #0.5 2 5 10
     do
         # if [ $PROMPT_RATE -eq 5 ]; then
         #     explore="True"
@@ -45,8 +45,7 @@ do
         # pid=$(pgrep -f "adaptive_engine_example")
         # kill $pid
         # # threshold
-        # # python run_benchmark_tests.py --strategy ilp --sub-strategy smart_spec --explore $explore --save-trace $SAVE_TRACE --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 3 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
-        # python run_benchmark_tests.py --strategy ilp --sub-strategy threshold --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 2 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
+       # python run_benchmark_tests.py --strategy ilp --sub-strategy threshold --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 2 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
         # pid=$(pgrep -f "adaptive_engine_example")
         # kill $pid
         # # capacity

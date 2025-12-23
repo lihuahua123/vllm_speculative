@@ -2147,7 +2147,7 @@ class ADABinGreedy:
         self.K = K
         self.num_log_bins = num_log_bins
         self.spec_lengths = np.linspace(0, max_spec_length, K, dtype=int)
-
+        self.have_disabled = False
         # === 状态存储 ===
         self.arm_stats = {
             'n': np.zeros((K, num_log_bins)),
@@ -2220,6 +2220,9 @@ class ADABinGreedy:
         ctx_idx = self._get_context_bin(context)
         s = self.context_stats[ctx_idx]
         
+        if context > 10 or self.have_disabled:
+            self.have_disabled = True
+            return 0
         # 如果提供了 skip_neural_net_proposer_step_nums 列表，可以在这里使用
         # 例如：根据跳过步数调整决策逻辑
         # if skip_neural_net_proposer_step_nums is not None:
