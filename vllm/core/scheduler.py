@@ -1783,7 +1783,16 @@ class Scheduler:
             best_proposed_lengths = self.ucbspec.select_arm(len(seq_group_metadata_list),current_qps)
             print("ucb best_batch", len(seq_group_metadata_list), "best_proposed_lengths", best_proposed_lengths)
         if  is_decode and not self.profile and self.epsilon_greedy_spec is not None  and len(self.running) > 0 and not self.proposer_worker_to_cpu: 
-            best_proposed_lengths = self.epsilon_greedy_spec.select_arm(len(seq_group_metadata_list),current_qps)
+            # 收集所有请求的 skip_neural_net_proposer_step_num 值
+            skip_neural_net_proposer_step_nums = [
+                sgm.skip_neural_net_proposer_step_num 
+                for sgm in seq_group_metadata_list
+            ]
+            best_proposed_lengths = self.epsilon_greedy_spec.select_arm(
+                len(seq_group_metadata_list), 
+                current_qps, 
+                skip_neural_net_proposer_step_nums=skip_neural_net_proposer_step_nums
+            )
             print("epsilon_greedy best_batch", len(seq_group_metadata_list), "best_proposed_lengths", best_proposed_lengths)
             
         if  is_decode and not self.profile and self.daspec_spec is not None  and len(self.running) > 0 and not self.proposer_worker_to_cpu: 

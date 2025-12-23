@@ -35,8 +35,8 @@ def load_mean_ttft_ms(filepath):
         return None
 
 def main():
-    deep_dir = Path('/root/autodl-tmp/vllm_speculative/prefill_benchmark_results_deep1')
-    normal_dir = Path('/root/autodl-tmp/vllm_speculative/prefill_benchmark_results_org2')
+    deep_dir = Path('/root/autodl-tmp/vllm_speculative/prefill_benchmark_results_deep')
+    normal_dir = Path('/root/autodl-tmp/vllm_speculative/prefill_benchmark_results_nospec')
     
     # 读取 deep 文件夹中的文件
     deep_files = {}
@@ -106,6 +106,27 @@ def main():
         json.dump(results, f, indent=2, ensure_ascii=False)
     
     print(f"\n结果已保存到: {output_file}")
+    
+    # 创建以 (input_len, batch_size) 为 key 的字典
+    # 对于同一个 (input_len, batch_size)，如果有多个 rate，取平均差值
+    diff_dict = defaultdict(list)
+    for result in results:
+        key = (result['input_len'], result['batch_size'])
+        diff_dict[key].append(result['diff_mean_ttft_ms'])
+    
+    # 计算平均值
+    diff_dict_avg = {}
+    for key, values in diff_dict.items():
+        diff_dict_avg[key] = sum(values) / len(values)
+    
+    # 保存字典到文件（使用字符串 key 以便 JSON 序列化）
+    dict_output_file = Path('/root/autodl-tmp/vllm_speculative/ttft_diff_dict.json')
+    dict_output = {f"{k[0]}_{k[1]}": v for k, v in diff_dict_avg.items()}
+    with open(dict_output_file, 'w', encoding='utf-8') as f:
+        json.dump(dict_output, f, indent=2, ensure_ascii=False)
+    
+    print(f"差值字典已保存到: {dict_output_file}")
+    print(f"字典包含 {len(dict_output)} 个 (input_len, batch_size) 组合")
     
     # 检查是否有只在 deep 或 normal 中存在的文件
     only_deep = set(deep_files.keys()) - set(normal_files.keys())

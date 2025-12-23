@@ -2,13 +2,18 @@
 
 # Prefill 性能测试脚本
 # 支持不同的 input length 和 batch size
-# 仿照 test3.sh 的启动方式，使用 run_benchmark_tests.py 的启动逻辑
+# 注意：此脚本只启动一次 vLLM 服务器，然后执行所有测试配置，最后关闭服务器
+# 这样可以避免重复启动服务器的开销，提高测试效率
+
+# 模型配置
+model_name=/root/autodl-tmp/DeepSeek-R1-Distill-Qwen-7B  # 主模型路径
+draft_model_name=/root/autodl-tmp/deep05b  # Draft 模型路径（如果使用 speculative 策略）
 
 # 基础配置
 FILE_NAME=prefill_benchmark.log
 SPECULATIVE_LEN=3
 ENABLE_TRACE="False"
-num_gpu_blocks_override=717  # 根据你的GPU调整，参考 test3.sh 中的注释
+num_gpu_blocks_override=4938  # 根据你的GPU调整，参考 test3.sh 中的注释
 # 717 #26064 #9369 #A600 50% #4800 4090 # deep A6000 26064 llama8b A6000 xxx
 # 通过下面命令行得到: 788 for 33B vicuna and eagle 1285 for 13B vicuna and eagle
 gpu_memory_utilization=0.85
@@ -20,19 +25,23 @@ PORT=8010
 
 # 策略配置
 STRATEGY="ilp"  # 可选: baseline, ilp, no-spec
-SUB_STRATEGY="deep"  # 可选: ngram, deep, nospec, daspec, smart_spec, threshold, ucb, ucb-offload, epsilon_greedy
-
-# 模型配置（参考 test3.sh）
-model_name=/root/autodl-tmp/vicuna-13b-v1.3
-draft_model_name=/root/autodl-tmp/vicuna-68m
+SUB_STRATEGY="nospec"  # 可选: ngram, deep, nospec, daspec, smart_spec, threshold, ucb, ucb-offload, epsilon_greedy
+# 结果保存目录
+RESULT_DIR="prefill_benchmark_results_${SUB_STRATEGY}"
+data_set_name=sharegpt
+data_set_path=/root/autodl-tmp/sharegpt.json # $data_set_path
 
 # 测试参数配置
 # 不同的 input length 列表（token 数）
-INPUT_LENGTHS=(64)
+INPUT_LENGTHS=(64 128 256)
+# for ((i=1; i<=128; i++)); do
+#     INPUT_LENGTHS+=($i)
+# done
+
 
 # 不同的 batch size（通过 request-rate 控制并发请求数）
 # 注意：实际 batch size 由 vLLM 调度器决定，request-rate 影响并发请求数
-BATCH_SIZES=(1 2 4 8 16)
+BATCH_SIZES=(1 2 4 8 16 32 64)
 
 # 每个配置的测试次数
 NUM_PROMPTS=5
@@ -40,8 +49,7 @@ NUM_PROMPTS=5
 # 输出长度（prefill 测试通常设为 1）
 OUTPUT_LEN=1
 
-# 结果保存目录
-RESULT_DIR="prefill_benchmark_results"
+
 
 export HF_ENDPOINT='https://hf-mirror.com'
 
@@ -66,6 +74,11 @@ echo ""
 # 使用专门的 benchmark_prefill.py 脚本
 # 这个脚本支持 random 数据集和 input length 参数
 # 使用与 run_benchmark_tests.py 相同的服务器启动方式
+# 注意：benchmark_prefill.py 会：
+#   1. 启动一次 vLLM 服务器
+#   2. 循环执行所有 (input_len, batch_size) 组合的测试
+#   3. 所有测试完成后关闭服务器
+# 这样可以避免重复启动服务器的开销
 python benchmark_prefill.py \
     --model $model_name \
     --draft-model $draft_model_name \

@@ -9,7 +9,9 @@ import torch.optim as optim
 import torch.nn.functional as F
 from collections import deque
 import random
-from typing import Dict, List
+from typing import Dict, List, Optional
+import json
+from pathlib import Path
 
 import numpy as np
 
@@ -2140,12 +2142,8 @@ class EpsilonGreedySpec:
         self.spec_lengths = state['spec_lengths']
 
 
-
-import numpy as np
-import math
-
 class ADABinGreedy:
-    def __init__(self, K: int, max_spec_length: int, num_log_bins: int = 12):
+    def __init__(self, K: int, max_spec_length: int, num_log_bins: int = 12, ttft_diff_dict_path: Optional[str] = None):
         self.K = K
         self.num_log_bins = num_log_bins
         self.spec_lengths = np.linspace(0, max_spec_length, K, dtype=int)
@@ -2156,10 +2154,28 @@ class ADABinGreedy:
             'avg_rewards': np.zeros((K, num_log_bins)),
         }
 
+        # === 加载 TTFT 差值字典 ===
+        self.ttft_diff_dict = {}
+        if ttft_diff_dict_path is None:
+            ttft_diff_dict_path = '/root/autodl-tmp/vllm_speculative/ttft_diff_dict.json'
+        
+        try:
+            dict_file = Path(ttft_diff_dict_path)
+            if dict_file.exists():
+                with open(dict_file, 'r', encoding='utf-8') as f:
+                    dict_data = json.load(f)
+                    # 将字符串 key (如 "100_4") 转换为元组 key (100, 4)
+                    self.ttft_diff_dict = {tuple(map(int, k.split('_'))): v for k, v in dict_data.items()}
+                print(f"成功加载 TTFT 差值字典，包含 {len(self.ttft_diff_dict)} 个条目")
+            else:
+                print(f"警告: TTFT 差值字典文件不存在: {ttft_diff_dict_path}")
+        except Exception as e:
+            print(f"警告: 加载 TTFT 差值字典时出错: {e}")
+
         # === 先验权重初始化 ===
         # 使用 num_log_bins 存储，节省内存并加速索引
         self.prior_weights = np.ones((num_log_bins, K))
-        self.prior_strength = 5  # 先验强度：相当于预设了 5 次实验的观察值
+        self.prior_strength = 1  # 先验强度：相当于预设了 5 次实验的观察值
         self._init_prior_weights()
 
         # === 结构参数 ===
@@ -2175,35 +2191,42 @@ class ADABinGreedy:
     def _init_prior_weights(self):
         """
         初始化先验权重。
-        注意：我们将原始逻辑中基于 250个 context 的划分映射到 12个对数分箱中。
+        注意：每2个batch为一个bin。
         """
         for b_idx in range(self.num_log_bins):
             # 估算该 bin 代表的典型 Batch Size (取中值)
-            # 例如 Bin 0 -> BS 1, Bin 5 -> BS 24, Bin 7 -> BS 96
-            representative_context = 2 ** b_idx 
+            # 例如 Bin 0 -> BS 1-2 (中值1.5), Bin 1 -> BS 3-4 (中值3.5), Bin 2 -> BS 5-6 (中值5.5)
+            representative_context = b_idx * 2 + 1.5 
             
             for arm_idx in range(self.K):
-                if representative_context < 60:  # 小/中流量 (Bin 0 - Bin 5)
+                if representative_context < 50:  # 小/中流量
                     self.prior_weights[b_idx][arm_idx] = 0.5
                     self.prior_weights[b_idx][0] = 0     # 抑制不开启投机
-                elif representative_context > 80: # 大流量 (Bin 7 以后)
+                else: # 大流量
                     # 投机长度越短，初始权重越高
                     self.prior_weights[b_idx][arm_idx] = 1.0 + (self.K - arm_idx) / self.K
-                else:  # 过渡区 (60-80 之间，Bin 6)
-                    self.prior_weights[b_idx][arm_idx] = 0.5
-                    self.prior_weights[b_idx][0] = 0
+
+
+               
 
     def _get_context_bin(self, context: int) -> int:
-        """对数分箱逻辑 """
-        if context <= 2:
-            return max(0, context - 1)
-        bin_idx = int(math.log2(context - 1)) + 1
+        """每2个batch为一个bin的分箱逻辑 """
+        # Bin 0: context 1-2, Bin 1: context 3-4, Bin 2: context 5-6, ...
+        bin_idx = (context - 1) // 2
         return min(bin_idx, self.num_log_bins - 1)
 
-    def select_arm(self, context: int, current_qps=None) -> int:
+    def select_arm(self, context: int, current_qps=None, skip_neural_net_proposer_step_nums: Optional[List[int]] = None) -> int:
         self.total_rounds += 1
         ctx_idx = self._get_context_bin(context)
         s = self.context_stats[ctx_idx]
+        
+        # 如果提供了 skip_neural_net_proposer_step_nums 列表，可以在这里使用
+        # 例如：根据跳过步数调整决策逻辑
+        # if skip_neural_net_proposer_step_nums is not None:
+        #     # 可以计算平均跳过步数、最大跳过步数等统计信息用于决策
+        #     avg_skip_steps = np.mean(skip_neural_net_proposer_step_nums) if skip_neural_net_proposer_step_nums else 0
+        #     max_skip_steps = np.max(skip_neural_net_proposer_step_nums) if skip_neural_net_proposer_step_nums else 0
+        #     # 这里可以根据需要调整决策逻辑
         
         # 预计算基于先验权重的概率分布（用于探索阶段）
         # 这样如果 prior_weights[ctx_idx][0] == 0，arm 0 就永远不会被选中
@@ -2236,30 +2259,24 @@ class ADABinGreedy:
             # 使用 np.random.choice 进行加权采样
             return np.random.choice(self.K, p=p_dist)
         else:
-            # 利用阶段：结合先验权重的贝叶斯得分
-            # 同时也包含 epsilon-greedy 的随机探索 
-            epsilon = (self.total_rounds + 1) ** (-1/3)
-            
-            if np.random.random() < epsilon:
-                # 这里的 epsilon 随机步也改为基于先验的加权采样
-                return np.random.choice(self.K, p=p_dist)
-            
+        
             # 正常的利用逻辑（Argmax）
             n = self.arm_stats['n'][:, ctx_idx]
             avg_r = self.arm_stats['avg_rewards'][:, ctx_idx]
             p_val = self.prior_weights[ctx_idx, :]
             
+            # p_val[0] += (current_qps - 10) * 0.5 # 随负载线性增加不投机的倾向
             # 贝叶斯平滑得分：(实测奖励*次数 + 先验权重*强度) / (总次数 + 强度)
             combined_scores = (avg_r * n + p_val * self.prior_strength) / (n + self.prior_strength)
             
             # 引入极小扰动打破平分，并取最大值
-            return np.argmax(np.round(combined_scores, 3) + np.random.normal(0, 1e-6, self.K))
+            return np.argmax(combined_scores)
 
     def update(self, arm_idx: int, context: int, generated_tokens: int, elapsed_time: float):
         ctx_idx = self._get_context_bin(context)
-        reward = generated_tokens / (elapsed_time + 1e-6)
+        reward = (generated_tokens/context) / (elapsed_time + 1e-6)
         
-        # 增量更新经验平均奖励 [cite: 113]
+        # 增量更新经验平均奖励
         self.arm_stats['n'][arm_idx, ctx_idx] += 1
         n = self.arm_stats['n'][arm_idx, ctx_idx]
         old_avg = self.arm_stats['avg_rewards'][arm_idx, ctx_idx]
