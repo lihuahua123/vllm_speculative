@@ -873,8 +873,8 @@ class Scheduler:
                     ret.prefill_seq_groups_list.append(seq_group)
                 else:
                     # if skip the proposal then continue skip the proposal
-                    # if self.need_disable_spec and (self.epsilon_greedy_spec is not None or self.smart_spec is not None):
-                    #     seq_group.skip_neural_net_proposer_step_num += 1
+                    if self.need_disable_spec and (self.epsilon_greedy_spec is not None or self.smart_spec is not None):
+                        seq_group.skip_neural_net_proposer_step_num += 1
                     scheduled_seq_group.token_chunk_size = 1
                     decode_seq_groups.append(scheduled_seq_group)
                     scheduled_seq_group.seq_group.num_speculative_tokens = seq_group.num_speculative_tokens
@@ -1786,7 +1786,7 @@ class Scheduler:
             # 收集所有请求的 skip_neural_net_proposer_step_num 值
             skip_neural_net_proposer_step_nums = [
                 sgm.skip_neural_net_proposer_step_num 
-                for sgm in seq_group_metadata_list
+                for sgm in seq_group_metadata_list if sgm.skip_neural_net_proposer_step_num > 0
             ]
             best_proposed_lengths = self.epsilon_greedy_spec.select_arm(
                 len(seq_group_metadata_list), 

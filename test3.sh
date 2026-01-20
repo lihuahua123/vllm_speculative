@@ -28,7 +28,7 @@ draft_model_name=/root/autodl-tmp/deep05b #/root/autodl-tmp/vllm-medusa-vicuna-7
 export HF_ENDPOINT='https://hf-mirror.com'
 for i in 1  # 2 3 4 5
 do
-    for PROMPT_RATE in 2 #5 10 15 20 25 #25 # 24 # 6 8 10 12 14 # 10 15 # 20 25 #0.5 2 5 10
+    for PROMPT_RATE in 15 #5 10 15 20 25 #25 # 24 # 6 8 10 12 14 # 10 15 # 20 25 #0.5 2 5 10
     do
         # if [ $PROMPT_RATE -eq 5 ]; then
         #     explore="True"

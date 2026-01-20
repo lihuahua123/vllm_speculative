@@ -2220,6 +2220,7 @@ class LLMEngine:
             return
         
         can_increase_space, can_decrease_space = False, False
+        # print("get_num_free_gpu_blocks()",self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks())
         # logger.info(f"scheduler_outputs.scheduled_seq_groups: {len(scheduler_outputs.scheduled_seq_groups)}, scheduler_outputs.num_prefill_groups: {scheduler_outputs.num_prefill_groups}, len(self.scheduler[virtual_engine].waiting): {len(self.scheduler[virtual_engine].waiting)},running: {len(self.scheduler[virtual_engine].running)}")
         # FIXME 具有滞后性 如果预先调度，则增加overhead，否则具有滞后性，没准下一次就用不上了, 所以需要改条件
         if  self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks < self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks \

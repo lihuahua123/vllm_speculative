@@ -2141,6 +2141,25 @@ class EpsilonGreedySpec:
         self.context_bounds = state['context_bounds']
         self.spec_lengths = state['spec_lengths']
 
+BATCH_SIZES = [1, 2, 4, 8, 16, 32, 64]
+
+# 预计算查找表（一次性开销）
+def build_lookup_table(max_size=100):
+    """为常见范围预计算查找表"""
+    lookup = {}
+    for i in range(1, max_size + 1):
+        lookup[i] = min(BATCH_SIZES, key=lambda x: abs(x - i))
+    return lookup
+
+# 使用查找表
+LOOKUP_TABLE = build_lookup_table(100)
+
+def find_closest_batch_size(batch_size):
+    """O(1) 查找"""
+    if batch_size in LOOKUP_TABLE:
+        return LOOKUP_TABLE[batch_size]
+    # 超出范围时回退到原始方法
+    return min(BATCH_SIZES, key=lambda x: abs(x - batch_size))
 
 class ADABinGreedy:
     def __init__(self, K: int, max_spec_length: int, num_log_bins: int = 12, ttft_diff_dict_path: Optional[str] = None):
@@ -2167,6 +2186,7 @@ class ADABinGreedy:
                     # 将字符串 key (如 "100_4") 转换为元组 key (100, 4)
                     self.ttft_diff_dict = {tuple(map(int, k.split('_'))): v for k, v in dict_data.items()}
                 print(f"成功加载 TTFT 差值字典，包含 {len(self.ttft_diff_dict)} 个条目")
+                print(self.ttft_diff_dict)
             else:
                 print(f"警告: TTFT 差值字典文件不存在: {ttft_diff_dict_path}")
         except Exception as e:
@@ -2225,11 +2245,29 @@ class ADABinGreedy:
             return 0
         # 如果提供了 skip_neural_net_proposer_step_nums 列表，可以在这里使用
         # 例如：根据跳过步数调整决策逻辑
-        if skip_neural_net_proposer_step_nums is not None:
+        c_prefill = 0
+        if skip_neural_net_proposer_step_nums is not None and len(skip_neural_net_proposer_step_nums) > 0:
             # 可以计算平均跳过步数、最大跳过步数等统计信息用于决策
             max_skip_steps = np.max(skip_neural_net_proposer_step_nums) if skip_neural_net_proposer_step_nums else 0
             # 这里可以根据需要调整决策逻辑
-            c_prefill = self.ttft_diff_dict[max_skip_steps][context] 
+            print("skip_neural_net_proposer_step_nums", skip_neural_net_proposer_step_nums, max_skip_steps, context)
+            max_skip_steps = max(100,int(max_skip_steps // 100) *100)
+            closest_batch_size = find_closest_batch_size(context)
+            # 字典的键是 (batch_size, max_skip_steps) 元组
+            dict_key = (max_skip_steps, closest_batch_size)
+            if dict_key in self.ttft_diff_dict:
+                c_prefill = self.ttft_diff_dict[dict_key]
+            else:
+                # 如果精确匹配不存在，尝试查找最接近的键
+                if self.ttft_diff_dict:
+                    # 找到所有可能的键，选择最接近的
+                    available_keys = list(self.ttft_diff_dict.keys())
+                    closest_key = min(available_keys, key=lambda k: abs(k[0] - closest_batch_size) + abs(k[1] - closest_max_skip_steps))
+                    c_prefill = self.ttft_diff_dict[closest_key]
+                    print(f"警告: 未找到精确匹配的键 {dict_key}，使用最接近的键 {closest_key}")
+                else:
+                    print(f"警告: TTFT 差值字典为空，使用默认值 0")
+                    c_prefill = 0 
         
         # 预计算基于先验权重的概率分布（用于探索阶段）
         # 这样如果 prior_weights[ctx_idx][0] == 0，arm 0 就永远不会被选中
@@ -2267,10 +2305,12 @@ class ADABinGreedy:
             n = self.arm_stats['n'][:, ctx_idx]
             avg_r = self.arm_stats['avg_rewards'][:, ctx_idx]
             p_val = self.prior_weights[ctx_idx, :]
+            combined_scores = np.ones(self.K)
             if self.have_disabled:
-                combined_scores[0] = 1/avg_r[arm_idx]
+                combined_scores[0] = 1/avg_r[0]
                 for arm_idx in range(1, self.K):
                     combined_scores[arm_idx] = 1/avg_r[arm_idx] + c_prefill/ self.spec_lengths[arm_idx]
+                print("combined_scores", combined_scores,avg_r, c_prefill, self.spec_lengths[arm_idx])
                 arm = np.argmin(combined_scores)
                 if arm > 0:
                     self.have_disabled = False
