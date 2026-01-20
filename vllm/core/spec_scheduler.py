@@ -2220,16 +2220,16 @@ class ADABinGreedy:
         ctx_idx = self._get_context_bin(context)
         s = self.context_stats[ctx_idx]
         print("context:", context,"ctx_idx:", ctx_idx,"current_qps:", current_qps)
-        if (context > 20 and current_qps > 2) or self.have_disabled:
+        if (context > 20 and current_qps > 2):
             self.have_disabled = True
             return 0
         # 如果提供了 skip_neural_net_proposer_step_nums 列表，可以在这里使用
         # 例如：根据跳过步数调整决策逻辑
-        # if skip_neural_net_proposer_step_nums is not None:
-        #     # 可以计算平均跳过步数、最大跳过步数等统计信息用于决策
-        #     avg_skip_steps = np.mean(skip_neural_net_proposer_step_nums) if skip_neural_net_proposer_step_nums else 0
-        #     max_skip_steps = np.max(skip_neural_net_proposer_step_nums) if skip_neural_net_proposer_step_nums else 0
-        #     # 这里可以根据需要调整决策逻辑
+        if skip_neural_net_proposer_step_nums is not None:
+            # 可以计算平均跳过步数、最大跳过步数等统计信息用于决策
+            max_skip_steps = np.max(skip_neural_net_proposer_step_nums) if skip_neural_net_proposer_step_nums else 0
+            # 这里可以根据需要调整决策逻辑
+            c_prefill = self.ttft_diff_dict[max_skip_steps][context] 
         
         # 预计算基于先验权重的概率分布（用于探索阶段）
         # 这样如果 prior_weights[ctx_idx][0] == 0，arm 0 就永远不会被选中
@@ -2257,7 +2257,7 @@ class ADABinGreedy:
         s['bin_step_count'] += 1
 
         # 2. 决策逻辑
-        if s['is_exploration_bin']:
+        if s['is_exploration_bin'] and not self.have_disabled:
             # === 修改点：探索阶段不再纯随机，而是加入先验权重 ===
             # 使用 np.random.choice 进行加权采样
             return np.random.choice(self.K, p=p_dist)
@@ -2267,7 +2267,14 @@ class ADABinGreedy:
             n = self.arm_stats['n'][:, ctx_idx]
             avg_r = self.arm_stats['avg_rewards'][:, ctx_idx]
             p_val = self.prior_weights[ctx_idx, :]
-            
+            if self.have_disabled:
+                combined_scores[0] = 1/avg_r[arm_idx]
+                for arm_idx in range(1, self.K):
+                    combined_scores[arm_idx] = 1/avg_r[arm_idx] + c_prefill/ self.spec_lengths[arm_idx]
+                arm = np.argmin(combined_scores)
+                if arm > 0:
+                    self.have_disabled = False
+                return arm
             # p_val[0] += (current_qps - 10) * 0.5 # 随负载线性增加不投机的倾向
             # 贝叶斯平滑得分：(实测奖励*次数 + 先验权重*强度) / (总次数 + 强度)
             combined_scores = (avg_r * n + p_val * self.prior_strength) / (n + self.prior_strength)
