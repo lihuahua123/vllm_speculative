@@ -2250,7 +2250,7 @@ class ADABinGreedy:
             # 可以计算平均跳过步数、最大跳过步数等统计信息用于决策
             max_skip_steps = np.max(skip_neural_net_proposer_step_nums) if skip_neural_net_proposer_step_nums else 0
             # 这里可以根据需要调整决策逻辑
-            print("skip_neural_net_proposer_step_nums", skip_neural_net_proposer_step_nums, max_skip_steps, context)
+            # print("skip_neural_net_proposer_step_nums", skip_neural_net_proposer_step_nums, max_skip_steps, context)
             max_skip_steps = max(100,int(max_skip_steps // 100) *100)
             closest_batch_size = find_closest_batch_size(context)
             # 字典的键是 (batch_size, max_skip_steps) 元组
@@ -2258,16 +2258,8 @@ class ADABinGreedy:
             if dict_key in self.ttft_diff_dict:
                 c_prefill = self.ttft_diff_dict[dict_key]
             else:
-                # 如果精确匹配不存在，尝试查找最接近的键
-                if self.ttft_diff_dict:
-                    # 找到所有可能的键，选择最接近的
-                    available_keys = list(self.ttft_diff_dict.keys())
-                    closest_key = min(available_keys, key=lambda k: abs(k[0] - closest_batch_size) + abs(k[1] - closest_max_skip_steps))
-                    c_prefill = self.ttft_diff_dict[closest_key]
-                    print(f"警告: 未找到精确匹配的键 {dict_key}，使用最接近的键 {closest_key}")
-                else:
-                    print(f"警告: TTFT 差值字典为空，使用默认值 0")
-                    c_prefill = 0 
+                print(f"警告: dict_key {dict_key} 不在self.ttft_diff_dict，使用默认值 0")
+                c_prefill = 0
         
         # 预计算基于先验权重的概率分布（用于探索阶段）
         # 这样如果 prior_weights[ctx_idx][0] == 0，arm 0 就永远不会被选中
@@ -2310,7 +2302,7 @@ class ADABinGreedy:
                 combined_scores[0] = 1/avg_r[0]
                 for arm_idx in range(1, self.K):
                     combined_scores[arm_idx] = 1/avg_r[arm_idx] + c_prefill/ self.spec_lengths[arm_idx]
-                print("combined_scores", combined_scores,avg_r, c_prefill, self.spec_lengths[arm_idx])
+                # print("combined_scores", combined_scores,avg_r, c_prefill, self.spec_lengths[arm_idx])
                 arm = np.argmin(combined_scores)
                 if arm > 0:
                     self.have_disabled = False

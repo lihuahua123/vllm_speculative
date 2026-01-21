@@ -1,5 +1,5 @@
 #python run_benchmark_tests.py --strategy ilp --sub-strategy ngram --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B         --dataset-name sharegpt         --dataset-path /data/sharegpt.json   --num-prompts 442 --request-rate 10 1>> a120new.log 2>> a120new_error.log 
-NUM_PROMPTS=200
+NUM_PROMPTS=480
 PROMPT_RATE=5
 FILE_NAME=medusa4.log # 
 MAX_SPECULATIVE_LEN=3
@@ -28,7 +28,7 @@ draft_model_name=/root/autodl-tmp/deep05b #/root/autodl-tmp/vllm-medusa-vicuna-7
 export HF_ENDPOINT='https://hf-mirror.com'
 for i in 1  # 2 3 4 5
 do
-    for PROMPT_RATE in 15 #5 10 15 20 25 #25 # 24 # 6 8 10 12 14 # 10 15 # 20 25 #0.5 2 5 10
+    for PROMPT_RATE in 5 10 15 20 25 #5 10 15 20 25 #25 # 24 # 6 8 10 12 14 # 10 15 # 20 25 #0.5 2 5 10
     do
         # if [ $PROMPT_RATE -eq 5 ]; then
         #     explore="True"
@@ -38,6 +38,10 @@ do
         # sleep 3
         # Nightjar
         python run_benchmark_tests.py --strategy ilp --sub-strategy epsilon_greedy --explore $explore --save-trace $SAVE_TRACE --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
+        pid=$(pgrep -f "adaptive_engine_example")
+        kill $pid
+
+        python run_benchmark_tests.py --strategy ilp --sub-strategy epsilon_greedy_with_offload --explore $explore --save-trace $SAVE_TRACE --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
         pid=$(pgrep -f "adaptive_engine_example")
         kill $pid
         # ucb
