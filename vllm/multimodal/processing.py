@@ -13,7 +13,8 @@ from typing import (TYPE_CHECKING, Generic, NamedTuple, Optional, Protocol,
 
 import torch
 from cachetools import LRUCache
-from transformers import BatchFeature, PretrainedConfig, ProcessorMixin
+from transformers import BatchFeature, PretrainedConfig
+from transformers.processing_utils import ProcessorMixin
 from typing_extensions import assert_never
 
 from vllm.inputs import InputProcessingContext

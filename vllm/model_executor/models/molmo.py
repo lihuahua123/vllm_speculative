@@ -11,8 +11,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
-from transformers import (BatchFeature, PretrainedConfig, ProcessorMixin,
-                          TensorType)
+from transformers import BatchFeature, PretrainedConfig, TensorType
+from transformers.processing_utils import ProcessorMixin
 from transformers.image_utils import ImageInput
 from transformers.tokenization_utils_base import TextInput
 

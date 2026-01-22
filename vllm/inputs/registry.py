@@ -8,7 +8,8 @@ from typing import (TYPE_CHECKING, Any, Callable, NamedTuple, Optional,
                     Protocol, Union)
 
 from torch import nn
-from transformers import BatchFeature, PretrainedConfig, ProcessorMixin
+from transformers import BatchFeature, PretrainedConfig
+from transformers.processing_utils import ProcessorMixin
 from typing_extensions import TypeVar, assert_never
 
 from vllm.logger import init_logger

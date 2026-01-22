@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 import torch
-from transformers import ProcessorMixin
+from transformers.processing_utils import ProcessorMixin
 
 from vllm.config import ModelConfig
 from vllm.multimodal import MULTIMODAL_REGISTRY

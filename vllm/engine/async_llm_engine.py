@@ -456,6 +456,7 @@ class _AsyncLLMEngine(LLMEngine):
             #    if not (self.scheduler[virtual_engine].ucbspec is not None and self.scheduler[virtual_engine].ucbspec.round_robin):
             # if self.strategy != "nospec":
             if self.strategy == "epsilon_greedy_with_offload":
+                # print("increase_or_decrease_block_number current_qps:", current_qps)
                 self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs

@@ -2246,7 +2246,8 @@ class ADABinGreedy:
         # 如果提供了 skip_neural_net_proposer_step_nums 列表，可以在这里使用
         # 例如：根据跳过步数调整决策逻辑
         c_prefill = 0
-        if skip_neural_net_proposer_step_nums is not None and len(skip_neural_net_proposer_step_nums) > 0:
+        need_c_prefill = True
+        if need_c_prefill and skip_neural_net_proposer_step_nums is not None and len(skip_neural_net_proposer_step_nums) > 0:
             # 可以计算平均跳过步数、最大跳过步数等统计信息用于决策
             max_skip_steps = np.max(skip_neural_net_proposer_step_nums) if skip_neural_net_proposer_step_nums else 0
             # 这里可以根据需要调整决策逻辑

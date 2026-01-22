@@ -11,7 +11,8 @@ import torch
 import torch.utils.checkpoint
 from torch import nn
 from torch.nn import functional as F
-from transformers import BatchFeature, ProcessorMixin
+from transformers import BatchFeature
+from transformers.processing_utils import ProcessorMixin
 from transformers.models.whisper import WhisperFeatureExtractor
 from transformers.models.whisper.modeling_whisper import WhisperEncoder
 
