@@ -445,7 +445,7 @@ class _AsyncLLMEngine(LLMEngine):
             self.pass_stage_data = self.stage_data
             pre_disable = self.disable_speculative_decoding
 
-            if  not self.ilp_manager.profile and (self.strategy == "ucb" or self.strategy == "daspec"  or self.strategy == "smart_spec" or self.strategy == "epsilon_greedy" or self.strategy == "epsilon_greedy_with_offload")and \
+            if  not self.ilp_manager.profile and (self.strategy == "ucb" or self.strategy == "daspec"  or self.strategy == "smart_spec" or self.strategy == "epsilon_greedy" or self.strategy == "epsilon_greedy_with_offload" or self.strategy == "epsilon_greedy_with_c_prefill")and \
                 not scheduler_outputs.is_empty() and scheduler_outputs.num_prefill_groups == 0 and \
                 not self.proposer_worker_to_cpu:
                 if need_disable_spec:
@@ -1463,27 +1463,27 @@ class AsyncLLMEngine(EngineClient):
         if action == 11:
             if strategy == "ucb":
                 self.engine.scheduler[virtual_engine].ucbspec.round_robin = False
-            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload":
+            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload" or strategy == "epsilon_greedy_with_c_prefill":
                 self.engine.scheduler[virtual_engine].epsilon_greedy_spec.round_robin = False
             self.engine.ilp_manager.offload = offload
             return
         elif action == 12:
             if strategy == "ucb":
                 self.engine.scheduler[virtual_engine].ucbspec.round_robin = True
-            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload":
+            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload" or strategy == "epsilon_greedy_with_c_prefill":
                 self.engine.scheduler[virtual_engine].epsilon_greedy_spec.round_robin = True
             self.engine.ilp_manager.offload = offload
             return
         elif action == 13:
             if strategy == "ucb":
                 self.engine.scheduler[virtual_engine].ucbspec.save_state(ucb_file_name)
-            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload":
+            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload" or strategy == "epsilon_greedy_with_c_prefill":
                 self.engine.scheduler[virtual_engine].epsilon_greedy_spec.save_state(ucb_file_name)
             return
         elif action == 14:
             if strategy == "ucb":
                 self.engine.scheduler[virtual_engine].ucbspec.load_state(ucb_file_name)
-            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload":
+            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload" or strategy == "epsilon_greedy_with_c_prefill":
                 self.engine.scheduler[virtual_engine].epsilon_greedy_spec.load_state(ucb_file_name)
             return
         
@@ -1520,6 +1520,18 @@ class AsyncLLMEngine(EngineClient):
                 self.engine.scheduler[virtual_engine].smart_spec = None
                 self.engine.scheduler[virtual_engine].ucbspec = None
                 # epsilon_greedy_with_offload 使用 epsilon_greedy_spec，所以不清理它
+            elif strategy == "epsilon_greedy_with_c_prefill":
+                self.engine.scheduler[virtual_engine].daspec_spec = None
+                self.engine.scheduler[virtual_engine].smart_spec = None
+                self.engine.scheduler[virtual_engine].ucbspec = None
+                self.engine.scheduler[virtual_engine].epsilon_greedy_spec.set_need_c_prefill(True)
+                # from vllm.core.spec_scheduler import ADABinGreedy
+                # num_lookahead_slots = self.engine.scheduler[virtual_engine].scheduler_config.num_lookahead_slots
+                # self.engine.scheduler[virtual_engine].epsilon_greedy_spec = ADABinGreedy(
+                #     num_lookahead_slots + 1,
+                #     max_spec_length=num_lookahead_slots,
+                #     need_c_prefill=True
+                # )
             else:
                 self.engine.scheduler[virtual_engine].daspec_spec = None
                 self.engine.scheduler[virtual_engine].smart_spec = None

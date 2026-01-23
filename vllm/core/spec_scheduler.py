@@ -2162,11 +2162,12 @@ def find_closest_batch_size(batch_size):
     return min(BATCH_SIZES, key=lambda x: abs(x - batch_size))
 
 class ADABinGreedy:
-    def __init__(self, K: int, max_spec_length: int, num_log_bins: int = 12, ttft_diff_dict_path: Optional[str] = None):
+    def __init__(self, K: int, max_spec_length: int, num_log_bins: int = 12, ttft_diff_dict_path: Optional[str] = None, need_c_prefill: bool = False):
         self.K = K
         self.num_log_bins = num_log_bins
         self.spec_lengths = np.linspace(0, max_spec_length, K, dtype=int)
         self.have_disabled = False
+        self.need_c_prefill = need_c_prefill
         # === 状态存储 ===
         self.arm_stats = {
             'n': np.zeros((K, num_log_bins)),
@@ -2208,6 +2209,10 @@ class ADABinGreedy:
 
         self.total_rounds = 0
 
+    def set_need_c_prefill(self, need_c_prefill: bool):
+        self.need_c_prefill = need_c_prefill
+
+        
     def _init_prior_weights(self):
         """
         初始化先验权重。
@@ -2246,8 +2251,7 @@ class ADABinGreedy:
         # 如果提供了 skip_neural_net_proposer_step_nums 列表，可以在这里使用
         # 例如：根据跳过步数调整决策逻辑
         c_prefill = 0
-        need_c_prefill = True
-        if need_c_prefill and skip_neural_net_proposer_step_nums is not None and len(skip_neural_net_proposer_step_nums) > 0:
+        if self.need_c_prefill and skip_neural_net_proposer_step_nums is not None and len(skip_neural_net_proposer_step_nums) > 0:
             # 可以计算平均跳过步数、最大跳过步数等统计信息用于决策
             max_skip_steps = np.max(skip_neural_net_proposer_step_nums) if skip_neural_net_proposer_step_nums else 0
             # 这里可以根据需要调整决策逻辑
@@ -2258,6 +2262,7 @@ class ADABinGreedy:
             dict_key = (max_skip_steps, closest_batch_size)
             if dict_key in self.ttft_diff_dict:
                 c_prefill = self.ttft_diff_dict[dict_key]
+                # print("c_prefill", c_prefill)
             else:
                 print(f"警告: dict_key {dict_key} 不在self.ttft_diff_dict，使用默认值 0")
                 c_prefill = 0
