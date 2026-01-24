@@ -92,6 +92,8 @@ class LLMEngineWithILP(AsyncLLMEngine):
             stat_loggers=stat_loggers,
             ilp_monitoring_interval=ilp_monitoring_interval,
             ilp_cooldown_period=ilp_cooldown_period,
+            increase_block_threshold=engine_args.increase_block_threshold,
+            decrease_block_threshold=engine_args.decrease_block_threshold,
         )
         
         return engine

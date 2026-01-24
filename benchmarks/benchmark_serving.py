@@ -288,6 +288,8 @@ async def benchmark(
     enable_trace: bool = False,
     start_index: int = 0,
     strategy_name: Optional[str] = None,
+    increase_block_threshold: int = 150,
+    decrease_block_threshold: int = 100,
 ):
     if backend in ASYNC_REQUEST_FUNCS:
         request_func = ASYNC_REQUEST_FUNCS[backend]
@@ -561,7 +563,9 @@ async def benchmark(
     # Export results to CSV
     export_to_csv(metrics, result, benchmark_duration, model_id, request_rate, 
                   burstiness, goodput_config_dict, selected_percentile_metrics,
-                  strategy_name=strategy_name)
+                  strategy_name=strategy_name,
+                  increase_block_threshold=increase_block_threshold,
+                  decrease_block_threshold=decrease_block_threshold)
 
     return result
 
@@ -577,6 +581,8 @@ def export_to_csv(
     selected_percentile_metrics: list[str],
     strategy_name: Optional[str] = None,
     csv_file: str = "benchmark_results.csv",
+    increase_block_threshold: int = 150,
+    decrease_block_threshold: int = 100,
 ):
     """Export benchmark results to CSV file. Append if file exists, create if not."""
     # Prepare CSV row data
@@ -593,6 +599,8 @@ def export_to_csv(
         "request_throughput_req_per_s": f"{metrics.request_throughput:.2f}",
         "output_throughput_tok_per_s": f"{metrics.output_throughput:.2f}",
         "total_token_throughput_tok_per_s": f"{metrics.total_token_throughput:.2f}",
+        "increase_block_threshold": increase_block_threshold,
+        "decrease_block_threshold": decrease_block_threshold,
     }
     
     # Add goodput if available
@@ -643,6 +651,7 @@ def export_to_csv(
         "total_output_tokens", "request_throughput_req_per_s",
         "request_goodput", "output_throughput_tok_per_s", 
         "total_token_throughput_tok_per_s",
+        "increase_block_threshold", "decrease_block_threshold",
     ]
     
     # Add metric fields in order
@@ -928,6 +937,8 @@ def main(args: argparse.Namespace):
             enable_trace=args.enable_trace,
             start_index=args.start_index,
             strategy_name=strategy_name,
+            increase_block_threshold=args.increase_block_threshold,
+            decrease_block_threshold=args.decrease_block_threshold,
         ))
 
     # Save config and results to json
@@ -1291,6 +1302,14 @@ if __name__ == "__main__":
                         type=int,
                         default=0,
                         help="Start index for the benchmark dataset.")
+    parser.add_argument("--increase-block-threshold",
+                        type=int,
+                        default=150,
+                        help="Threshold for free GPU blocks to trigger block number increase.")
+    parser.add_argument("--decrease-block-threshold",
+                        type=int,
+                        default=100,
+                        help="Threshold offset for free GPU blocks to trigger block number decrease.")
 
     args = parser.parse_args()
 

@@ -2251,11 +2251,11 @@ class ADABinGreedy:
         # 如果提供了 skip_neural_net_proposer_step_nums 列表，可以在这里使用
         # 例如：根据跳过步数调整决策逻辑
         c_prefill = 0
-        if self.need_c_prefill and skip_neural_net_proposer_step_nums is not None and len(skip_neural_net_proposer_step_nums) > 0:
+        if self.need_c_prefill and self.have_disabled and skip_neural_net_proposer_step_nums is not None and len(skip_neural_net_proposer_step_nums) > 0:
             # 可以计算平均跳过步数、最大跳过步数等统计信息用于决策
             max_skip_steps = np.max(skip_neural_net_proposer_step_nums) if skip_neural_net_proposer_step_nums else 0
             # 这里可以根据需要调整决策逻辑
-            # print("skip_neural_net_proposer_step_nums", skip_neural_net_proposer_step_nums, max_skip_steps, context)
+            print("skip_neural_net_proposer_step_nums", skip_neural_net_proposer_step_nums, max_skip_steps, context)
             max_skip_steps = max(100,int(max_skip_steps // 100) *100)
             closest_batch_size = find_closest_batch_size(context)
             # 字典的键是 (batch_size, max_skip_steps) 元组
@@ -2308,7 +2308,7 @@ class ADABinGreedy:
                 combined_scores[0] = 1/avg_r[0]
                 for arm_idx in range(1, self.K):
                     combined_scores[arm_idx] = 1/avg_r[arm_idx] + c_prefill/ self.spec_lengths[arm_idx]
-                # print("combined_scores", combined_scores,avg_r, c_prefill, self.spec_lengths[arm_idx])
+                print("combined_scores", combined_scores,avg_r, c_prefill, self.spec_lengths[arm_idx])
                 arm = np.argmin(combined_scores)
                 if arm > 0:
                     self.have_disabled = False

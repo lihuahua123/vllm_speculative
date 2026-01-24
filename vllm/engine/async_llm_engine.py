@@ -457,7 +457,7 @@ class _AsyncLLMEngine(LLMEngine):
             # if self.strategy != "nospec":
             if self.strategy == "epsilon_greedy_with_offload":
                 # print("increase_or_decrease_block_number current_qps:", current_qps)
-                self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine)
+                self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine, self.has_been_disabled_speculative_decoding)
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
 
@@ -811,6 +811,8 @@ class AsyncLLMEngine(EngineClient):
         stat_loggers: Optional[dict[str, StatLoggerBase]] = None,
         disable_log_requests: bool = False,
         disable_log_stats: bool = False,
+        increase_block_threshold: int = 150,
+        decrease_block_threshold: int = 100,
     ) -> "AsyncLLMEngine":
         """Create an AsyncLLMEngine from the EngineArgs."""
 
@@ -822,6 +824,8 @@ class AsyncLLMEngine(EngineClient):
             log_stats=not disable_log_stats,
             usage_context=usage_context,
             stat_loggers=stat_loggers,
+            increase_block_threshold=increase_block_threshold,
+            decrease_block_threshold=decrease_block_threshold,
         )
 
     @classmethod
@@ -848,6 +852,8 @@ class AsyncLLMEngine(EngineClient):
             stat_loggers=stat_loggers,
             disable_log_stats=engine_args.disable_log_stats,
             disable_log_requests=False,
+            increase_block_threshold=engine_args.increase_block_threshold,
+            decrease_block_threshold=engine_args.decrease_block_threshold,
         )
 
     @property
@@ -1519,6 +1525,7 @@ class AsyncLLMEngine(EngineClient):
                 self.engine.scheduler[virtual_engine].daspec_spec = None
                 self.engine.scheduler[virtual_engine].smart_spec = None
                 self.engine.scheduler[virtual_engine].ucbspec = None
+                self.engine.scheduler[virtual_engine].epsilon_greedy_spec.set_need_c_prefill(True)
                 # epsilon_greedy_with_offload 使用 epsilon_greedy_spec，所以不清理它
             elif strategy == "epsilon_greedy_with_c_prefill":
                 self.engine.scheduler[virtual_engine].daspec_spec = None

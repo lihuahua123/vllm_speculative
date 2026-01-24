@@ -215,6 +215,8 @@ class LLMEngine:
         input_registry: InputRegistry = INPUT_REGISTRY,
         mm_registry: MultiModalRegistry = MULTIMODAL_REGISTRY,
         use_cached_outputs: bool = False,
+        increase_block_threshold: int = 150,
+        decrease_block_threshold: int = 100,
     ) -> None:
         if envs.VLLM_USE_V1:
             raise ValueError(
@@ -248,6 +250,8 @@ class LLMEngine:
 
         self.log_stats = log_stats
         self.use_cached_outputs = use_cached_outputs
+        self.increase_block_threshold = increase_block_threshold
+        self.decrease_block_threshold = decrease_block_threshold
 
         if not self.model_config.skip_tokenizer_init:
             self.tokenizer = self._init_tokenizer()
@@ -522,6 +526,8 @@ class LLMEngine:
         usage_context: UsageContext = UsageContext.ENGINE_CONTEXT,
         stat_loggers: Optional[Dict[str, StatLoggerBase]] = None,
         disable_log_stats: bool = False,
+        increase_block_threshold: int = 150,
+        decrease_block_threshold: int = 100,
     ) -> "LLMEngine":
         return cls(
             vllm_config=vllm_config,
@@ -529,6 +535,8 @@ class LLMEngine:
             log_stats=(not disable_log_stats),
             usage_context=usage_context,
             stat_loggers=stat_loggers,
+            increase_block_threshold=increase_block_threshold,
+            decrease_block_threshold=decrease_block_threshold,
         )
 
     @classmethod
@@ -552,6 +560,8 @@ class LLMEngine:
             usage_context=usage_context,
             stat_loggers=stat_loggers,
             disable_log_stats=engine_args.disable_log_stats,
+            increase_block_threshold=engine_args.increase_block_threshold,
+            decrease_block_threshold=engine_args.decrease_block_threshold,
         )
 
     def __reduce__(self):
@@ -2212,35 +2222,36 @@ class LLMEngine:
         else:
             logger.warning("Model executor does not support switching to neural draft model")
     
-    def increase_or_decrease_block_number(self,scheduler_outputs,virtual_engine):
+    def increase_or_decrease_block_number(self,scheduler_outputs,virtual_engine, has_been_disabled_speculative_decoding):
         have_load_neural_model = self.model_executor.have_load_neural_model()[0]
         if not have_load_neural_model and self.next_step_increase_blcok_number:
             self.next_step_increase_blcok_number = False
             self.increase_block_number()
             return
-        
         can_increase_space, can_decrease_space = False, False
         #print("get_num_free_gpu_blocks()",self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks())
         # logger.info(f"scheduler_outputs.scheduled_seq_groups: {len(scheduler_outputs.scheduled_seq_groups)}, scheduler_outputs.num_prefill_groups: {scheduler_outputs.num_prefill_groups}, len(self.scheduler[virtual_engine].waiting): {len(self.scheduler[virtual_engine].waiting)},running: {len(self.scheduler[virtual_engine].running)}")
         # FIXME 具有滞后性 如果预先调度，则增加overhead，否则具有滞后性，没准下一次就用不上了, 所以需要改条件
-        if  self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks < self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks \
-            and self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks() < 150:
+        # only when speculative decoding is disabled, and there is space to increase, and the free blocks is less than the threshold, then increase
+        if  has_been_disabled_speculative_decoding and self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks < self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks \
+            and self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks() < self.increase_block_threshold:
                 can_increase_space = True
         else:
             # len(self.scheduler[virtual_engine].running) < 2 and 
-            if  len(self.scheduler[virtual_engine].running) < 2 and  len(self.scheduler[virtual_engine].waiting) == 0 and \
+            # upload can be happen anytime
+            if len(self.scheduler[virtual_engine].running) < 2 and  len(self.scheduler[virtual_engine].waiting) == 0 and \
                 self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks == self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks and \
-                self.cache_config.num_virtual_blocks + 100 <  self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks():
+                self.cache_config.num_virtual_blocks + self.decrease_block_threshold <  self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks():
                 can_decrease_space = True
         if can_increase_space:
             logger.info("increase block number")
-            self.set_disable_speculative_decoding(True)
+            #self.set_disable_speculative_decoding(True)
             self.offload_proposer_worker()
             self.next_step_increase_blcok_number = True
             
         if can_decrease_space:
             logger.info("decrease block number")
-            self.set_disable_speculative_decoding(False)
+            #self.set_disable_speculative_decoding(False)
             self.decrease_block_number()
             self.load_neural_model_async()
 

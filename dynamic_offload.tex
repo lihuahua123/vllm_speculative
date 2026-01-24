@@ -1,0 +1,38 @@
+\subsection{基于模型的草稿模型动态加载与卸载机制}
+    \begin{figure}[t]
+      \includegraphics[width=\columnwidth]{figs/memory.pdf}
+      \caption{(a) 通过虚拟化KV缓存，vLLM缓解了内存碎片化问题，但将激活值和KV缓存分离到不同的抽象层次，从而将激活值与KV缓存空间隔离。(b) DASpec在逻辑层面独立管理KV缓存和模型权重，同时将内存整合到统一的物理池中，从而最大化内存利用率。}
+      \label{fig:experiments_dynamic}
+    \end{figure}
+    
+    当请求队列出现严重积压时，KV缓存不足会导致频繁的交换操作或正在执行的请求被丢弃。此时，推测解码机制因效率低下而不再启用。对于基于模型的草稿模型，我们可以卸载草稿模型的权重（类似于LoRA服务），同时扩展原始KV缓存的总体大小，如图~\ref{fig:experiments_unload}所示。假设原始KV缓存占用空间为$M_{org}$，扩展后的缓存将占用$M_{scale} = M_{org} + M_{draft}$的空间。
+    
+    \begin{figure}[t]
+      \includegraphics[width=\columnwidth]{figs/pic5.pdf}
+      \caption{草稿模型的动态卸载机制。}
+      \label{fig:experiments_unload}
+    \end{figure}
+    
+    \subsubsection{动态调整触发条件}
+    
+    系统通过监控KV缓存的占用情况和请求队列状态来决定是否进行动态调整。当满足以下条件时，系统会触发KV缓存扩展操作：\textbf{(1)} 推测解码已被禁用（$has\_been\_disabled\_speculative\_decoding = true$）；\textbf{(2)} 当前可用块数量小于总块数量（$num\_usable\_gpu\_blocks < num\_total\_gpu\_blocks$）；\textbf{(3)} 空闲块数量低于预设阈值（$free\_blocks < N_{low}$）。相反，当满足以下条件时，系统会触发KV缓存收缩操作：\textbf{(1)} 等待队列为空（$len(waiting) = 0$）；\textbf{(2)} 可用块数量等于总块数量（$num\_usable\_gpu\_blocks = num\_total\_gpu\_blocks$）；\textbf{(3)} 空闲块数量大于虚拟块数量与阈值之和（$free\_blocks > M_{draft} + N_{low}$）。这种设计确保了在高负载情况下，当空闲KV缓存槽位低于$N_{low}$时，推测解码机制已被禁用，从而避免了在大量请求场景下的低效运行。
+    
+    \subsubsection{KV缓存块扩展机制}
+    
+    当触发扩展操作时，系统执行以下步骤：首先，通过模型执行器（model executor）在GPU上分配额外的KV缓存内存空间，扩展大小为$M_{draft}$。随后，块管理器（block manager）更新其内部数据结构，包括：\textbf{(1)} 扩展块分配器（block allocator）的块索引集合，将新的块ID（$[current\_size, new\_size)$）添加到可用块集合中；\textbf{(2)} 为新分配的块初始化引用计数，初始值设为0；\textbf{(3)} 更新空闲块索引队列，将新块ID加入队列末尾。最后，系统更新可用块数量计数器，确保调度器能够识别并使用新扩展的缓存空间。整个过程通过原地扩展方式实现，避免了大规模内存复制操作，显著降低了扩展开销。
+    
+    \subsubsection{KV缓存块收缩与逻辑表重映射}
+    
+    块收缩操作是系统中最复杂且最关键的部分，因为它需要在不丢失数据的前提下重新组织内存布局。收缩过程包含以下核心步骤：
+    
+    \textbf{步骤1：识别需要迁移的块。} 系统遍历所有序列的块表（block table），识别出物理块ID大于等于新块数量上限（$block\_id \geq new\_size$）的所有块。这些块需要被迁移到新的物理位置，以避免被后续的内存收缩操作删除。
+    
+    \textbf{步骤2：构建块迁移映射。} 系统在空闲块列表中找到所有小于新块数量上限的可用块ID，构建从旧块ID到新块ID的映射关系：$\mathcal{M}: \{old\_block\_id \rightarrow new\_block\_id\}$。为了维护块之间的依赖关系（通过$prev\_block$指针建立），系统采用拓扑排序算法处理块迁移顺序。具体而言，系统优先处理没有前驱块或前驱块不在迁移集合中的块，确保依赖关系的一致性。
+    
+    \textbf{步骤3：更新逻辑块表。} 对于每个需要迁移的块，系统执行以下操作：\textbf{(a)} 创建新的块对象，保持原有的token序列内容和块大小不变，但使用新的物理块ID；\textbf{(b)} 更新块的前驱指针（$prev\_block$），如果前驱块已被迁移，则指向迁移后的新块；\textbf{(c)} 在对应的块表中执行块替换操作（$replace\_block$），将旧块引用替换为新块引用；\textbf{(d)} 更新新块的引用计数，并从空闲块列表中移除该块ID；\textbf{(e)} 释放旧块的物理内存。这一步骤确保了逻辑块表（block table）与物理内存布局的一致性，使得后续的推理操作能够正确访问迁移后的数据。
+    
+    \textbf{步骤4：KV缓存数据迁移。} 在完成逻辑表更新后，系统需要在GPU上执行实际的KV缓存数据迁移。为了处理迁移映射中可能存在的循环依赖问题（例如，块A需要迁移到块B的位置，而块B需要迁移到块A的位置），系统首先通过依赖解析函数（$resolve\_migration\_dependencies$）对迁移映射进行拓扑排序，生成无循环依赖的执行顺序。随后，系统使用Triton编写的GPU内核（$kv\_cache\_inplace\_migration\_kernel$）执行高效的数据迁移。该内核采用分块并行策略，每个线程块负责迁移一个完整的KV缓存块，通过向量化加载和存储操作实现高带宽数据传输。对于每个迁移对$(old\_id, new\_id)$，内核计算源地址和目标地址，执行$block\_size \times num\_heads \times head\_size$个元素的数据复制操作。
+    
+    \textbf{步骤5：更新分配器状态。} 数据迁移完成后，系统更新块分配器的内部状态：\textbf{(a)} 从空闲块索引集合中移除所有大于等于新块数量上限的块ID；\textbf{(b)} 更新所有块索引集合，将其限制在新的块数量范围内；\textbf{(c)} 删除超出范围的块的引用计数记录。最后，系统更新可用块数量，完成整个收缩过程。
+    
+    通过上述机制，系统能够在运行时动态调整KV缓存大小，在保证数据完整性的同时，最大化内存利用效率。逻辑表重映射确保了上层应用无需感知底层内存布局的变化，而Triton加速的数据迁移则保证了收缩操作的高效执行。

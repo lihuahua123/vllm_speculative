@@ -83,10 +83,12 @@ def parse_args():
     parser.add_argument("--explore", type=str, default="False", help="是否开启explore")
     parser.add_argument("--select-strategy", type=str, default=None, help="select策略")
     parser.add_argument("--save-trace", type=str, default="False", help="是否保存trace")
+    parser.add_argument("--increase-block-threshold", type=int, default=150, help="Threshold for free GPU blocks to trigger block number increase")
+    parser.add_argument("--decrease-block-threshold", type=int, default=100, help="Threshold offset for free GPU blocks to trigger block number decrease")
     return parser.parse_args()
 
 
-def start_server(model, host, port, strategy,sub_strategy,draft_model,speculative_len=1,num_gpu_blocks_override=28845,gpu_memory_utilization=0.85):
+def start_server(model, host, port, strategy,sub_strategy,draft_model,speculative_len=1,num_gpu_blocks_override=28845,gpu_memory_utilization=0.85,increase_block_threshold=150,decrease_block_threshold=100):
     """启动vLLM服务器"""
     print(f"正在启动vLLM服务器，模型: {model}, 地址: {host}:{port}...")
 
@@ -125,6 +127,10 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     if strategy == "ilp":
         exec_cmd.append("--num_gpu_blocks_override")
         exec_cmd.append(str(num_gpu_blocks_override))
+    exec_cmd.append("--increase-block-threshold")
+    exec_cmd.append(str(increase_block_threshold))
+    exec_cmd.append("--decrease-block-threshold")
+    exec_cmd.append(str(decrease_block_threshold))
     print(f"exec_cmd: {exec_cmd}")
     server_process = subprocess.Popen(exec_cmd, env=my_env)
     # 等待服务器启动
@@ -141,7 +147,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     return server_process
 
 def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
-                 request_rate, result_dir, strategy, text, start_index=0,output_len=-1,enable_trace="False",burstiness=1.0, strategy_name=None):
+                 request_rate, result_dir, strategy, text, start_index=0,output_len=-1,enable_trace="False",burstiness=1.0, strategy_name=None, increase_block_threshold=150, decrease_block_threshold=100):
     """运行单个请求率的基准测试"""
     print(f"正在运行基准测试，strategy: {strategy}, 请求率: {request_rate} QPS...")
 
@@ -170,7 +176,9 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
         "--result-filename", result_filename,
         "--start-index", str(start_index),
         "--burstiness", str(burstiness),
-        "--ignore-eos"
+        "--ignore-eos",
+        "--increase-block-threshold", str(increase_block_threshold),
+        "--decrease-block-threshold", str(decrease_block_threshold),
     ]
     if strategy_name:
         benchmark_cmd.extend(["--strategy-name", strategy_name])
@@ -250,7 +258,7 @@ def main():
     args = parse_args()
     print(f"args: {args}")
     # 启动服务器
-    server_process = start_server(args.model, args.host, args.port, args.strategy,args.sub_strategy,args.draft_model,args.speculative_len,args.num_gpu_blocks_override,args.gpu_memory_utilization)
+    server_process = start_server(args.model, args.host, args.port, args.strategy,args.sub_strategy,args.draft_model,args.speculative_len,args.num_gpu_blocks_override,args.gpu_memory_utilization,args.increase_block_threshold,args.decrease_block_threshold)
     sub_strategy = args.sub_strategy
     start_index = args.start_index
     try:
@@ -289,7 +297,9 @@ def main():
                         output_len=args.output_len,
                         enable_trace=args.enable_trace,
                         burstiness=args.burstiness,
-                        strategy_name=strategy_name
+                        strategy_name=strategy_name,
+                        increase_block_threshold=args.increase_block_threshold,
+                        decrease_block_threshold=args.decrease_block_threshold
                     )
                 if args.save_trace == "True":
                     send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ngram.json")
@@ -313,7 +323,9 @@ def main():
                         output_len=args.output_len,
                         enable_trace=args.enable_trace,
                         burstiness=args.burstiness,
-                        strategy_name=strategy_name
+                        strategy_name=strategy_name,
+                        increase_block_threshold=args.increase_block_threshold,
+                        decrease_block_threshold=args.decrease_block_threshold
                     )
                 if args.save_trace == "True":
                     send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_nospec.json")
@@ -342,7 +354,9 @@ def main():
                         output_len=args.output_len,
                         enable_trace=args.enable_trace,
                         burstiness=args.burstiness,
-                        strategy_name=strategy_name
+                        strategy_name=strategy_name,
+                        increase_block_threshold=args.increase_block_threshold,
+                        decrease_block_threshold=args.decrease_block_threshold
                     )
                 if args.save_trace == "True":
                     send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_deep.json")
@@ -489,7 +503,9 @@ def main():
                         output_len=args.output_len,
                         enable_trace=args.enable_trace,
                         burstiness=args.burstiness,
-                        strategy_name=strategy_name
+                        strategy_name=strategy_name,
+                        increase_block_threshold=args.increase_block_threshold,
+                        decrease_block_threshold=args.decrease_block_threshold
                     )
                     if args.save_trace == "True":
                         send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy1.json")
@@ -509,7 +525,9 @@ def main():
                         output_len=args.output_len,
                         enable_trace=args.enable_trace,
                         burstiness=args.burstiness,
-                        strategy_name=strategy_name
+                        strategy_name=strategy_name,
+                        increase_block_threshold=args.increase_block_threshold,
+                        decrease_block_threshold=args.decrease_block_threshold
                     )
                     if args.save_trace == "True":
                         send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy2.json")
@@ -566,7 +584,9 @@ def main():
                         output_len=args.output_len,
                         enable_trace=args.enable_trace,
                         burstiness=args.burstiness,
-                        strategy_name=strategy_name
+                        strategy_name=strategy_name,
+                        increase_block_threshold=args.increase_block_threshold,
+                        decrease_block_threshold=args.decrease_block_threshold
                     )
                     if args.save_trace == "True":
                         send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy_with_offload1.json")
@@ -586,7 +606,9 @@ def main():
                         output_len=args.output_len,
                         enable_trace=args.enable_trace,
                         burstiness=args.burstiness,
-                        strategy_name=strategy_name
+                        strategy_name=strategy_name,
+                        increase_block_threshold=args.increase_block_threshold,
+                        decrease_block_threshold=args.decrease_block_threshold
                     )
                     if args.save_trace == "True":
                         send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy_with_offload2.json")
@@ -614,7 +636,9 @@ def main():
                     output_len=args.output_len,
                     enable_trace=args.enable_trace,
                     burstiness=args.burstiness,
-                    strategy_name=strategy_name
+                    strategy_name=strategy_name,
+                    increase_block_threshold=args.increase_block_threshold,
+                    decrease_block_threshold=args.decrease_block_threshold
                 )
                 if args.save_trace == "True":
                     send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy_with_offload3.json")
@@ -643,7 +667,9 @@ def main():
                         output_len=args.output_len,
                         enable_trace=args.enable_trace,
                         burstiness=args.burstiness,
-                        strategy_name=strategy_name
+                        strategy_name=strategy_name,
+                        increase_block_threshold=args.increase_block_threshold,
+                        decrease_block_threshold=args.decrease_block_threshold
                     )
                     if args.save_trace == "True":
                         send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy1.json")
@@ -663,7 +689,9 @@ def main():
                         output_len=args.output_len,
                         enable_trace=args.enable_trace,
                         burstiness=args.burstiness,
-                        strategy_name=strategy_name
+                        strategy_name=strategy_name,
+                        increase_block_threshold=args.increase_block_threshold,
+                        decrease_block_threshold=args.decrease_block_threshold
                     )
                     if args.save_trace == "True":
                         send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy2.json")

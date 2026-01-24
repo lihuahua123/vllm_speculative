@@ -222,6 +222,8 @@ class EngineArgs:
     enable_reasoning: Optional[bool] = None
     reasoning_parser: Optional[str] = None
     use_tqdm_on_load: bool = True
+    increase_block_threshold: int = 150
+    decrease_block_threshold: int = 100
 
     def __post_init__(self):
         if not self.tokenizer:
@@ -540,6 +542,16 @@ class EngineArgs:
             default=None,
             help='If specified, ignore GPU profiling result and use this number'
             ' of GPU blocks. Used for testing preemption.')
+        parser.add_argument(
+            '--increase-block-threshold',
+            type=int,
+            default=EngineArgs.increase_block_threshold,
+            help='Threshold for free GPU blocks to trigger block number increase.')
+        parser.add_argument(
+            '--decrease-block-threshold',
+            type=int,
+            default=EngineArgs.decrease_block_threshold,
+            help='Threshold offset for free GPU blocks to trigger block number decrease.')
         parser.add_argument('--max-num-batched-tokens',
                             type=int,
                             default=EngineArgs.max_num_batched_tokens,
