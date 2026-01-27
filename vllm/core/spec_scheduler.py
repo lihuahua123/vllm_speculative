@@ -2267,7 +2267,7 @@ class ADABinGreedy:
                 # 已经把该 ctx_idx 下的所有 arm 都探索过一次了
                 print(f"ADABinGreedy (round_robin explore): ctx_idx={ctx_idx}, all_arms_explored -> fallback")
 
-        if (context > 50 and current_qps > 2):
+        if (context > 60 and current_qps > 2):
             self.have_disabled = True
             return 0
         # 如果提供了 skip_neural_net_proposer_step_nums 列表，可以在这里使用
