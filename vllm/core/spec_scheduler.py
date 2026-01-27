@@ -2168,6 +2168,12 @@ class ADABinGreedy:
         self.spec_lengths = np.linspace(0, max_spec_length, K, dtype=int)
         self.have_disabled = False
         self.need_c_prefill = need_c_prefill
+        # 由 /speculative_action action=12 触发（见 async_llm_engine.py）：
+        # round_robin=True 时，优先把每个 context bin 下所有 speculative length 都至少探索一次。
+        self.round_robin: bool = False
+        # 记录每个 context bin 下每个 arm 是否已经“探索过一次”
+        # shape: (num_log_bins, K)
+        self._rr_explored = np.zeros((num_log_bins, K), dtype=bool)
         # === 状态存储 ===
         self.arm_stats = {
             'n': np.zeros((K, num_log_bins)),
@@ -2245,27 +2251,43 @@ class ADABinGreedy:
         ctx_idx = self._get_context_bin(context)
         s = self.context_stats[ctx_idx]
         print("context:", context,"ctx_idx:", ctx_idx,"current_qps:", current_qps)
-        if (context > 20 and current_qps > 2):
+
+        # ===== 强制探索模式（由 explore=True -> action=12 -> round_robin=True）=====
+        # 目标：对“每个 batch(bin)”把所有 speculative length(K 个 arm) 都至少尝试一次；
+        # 若已全部尝试过，则退回原来的 ADA-BinGreedy 决策逻辑。
+        if self.round_robin:
+            unexplored = np.where(~self._rr_explored[ctx_idx])[0]
+            if len(unexplored) > 0:
+                # 默认优先选没探索过的；为了可复现/稳定，这里取最小 arm_idx
+                arm = int(unexplored[0])
+                self._rr_explored[ctx_idx, arm] = True
+                print(f"ADABinGreedy (round_robin explore): ctx_idx={ctx_idx}, selected_unexplored_arm={arm}")
+                return arm
+            else:
+                # 已经把该 ctx_idx 下的所有 arm 都探索过一次了
+                print(f"ADABinGreedy (round_robin explore): ctx_idx={ctx_idx}, all_arms_explored -> fallback")
+
+        if (context > 50 and current_qps > 2):
             self.have_disabled = True
             return 0
         # 如果提供了 skip_neural_net_proposer_step_nums 列表，可以在这里使用
         # 例如：根据跳过步数调整决策逻辑
         c_prefill = 0
-        if self.need_c_prefill and self.have_disabled and skip_neural_net_proposer_step_nums is not None and len(skip_neural_net_proposer_step_nums) > 0:
-            # 可以计算平均跳过步数、最大跳过步数等统计信息用于决策
-            max_skip_steps = np.max(skip_neural_net_proposer_step_nums) if skip_neural_net_proposer_step_nums else 0
-            # 这里可以根据需要调整决策逻辑
-            print("skip_neural_net_proposer_step_nums", skip_neural_net_proposer_step_nums, max_skip_steps, context)
-            max_skip_steps = max(100,int(max_skip_steps // 100) *100)
-            closest_batch_size = find_closest_batch_size(context)
-            # 字典的键是 (batch_size, max_skip_steps) 元组
-            dict_key = (max_skip_steps, closest_batch_size)
-            if dict_key in self.ttft_diff_dict:
-                c_prefill = self.ttft_diff_dict[dict_key]
-                # print("c_prefill", c_prefill)
-            else:
-                print(f"警告: dict_key {dict_key} 不在self.ttft_diff_dict，使用默认值 0")
-                c_prefill = 0
+        # if self.need_c_prefill and self.have_disabled and skip_neural_net_proposer_step_nums is not None and len(skip_neural_net_proposer_step_nums) > 0:
+        #     # 可以计算平均跳过步数、最大跳过步数等统计信息用于决策
+        #     max_skip_steps = np.max(skip_neural_net_proposer_step_nums) if skip_neural_net_proposer_step_nums else 0
+        #     # 这里可以根据需要调整决策逻辑
+        #     # print("skip_neural_net_proposer_step_nums", skip_neural_net_proposer_step_nums, max_skip_steps, context)
+        #     max_skip_steps = max(100,int(max_skip_steps // 100) *100)
+        #     closest_batch_size = find_closest_batch_size(context)
+        #     # 字典的键是 (batch_size, max_skip_steps) 元组
+        #     dict_key = (max_skip_steps, closest_batch_size)
+        #     if dict_key in self.ttft_diff_dict:
+        #         c_prefill = self.ttft_diff_dict[dict_key]
+        #         # print("c_prefill", c_prefill)
+        #     else:
+        #         print(f"警告: dict_key {dict_key} 不在self.ttft_diff_dict，使用默认值 0")
+        #         c_prefill = 0
         
         # 预计算基于先验权重的概率分布（用于探索阶段）
         # 这样如果 prior_weights[ctx_idx][0] == 0，arm 0 就永远不会被选中
@@ -2305,10 +2327,12 @@ class ADABinGreedy:
             p_val = self.prior_weights[ctx_idx, :]
             combined_scores = np.ones(self.K)
             if self.have_disabled:
+                if self.need_c_prefill:
+                    return 0
                 combined_scores[0] = 1/avg_r[0]
                 for arm_idx in range(1, self.K):
                     combined_scores[arm_idx] = 1/avg_r[arm_idx] + c_prefill/ self.spec_lengths[arm_idx]
-                print("combined_scores", combined_scores,avg_r, c_prefill, self.spec_lengths[arm_idx])
+                # print("combined_scores", combined_scores,avg_r, c_prefill, self.spec_lengths[arm_idx])
                 arm = np.argmin(combined_scores)
                 if arm > 0:
                     self.have_disabled = False
