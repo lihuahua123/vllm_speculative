@@ -570,7 +570,10 @@ class Scheduler:
             # 不稳定 
             self.ucbspec = UCBSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
             # self.epsilon_greedy_spec = EpsilonGreedySpecSimple(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
-            self.epsilon_greedy_spec = ADABinGreedy(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            self.epsilon_greedy_spec = EpsilonGreedySimple(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+            # ADABinGreedy(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+
+            # ADABinGreedy(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
             
             # EpsilonGreedySpecSimple(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
             # ADABinGreedy(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)

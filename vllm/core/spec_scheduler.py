@@ -1344,12 +1344,14 @@ class LinUCBSpec:
             A_inv = np.linalg.pinv(self.arm_params['A'][arm_idx])
             self.arm_params['theta'][arm_idx] = A_inv @ self.arm_params['b'][arm_idx]
 
-    def select_arm(self, context: int) -> int:
+    def select_arm(self, context: int, current_qps=None, skip_neural_net_proposer_step_nums: Optional[List[int]] = None) -> int:
         """
         使用LinUCB选择投机长度
         
         Args:
             context: 当前请求数（batch size）
+            current_qps: 当前QPS（可选，为兼容接口保留）
+            skip_neural_net_proposer_step_nums: 跳过的神经网络proposer步数列表（可选，为兼容接口保留）
             
         Returns:
             选择的投机长度索引
@@ -1452,6 +1454,9 @@ class LinUCBSpec:
         self.lambda_reg = state['lambda_reg']
         self.spec_lengths = state['spec_lengths']
 
+    def set_need_c_prefill(self, need_c_prefill: bool):
+        """设置是否需要c_prefill（为兼容接口保留，LinUCBSpec不使用此功能）"""
+        pass
 
 
 class ContextualLinUCB:
@@ -1918,13 +1923,170 @@ class LinearThompsonSamplingSpec:
         self.sigma_noise = state['sigma_noise']
         self.spec_lengths = state['spec_lengths']
 
-class EpsilonGreedySpec:
-    def __init__(self,
-                 K: int,                 # 候选投机长度数量
-                 max_spec_length: int,   # 最大推测长度
-                 context_bins: int = 200, # 上下文分箱数量
-                 epsilon: float = 0.1,   # 探索概率
-                ):
+class EpsilonGreedySimple:
+    def __init__(self, K: int, max_spec_length: int, num_log_bins: int = 12, ttft_diff_dict_path: Optional[str] = None, need_c_prefill: bool = False, epsilon: float = 0.1):
+        """
+        初始化简单的Epsilon-Greedy算法，与batch size无关，只基于奖励进行选择
+        
+        使用epsilon-greedy策略：
+        - 以概率epsilon随机探索
+        - 以概率1-epsilon选择当前最优arm
+        - 每个arm维护独立的统计量（不考虑context）
+        
+        Args:
+            K: 候选投机长度数量（0到max_spec_length）
+            max_spec_length: 最大推测长度
+            num_log_bins: 上下文分箱数量（为兼容接口保留，实际不使用）
+            ttft_diff_dict_path: TTFT差值字典路径（为兼容接口保留，实际不使用）
+            need_c_prefill: 是否需要c_prefill（为兼容接口保留，实际不使用）
+            epsilon: 探索概率，控制探索-利用平衡
+        """
+        # === 状态空间 ===
+        self.arm_stats = {
+            'n': np.zeros(K),           # 每个arm的选择次数
+            'sum_rewards': np.zeros(K), # 总奖励（吞吐量之和）
+            'avg_rewards': np.zeros(K), # 平均奖励
+        }
+
+        # === 超参数 ===
+        self.K = K
+        self.L = max_spec_length
+        self.epsilon = epsilon
+        
+        # === 运行时状态 ===
+        self.round_robin = True
+        self.t = 0
+
+        # 定义投机长度候选值
+        self.spec_lengths = np.linspace(0, max_spec_length, K, dtype=int)
+
+        print(f"EpsilonGreedySimple initialized: K={K}, L={max_spec_length}, epsilon={epsilon}")
+
+    def _update_arm_stats(self, arm_idx: int, reward: float):
+        """
+        更新指定arm的统计量
+        
+        Args:
+            arm_idx: arm索引
+            reward: 观测到的奖励（吞吐量）
+        """
+        # 更新统计量
+        self.arm_stats['n'][arm_idx] += 1
+        self.arm_stats['sum_rewards'][arm_idx] += reward
+
+        # 更新平均奖励
+        n = self.arm_stats['n'][arm_idx]
+        self.arm_stats['avg_rewards'][arm_idx] = (
+            self.arm_stats['sum_rewards'][arm_idx] / n
+        )
+
+    def select_arm(self, context: int = None, current_qps=None, skip_neural_net_proposer_step_nums: Optional[List[int]] = None) -> int:
+        """
+        使用Epsilon-Greedy选择投机长度（与context无关）
+        
+        Args:
+            context: 当前请求量（可选，为兼容接口保留，实际不使用）
+            current_qps: 当前QPS（可选，为兼容接口保留）
+            skip_neural_net_proposer_step_nums: 跳过的神经网络proposer步数列表（可选，为兼容接口保留）
+            
+        Returns:
+            选择的投机长度索引
+        """
+        if self.round_robin:  # 初始轮次：Round-Robin
+            return self.t % self.K
+
+        # Epsilon-greedy策略
+        if np.random.random() < self.epsilon:
+            # 探索：随机选择arm
+            selected_arm = np.random.randint(0, self.K)
+            print(f"Epsilon-Greedy Simple (explore): selected_arm={selected_arm}")
+        else:
+            # 利用：选择当前最优arm
+            avg_rewards = self.arm_stats['avg_rewards']
+
+            # 处理未探索的arm（平均奖励为0）
+            unexplored_mask = self.arm_stats['n'] == 0
+            if unexplored_mask.any():
+                # 如果有未探索的arm，优先选择
+                unexplored_arms = np.where(unexplored_mask)[0]
+                selected_arm = np.random.choice(unexplored_arms)
+            else:
+                # 选择平均奖励最高的arm
+                selected_arm = np.argmax(avg_rewards)
+
+        return selected_arm
+
+    def update(self, arm_idx: int, context: int = None, generated_tokens: int = None, elapsed_time: float = None, reward: float = None):
+        """
+        更新Epsilon-Greedy统计量
+        
+        Args:
+            arm_idx: 选择的arm索引
+            context: 请求量（可选，为兼容接口保留，实际不使用）
+            generated_tokens: 生成的token总数（可选，如果提供reward则不需要）
+            elapsed_time: 执行时间（可选，如果提供reward则不需要）
+            reward: 直接提供的奖励值（可选，如果不提供则从generated_tokens和elapsed_time计算）
+        """
+        self.t += 1
+        
+        # 计算奖励
+        if reward is not None:
+            # 直接使用提供的奖励
+            reward_value = reward
+        elif generated_tokens is not None and elapsed_time is not None:
+            # 从generated_tokens和elapsed_time计算奖励（吞吐量）
+            reward_value = generated_tokens / (elapsed_time + 1e-6)
+        else:
+            raise ValueError("必须提供reward或(generated_tokens和elapsed_time)")
+
+        # 更新统计量
+        self._update_arm_stats(arm_idx, reward_value)
+
+    def get_expected_rewards(self) -> np.ndarray:
+        """
+        获取每个arm的期望奖励
+        
+        Returns:
+            每个arm的期望奖励数组
+        """
+        return self.arm_stats['avg_rewards'].copy()
+
+    def reset(self):
+        """重置算法状态"""
+        self.arm_stats['n'].fill(0)
+        self.arm_stats['sum_rewards'].fill(0)
+        self.arm_stats['avg_rewards'].fill(0)
+        self.t = 0
+        self.round_robin = True
+
+    def save_state(self, filepath: str):
+        """保存内部状态到文件"""
+        state = {
+            'arm_stats': self.arm_stats,
+            't': self.t,
+            'K': self.K,
+            'L': self.L,
+            'epsilon': self.epsilon,
+            'spec_lengths': self.spec_lengths
+        }
+        with open(filepath, 'wb') as f:
+            pickle.dump(state, f)
+
+    def load_state(self, filepath: str):
+        """从文件加载内部状态"""
+        with open(filepath, 'rb') as f:
+            state = pickle.load(f)
+
+        self.arm_stats = state['arm_stats']
+        self.t = state['t']
+        self.K = state['K']
+        self.L = state['L']
+        self.epsilon = state['epsilon']
+        self.spec_lengths = state['spec_lengths']
+
+
+class EpsilonGreedyContextBin:
+    def __init__(self, K: int, max_spec_length: int, num_log_bins: int = 12, ttft_diff_dict_path: Optional[str] = None, need_c_prefill: bool = False):
         """
         初始化Epsilon-Greedy算法，基于上下文（请求量）决定投机长度
         
@@ -1936,9 +2098,14 @@ class EpsilonGreedySpec:
         Args:
             K: 候选投机长度数量（0到max_spec_length）
             max_spec_length: 最大推测长度
-            context_bins: 上下文分箱数量，用于离散化请求量
-            epsilon: 探索概率，控制探索-利用平衡
+            num_log_bins: 上下文分箱数量，用于离散化请求量（对应原来的context_bins）
+            ttft_diff_dict_path: TTFT差值字典路径（可选，为兼容接口保留）
+            need_c_prefill: 是否需要c_prefill（可选，为兼容接口保留）
         """
+        # 内部参数：将num_log_bins映射到context_bins
+        context_bins = num_log_bins
+        epsilon = 0.1  # 默认探索概率
+        
         # === 状态空间 ===
         self.arm_stats = {
             'n': np.zeros((K, context_bins)),           # 每个arm-context组合的选择次数
@@ -2002,12 +2169,14 @@ class EpsilonGreedySpec:
             self.arm_stats['sum_rewards'][arm_idx, context_bin] / n
         )
 
-    def select_arm(self, context: int) -> int:
+    def select_arm(self, context: int, current_qps=None, skip_neural_net_proposer_step_nums: Optional[List[int]] = None) -> int:
         """
         使用Epsilon-Greedy选择投机长度
         
         Args:
             context: 当前请求量（batch size）
+            current_qps: 当前QPS（可选，为兼容接口保留）
+            skip_neural_net_proposer_step_nums: 跳过的神经网络proposer步数列表（可选，为兼容接口保留）
             
         Returns:
             选择的投机长度索引
@@ -2141,6 +2310,10 @@ class EpsilonGreedySpec:
         self.context_bounds = state['context_bounds']
         self.spec_lengths = state['spec_lengths']
 
+    def set_need_c_prefill(self, need_c_prefill: bool):
+        """设置是否需要c_prefill（为兼容接口保留，EpsilonGreedyContextBin不使用此功能）"""
+        pass
+
 BATCH_SIZES = [1, 2, 4, 8, 16, 32, 64]
 
 # 预计算查找表（一次性开销）
@@ -2267,27 +2440,27 @@ class ADABinGreedy:
                 # 已经把该 ctx_idx 下的所有 arm 都探索过一次了
                 print(f"ADABinGreedy (round_robin explore): ctx_idx={ctx_idx}, all_arms_explored -> fallback")
 
-        if (context > 50 and current_qps > 2):
+        if (context > 20 and current_qps > 2):
             self.have_disabled = True
             return 0
         # 如果提供了 skip_neural_net_proposer_step_nums 列表，可以在这里使用
         # 例如：根据跳过步数调整决策逻辑
         c_prefill = 0
-        # if self.need_c_prefill and self.have_disabled and skip_neural_net_proposer_step_nums is not None and len(skip_neural_net_proposer_step_nums) > 0:
-        #     # 可以计算平均跳过步数、最大跳过步数等统计信息用于决策
-        #     max_skip_steps = np.max(skip_neural_net_proposer_step_nums) if skip_neural_net_proposer_step_nums else 0
-        #     # 这里可以根据需要调整决策逻辑
-        #     # print("skip_neural_net_proposer_step_nums", skip_neural_net_proposer_step_nums, max_skip_steps, context)
-        #     max_skip_steps = max(100,int(max_skip_steps // 100) *100)
-        #     closest_batch_size = find_closest_batch_size(context)
-        #     # 字典的键是 (batch_size, max_skip_steps) 元组
-        #     dict_key = (max_skip_steps, closest_batch_size)
-        #     if dict_key in self.ttft_diff_dict:
-        #         c_prefill = self.ttft_diff_dict[dict_key]
-        #         # print("c_prefill", c_prefill)
-        #     else:
-        #         print(f"警告: dict_key {dict_key} 不在self.ttft_diff_dict，使用默认值 0")
-        #         c_prefill = 0
+        if self.need_c_prefill and self.have_disabled and skip_neural_net_proposer_step_nums is not None and len(skip_neural_net_proposer_step_nums) > 0:
+            # 可以计算平均跳过步数、最大跳过步数等统计信息用于决策
+            max_skip_steps = np.max(skip_neural_net_proposer_step_nums) if skip_neural_net_proposer_step_nums else 0
+            # 这里可以根据需要调整决策逻辑
+            # print("skip_neural_net_proposer_step_nums", skip_neural_net_proposer_step_nums, max_skip_steps, context)
+            max_skip_steps = max(100,int(max_skip_steps // 100) *100)
+            closest_batch_size = find_closest_batch_size(context)
+            # 字典的键是 (batch_size, max_skip_steps) 元组
+            dict_key = (max_skip_steps, closest_batch_size)
+            if dict_key in self.ttft_diff_dict:
+                c_prefill = self.ttft_diff_dict[dict_key]
+                # print("c_prefill", c_prefill)
+            else:
+                print(f"警告: dict_key {dict_key} 不在self.ttft_diff_dict，使用默认值 0")
+                c_prefill = 0
         
         # 预计算基于先验权重的概率分布（用于探索阶段）
         # 这样如果 prior_weights[ctx_idx][0] == 0，arm 0 就永远不会被选中
@@ -2327,8 +2500,8 @@ class ADABinGreedy:
             p_val = self.prior_weights[ctx_idx, :]
             combined_scores = np.ones(self.K)
             if self.have_disabled:
-                if self.need_c_prefill:
-                    return 0
+                # if self.need_c_prefill:
+                #     return 0
                 combined_scores[0] = 1/avg_r[0]
                 for arm_idx in range(1, self.K):
                     combined_scores[arm_idx] = 1/avg_r[arm_idx] + c_prefill/ self.spec_lengths[arm_idx]
@@ -2354,289 +2527,121 @@ class ADABinGreedy:
         old_avg = self.arm_stats['avg_rewards'][arm_idx, ctx_idx]
         self.arm_stats['avg_rewards'][arm_idx, ctx_idx] = old_avg + (reward - old_avg) / n
 
-# class ADABinGreedy:
 
-#     def __init__(
-#             self,
-#             K: int,  # 候选投机长度数量
-#             max_spec_length: int,  # 最大推测长度
-#             context_bins: int = 250,  # 上下文分箱数量
-#             delta: float = 0.1,  # 非平稳性检测阈值
-#     ):
-#         """
-#         ADA-BINGREEDY算法实现，基于：
-#         1. 分箱(bin)结构的探索机制
-#         2. 动态调整的探索概率
-#         3. 非平稳性检测和重启机制
+class ADABinGreedySimple:
+    """
+    简化版的 ADABinGreedy 类，去掉了 prior_weights 和 c_prefill 相关功能。
+    只保留核心的 Block/Bin 级联结构和探索/利用逻辑。
+    """
+    def __init__(self, K: int, max_spec_length: int, num_log_bins: int = 12):
+        self.K = K
+        self.num_log_bins = num_log_bins
+        self.spec_lengths = np.linspace(0, max_spec_length, K, dtype=int)
+        self.have_disabled = False
         
-#         改进点：
-#         - 将时间划分为epoch-block-bin三级结构
-#         - 在bin级别实现探索/利用分离
-#         - 动态调整探索概率μ_t
-#         """
-#         # === 状态空间 ===
-#         self.arm_stats = {
-#             'n': np.zeros((K, context_bins)),  # 每个arm-context组合的选择次数
-#             'sum_rewards': np.zeros((K, context_bins)),  # 总奖励
-#             'avg_rewards': np.zeros((K, context_bins)),  # 平均奖励
-#             'last_reward': np.zeros((K, context_bins)),  # 上一次奖励
-#         }
-
-#         # === 算法参数 ===
-#         self.K = K
-#         self.L = max_spec_length
-#         self.context_bins = context_bins
-#         self.delta = delta
-
-#         # === ADA-BINGREEDY特有参数 ===
-#         self.current_epoch = 1
-#         self.current_block = 1
-#         self.current_bin = 1
-#         self.epoch_start_time = 1
-#         self.block_start_time = 1
-#         self.bin_start_time = 1
-#         self.total_rounds = 0
-
-#         # 定义分箱结构（指数增长）
-#         self.bin_length = 1  # 初始分箱长度
-#         self.explore_prob = 1.0  # 初始探索概率
+        # 由 /speculative_action action=12 触发（见 async_llm_engine.py）：
+        # round_robin=True 时，优先把每个 context bin 下所有 speculative length 都至少探索一次。
+        self.round_robin: bool = False
+        # 记录每个 context bin 下每个 arm 是否已经"探索过一次"
+        # shape: (num_log_bins, K)
+        self._rr_explored = np.zeros((num_log_bins, K), dtype=bool)
         
-#         # 为每个context_bin维护独立的探索计数（用于动态流量场景）
-#         self.context_bin_rounds = np.zeros(context_bins, dtype=int)  # 每个context_bin的访问次数
-#         self.num_log_bins = 12
-#         # 投机长度候选值
-#         self.spec_lengths = np.linspace(0, max_spec_length, K, dtype=int)
+        # === 状态存储 ===
+        self.arm_stats = {
+            'n': np.zeros((K, num_log_bins)),
+            'avg_rewards': np.zeros((K, num_log_bins)),
+        }
 
-#         # 先验权重（与原始实现相同）
-#         self.prior_weights = np.ones((context_bins, K))
-#         self._init_prior_weights()
+        # === 结构参数 ===
+        self.context_stats = [{
+            'current_block': 1,
+            'current_bin_idx': 1,
+            'bin_step_count': 0,
+            'is_exploration_bin': True
+        } for _ in range(num_log_bins)]
 
-#     def _init_prior_weights(self):
-#         """初始化上下文相关的先验权重"""
-#         for context in range(self.context_bins):
-#             for arm_idx in range(self.K):
-#                 if context < 60:  # 小流量
-#                     self.prior_weights[context][arm_idx] = 0.5  
-#                     self.prior_weights[context][0] = 0
-#                 elif context > 80:  # 大流量
-#                     self.prior_weights[context][arm_idx] = 1.0 + (
-#                         self.K - arm_idx) / self.K
-#                 else:  # 中等流量
-#                     self.prior_weights[context][arm_idx] = 0.5 
-#                     self.prior_weights[context][0] = 0
+        self.total_rounds = 0
 
-#     def _get_context_bin(self, context: int) -> int:
-#         """
-#         优化点 2：对数分箱函数
-#         将连续的 Batch Size 映射到稀疏的分箱中
-#         """
-#         if context <= 2:
-#             return max(0, context - 1) # BS=1 -> 0, BS=2 -> 1
-        
-#         # 使用 log2 映射，BS=3~4 -> 2, BS=5~8 -> 3, BS=9~16 -> 4 ...
-#         bin_idx = int(math.log2(context - 1)) + 1
-#         return min(bin_idx, self.num_log_bins - 1)
-#     # def _get_context_bin(self, context: int) -> int:
-#     #     """将连续上下文映射到离散bin（简化版）"""
-#     #     return min(context, self.context_bins - 1)
+    def _get_context_bin(self, context: int) -> int:
+        """每2个batch为一个bin的分箱逻辑 """
+        # Bin 0: context 1-2, Bin 1: context 3-4, Bin 2: context 5-6, ...
+        bin_idx = (context - 1) // 2
+        return min(bin_idx, self.num_log_bins - 1)
 
-#     def _update_arm_stats(self, arm_idx: int, context_bin: int, reward: float):
-#         """更新arm统计量"""
-#         self.arm_stats['n'][arm_idx, context_bin] += 1
-#         self.arm_stats['sum_rewards'][arm_idx, context_bin] += reward
-#         self.arm_stats['avg_rewards'][arm_idx, context_bin] = (
-#             self.arm_stats['sum_rewards'][arm_idx, context_bin] /
-#             max(1, self.arm_stats['n'][arm_idx, context_bin]))
-#         self.arm_stats['last_reward'][arm_idx, context_bin] = reward
+    def select_arm(self, context: int, current_qps=None, skip_neural_net_proposer_step_nums: Optional[List[int]] = None) -> int:
+        self.total_rounds += 1
+        ctx_idx = self._get_context_bin(context)
+        s = self.context_stats[ctx_idx]
+        print("context:", context, "ctx_idx:", ctx_idx, "current_qps:", current_qps)
 
-    
-#     def _nonstationarity_test(self, current_context: int) -> bool:
-#         """
-#         改进的非平稳性检测，基于论文中的统计测试
-#         比较当前bin与历史block的性能差异
-#         """
-#         if self.current_block == 1:  # 第一个block无需检测
-#             return False
+        # ===== 强制探索模式（由 explore=True -> action=12 -> round_robin=True）=====
+        # 目标：对"每个 batch(bin)"把所有 speculative length(K 个 arm) 都至少尝试一次；
+        # 若已全部尝试过，则退回原来的 ADA-BinGreedy 决策逻辑。
+        if self.round_robin:
+            unexplored = np.where(~self._rr_explored[ctx_idx])[0]
+            if len(unexplored) > 0:
+                # 默认优先选没探索过的；为了可复现/稳定，这里取最小 arm_idx
+                arm = int(unexplored[0])
+                self._rr_explored[ctx_idx, arm] = True
+                print(f"ADABinGreedySimple (round_robin explore): ctx_idx={ctx_idx}, selected_unexplored_arm={arm}")
+                return arm
+            else:
+                # 已经把该 ctx_idx 下的所有 arm 都探索过一次了
+                print(f"ADABinGreedySimple (round_robin explore): ctx_idx={ctx_idx}, all_arms_explored -> fallback")
 
-#         context_bin = current_context
-#         current_bin_size = self.current_bin
-#         historical_block_size = 2 ** (self.current_block - 2)  # 上一个block的大小
-        
-#         # 获取当前bin和历史block的统计量
-#         current_bin_rewards = []
-#         historical_block_rewards = []
-        
-#         # 这里简化实现，实际应该存储历史数据
-#         # 假设我们只比较最近的两个时间窗口
-#         for arm_idx in range(self.K):
-#             n_current = self.arm_stats['n'][arm_idx, context_bin]
-#             sum_current = self.arm_stats['sum_rewards'][arm_idx, context_bin]
+        # 1. 维护 Block 和 Bin 的级联结构
+        block_len = 2 ** (s['current_block'] - 1)
+        bin_len = max(1, int(math.sqrt(block_len)))
+
+        if s['bin_step_count'] >= bin_len:
+            s['bin_step_count'] = 0
+            s['current_bin_idx'] += 1
+            if (s['current_bin_idx'] - 1) * bin_len >= block_len:
+                s['current_block'] += 1
+                s['current_bin_idx'] = 1
+                # 更新 block 后的 bin 长度
+                block_len = 2 ** (s['current_block'] - 1)
+                bin_len = max(1, int(math.sqrt(block_len)))
+
+            # 决定新的 Bin 是否为探索分箱 [cite: 321]
+            explore_prob = 1.0 / math.sqrt(s['current_bin_idx'])
+            s['is_exploration_bin'] = (np.random.random() < explore_prob)
+
+        s['bin_step_count'] += 1
+
+        # 2. 决策逻辑
+        if s['is_exploration_bin'] and not self.have_disabled:
+            # 探索阶段：纯随机选择
+            return np.random.randint(0, self.K)
+        else:
+            # 利用阶段：选择平均奖励最高的 arm
+            n = self.arm_stats['n'][:, ctx_idx]
+            avg_r = self.arm_stats['avg_rewards'][:, ctx_idx]
             
-#             # 当前bin的统计量（简化：使用最近的部分数据）
-#             current_avg = sum_current / max(1, n_current)
             
-#             # 历史block的统计量（简化：使用较早的数据）
-#             historical_avg = self.arm_stats['last_reward'][arm_idx, context_bin]
+            # 直接使用平均奖励，选择最大值
+            # 对于从未尝试过的 arm，avg_r 为 0，需要特殊处理
+            # 如果所有 arm 都未尝试过，随机选择
+            if np.sum(n) == 0:
+                return np.random.randint(0, self.K)
             
-#             if n_current > 0 and not np.isnan(current_avg) and not np.isnan(historical_avg):
-#                 current_bin_rewards.append(current_avg)
-#                 historical_block_rewards.append(historical_avg)
-        
-#         if not current_bin_rewards or not historical_block_rewards:
-#             return False
-        
-#         # 计算统计量（简化版，论文中使用更复杂的concentration inequality）
-#         current_mean = np.mean(current_bin_rewards)
-#         historical_mean = np.mean(historical_block_rewards)
-        
-#         # 计算方差（简化）
-#         current_var = np.var(current_bin_rewards) if len(current_bin_rewards) > 1 else 0
-#         historical_var = np.var(historical_block_rewards) if len(historical_block_rewards) > 1 else 0
-        
-#         # 计算统计显著性（简化版）
-#         std_error = np.sqrt(current_var/len(current_bin_rewards) + historical_var/len(historical_block_rewards))
-#         z_score = abs(current_mean - historical_mean) / (std_error + 1e-6)
-        
-#         # 阈值设置（论文中使用更复杂的公式）
-#         threshold = 2 * np.sqrt(np.log(self.current_block) / min(len(current_bin_rewards), len(historical_block_rewards)))
-        
-#         return z_score > threshold
+            # 选择平均奖励最高的 arm
+            return np.argmax(avg_r)
 
-   
-
-#     def _get_exploration_prob(self, t: int, context_bin: int = None) -> float:
-#         """
-#         动态调整探索概率μ_t ≈ t^(-1/3)
-#         如果提供了context_bin，则基于该context_bin的访问次数计算（适用于动态流量）
-#         """
-#         if context_bin is not None and self.context_bin_rounds[context_bin] > 0:
-#             # 基于context_bin的访问次数计算探索概率（每个batch_size独立）
-#             context_t = self.context_bin_rounds[context_bin]
-#             # 使用更慢的衰减，确保每个batch_size都有足够的探索
-#             base_prob = (context_t + 1)**(-1 / 3)
-#             # 增加最小探索概率，确保不会完全停止探索
-#             min_explore_prob = 0  # 最小5%的探索概率
-#             return max(min_explore_prob, base_prob)
-#         else:
-#             # 全局探索概率（向后兼容）
-#             epoch_time = t - self.epoch_start_time + 1
-#             base_prob = (epoch_time)**(-1 / 3)
-#             min_explore_prob = 0.05
-#             return max(min_explore_prob, base_prob)
-
-#     def select_arm(self, context: int, current_qps: float = None) -> int:
-#         """
-#         ADA-BINGREEDY的核心选择逻辑：
-#         1. 维护epoch-block-bin三级结构
-#         2. 在bin级别实现探索/利用分离
-#         3. 动态调整探索概率
-#         4. 非平稳性检测触发重启
-#         """
-       
-#         self.total_rounds += 1
-#         t = self.total_rounds
-#         context_bin = context #self._get_context_bin(context)
+    def update(self, arm_idx: int, context: int, generated_tokens: int, elapsed_time: float):
+        ctx_idx = self._get_context_bin(context)
+        reward = (generated_tokens/context) / (elapsed_time + 1e-6)
         
-#         # 更新该context_bin的访问计数（用于动态流量场景）
-#         self.context_bin_rounds[context_bin] += 1
+        # 增量更新经验平均奖励
+        self.arm_stats['n'][arm_idx, ctx_idx] += 1
+        n = self.arm_stats['n'][arm_idx, ctx_idx]
+        old_avg = self.arm_stats['avg_rewards'][arm_idx, ctx_idx]
+        self.arm_stats['avg_rewards'][arm_idx, ctx_idx] = old_avg + (reward - old_avg) / n
 
-#         # === 1. 检查是否需要重启epoch ===
-#         # if self._nonstationarity_test(context):
-#         #     self.current_epoch += 1
-#         #     self.epoch_start_time = t
-#         #     self.current_block = 1
-#         #     self.current_bin = 1
-#         #     self.bin_length = 1  # 重置bin长度
-#         #     # 清空统计量（实际实现可能保留部分历史）
-#         #     self.arm_stats['n'].fill(0)
-#         #     self.arm_stats['sum_rewards'].fill(0)
+    def set_need_c_prefill(self, need_c_prefill: bool):
+        """设置是否需要c_prefill（为兼容接口保留，ADABinGreedySimple不使用此功能）"""
+        pass
 
-#         # === 2. 检查是否需要进入新block（指数增长）===
-#         if self.current_bin > self.bin_length:
-#             self.current_block += 1
-#             self.current_bin = 1
-#             self.bin_length = 2 ** (self.current_block - 1)  # 指数增长
-
-#         # === 2.5. 检查是否存在未探索的arm（优先探索）===
-#         unexplored_arms = []
-#         for arm_idx in range(self.K):
-#             if self.prior_weights[context_bin][arm_idx] > 0:  # 只考虑有效的arm
-#                 if self.arm_stats['n'][arm_idx, context_bin] == 0:
-#                     unexplored_arms.append(arm_idx)
-        
-#         # 如果存在未探索的arm，优先选择它们（强制探索）
-#         if unexplored_arms:
-#             selected_arm = np.random.choice(unexplored_arms)
-#             print(f"force_explore unexplored arm {selected_arm} for context_bin {context_bin}")
-#             self.current_bin += 1
-#             return selected_arm
-
-#         # === 3. 分箱级别的探索/利用决策 ===
-#         # 使用基于context_bin的探索概率（适用于动态流量）
-#         explore_prob = self._get_exploration_prob(t, context_bin)
-#         is_explore_bin = (np.random.random() < explore_prob)
-#         # 如果存在某个arm在当前bin还未被探索（即self.arm_stats['n'][arm_idx, context_bin] <= 0），优先选此arm
-       
-#         if is_explore_bin:
-#             # 探索阶段：随机选择，侧重未充分探索的arm
-#             explore_probs = np.ones(self.K)
-#             for arm_idx in range(self.K):
-#                 base_prob = self.prior_weights[context_bin][arm_idx]
-#                 # 未充分探索的arm获得额外概率
-#                 if self.arm_stats['n'][arm_idx, context_bin] < 2:
-#                     base_prob *= 10.0
-#                 explore_probs[arm_idx] = base_prob
-
-#             explore_probs /= np.sum(explore_probs)
-#             print(f"explore_mode")
-#             selected_arm = np.random.choice(self.K, p=explore_probs)
-#             # print(f"explore_probs")
-#         else:
-#             # 利用阶段：选择历史表现最好的arm（带先验调整）
-#             # 注意：由于前面已经检查了未探索的arm，这里所有arm都应该已被探索过
-
-#             combined_scores = np.full(self.K, -np.inf)  # 初始化为负无穷，确保未探索的arm不会被选中
-            
-#             prior_strength = 1  # 相当于给每个 arm 预设了 5 次实验的信心
-#             for arm_idx in range(self.K):
-#                 if self.prior_weights[context_bin][arm_idx] > 0:
-#                     n = self.arm_stats['n'][arm_idx, context_bin]
-#                     empirical_avg = self.arm_stats['avg_rewards'][arm_idx, context_bin]
-#                     prior_val = self.prior_weights[context_bin][arm_idx]
-                    
-#                     # 贝叶斯平滑得分公式
-#                     combined_scores[arm_idx] = (empirical_avg * n + prior_val * prior_strength) / (n + prior_strength)
-                        
-           
-            
-#             # 取三位小数，如果相同则按索引从小到大选择
-#             rounded_scores = np.round(combined_scores, 3)
-#             print("exploit mode, combined_scores:", rounded_scores)
-#             selected_arm = np.argmax(rounded_scores)
-
-#         # === 4. 更新状态 ===
-#         self.current_bin += 1
-        
-#         return selected_arm
-
-#     def update(self, arm_idx: int, context: int, generated_tokens: int, elapsed_time: float):
-#         """
-#         更新Epsilon-Greedy统计量
-        
-#         Args:
-#             arm_idx: 选择的arm索引（投机长度）
-#             context: 请求量（batch size）
-#             generated_tokens: 生成的token总数（从scheduler传入的是 num_accepted_tokens + batch_size）
-#             elapsed_time: 执行时间
-#         """
-        
-       
-#         reward = generated_tokens / (elapsed_time + 1e-6)
-        
-#         # print(f"reward: {reward:.2f}, generated_tokens: {generated_tokens}, num_accepted_est: {num_accepted_tokens if arm_idx > 0 else 'N/A'}, elapsed_time: {elapsed_time:.4f}, arm_idx: {arm_idx}")
-#         context_bin = context #self._get_context_bin(context)
-#         # 更新统计量
-#         self._update_arm_stats(arm_idx, context_bin, reward)
         
 class EpsilonGreedySpecSimple:
     def __init__(self,

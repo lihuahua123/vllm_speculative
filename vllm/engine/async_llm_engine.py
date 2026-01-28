@@ -445,7 +445,7 @@ class _AsyncLLMEngine(LLMEngine):
             self.pass_stage_data = self.stage_data
             pre_disable = self.disable_speculative_decoding
 
-            if  not self.ilp_manager.profile and (self.strategy == "ucb" or self.strategy == "daspec"  or self.strategy == "smart_spec" or self.strategy == "epsilon_greedy" or self.strategy == "epsilon_greedy_with_offload" or self.strategy == "epsilon_greedy_with_c_prefill")and \
+            if  not self.ilp_manager.profile and (self.strategy == "ucb" or self.strategy == "daspec"  or self.strategy == "smart_spec" or self.strategy == "epsilon_greedy" or self.strategy == "epsilon_greedy_with_offload" or self.strategy == "epsilon_greedy_with_c_prefill" or self.strategy == "ada_bin_greedy" or self.strategy == "ada_bin_greedy_simple" or self.strategy == "epsilon_greedy_simple" or self.strategy == "epsilon_greedy_context_bin" or self.strategy == "lin_ucb")and \
                 not scheduler_outputs.is_empty() and scheduler_outputs.num_prefill_groups == 0 and \
                 not self.proposer_worker_to_cpu:
                 if need_disable_spec:
@@ -1469,81 +1469,128 @@ class AsyncLLMEngine(EngineClient):
         if action == 11:
             if strategy == "ucb":
                 self.engine.scheduler[virtual_engine].ucbspec.round_robin = False
-            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload" or strategy == "epsilon_greedy_with_c_prefill":
+            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload" or strategy == "epsilon_greedy_with_c_prefill" or strategy == "ada_bin_greedy" or strategy == "ada_bin_greedy_simple" or strategy == "epsilon_greedy_simple" or strategy == "epsilon_greedy_context_bin" or strategy == "lin_ucb":
                 self.engine.scheduler[virtual_engine].epsilon_greedy_spec.round_robin = False
             self.engine.ilp_manager.offload = offload
             return
         elif action == 12:
             if strategy == "ucb":
                 self.engine.scheduler[virtual_engine].ucbspec.round_robin = True
-            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload" or strategy == "epsilon_greedy_with_c_prefill":
+            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload" or strategy == "epsilon_greedy_with_c_prefill" or strategy == "ada_bin_greedy" or strategy == "ada_bin_greedy_simple" or strategy == "epsilon_greedy_simple" or strategy == "epsilon_greedy_context_bin" or strategy == "lin_ucb":
                 self.engine.scheduler[virtual_engine].epsilon_greedy_spec.round_robin = True
             self.engine.ilp_manager.offload = offload
             return
         elif action == 13:
             if strategy == "ucb":
                 self.engine.scheduler[virtual_engine].ucbspec.save_state(ucb_file_name)
-            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload" or strategy == "epsilon_greedy_with_c_prefill":
+            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload" or strategy == "epsilon_greedy_with_c_prefill" or strategy == "ada_bin_greedy" or strategy == "ada_bin_greedy_simple" or strategy == "epsilon_greedy_simple" or strategy == "epsilon_greedy_context_bin" or strategy == "lin_ucb":
                 self.engine.scheduler[virtual_engine].epsilon_greedy_spec.save_state(ucb_file_name)
             return
         elif action == 14:
             if strategy == "ucb":
                 self.engine.scheduler[virtual_engine].ucbspec.load_state(ucb_file_name)
-            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload" or strategy == "epsilon_greedy_with_c_prefill":
+            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload" or strategy == "epsilon_greedy_with_c_prefill" or strategy == "ada_bin_greedy" or strategy == "ada_bin_greedy_simple" or strategy == "epsilon_greedy_simple" or strategy == "epsilon_greedy_context_bin" or strategy == "lin_ucb":
                 self.engine.scheduler[virtual_engine].epsilon_greedy_spec.load_state(ucb_file_name)
             return
+        
+        # 策略配置：定义所有可用的策略属性名称
+        ALL_STRATEGY_ATTRS = ['daspec_spec', 'smart_spec', 'ucbspec', 'epsilon_greedy_spec']
+        
+        # 策略映射：每个策略对应的属性名称（如果策略使用某个属性，则保留它，否则禁用）
+        STRATEGY_ATTR_MAP = {
+            'smart_spec': 'smart_spec',
+            'daspec': 'daspec_spec',
+            'ucb': 'ucbspec',
+            'epsilon_greedy': 'epsilon_greedy_spec',
+            'epsilon_greedy_with_offload': 'epsilon_greedy_spec',
+            'epsilon_greedy_with_c_prefill': 'epsilon_greedy_spec',
+            'ada_bin_greedy': 'epsilon_greedy_spec',
+            'ada_bin_greedy_simple': 'epsilon_greedy_spec',
+            'epsilon_greedy_simple': 'epsilon_greedy_spec',
+            'epsilon_greedy_context_bin': 'epsilon_greedy_spec',
+            'lin_ucb': 'epsilon_greedy_spec',
+        }
+        
+        # 需要调用 set_need_c_prefill(True) 的策略
+        STRATEGIES_NEED_C_PREFILL = {'epsilon_greedy_with_offload', 'epsilon_greedy_with_c_prefill'}
+        
+        # epsilon_greedy_spec 的策略类映射：根据策略名称实例化不同的类
+        EPSILON_GREEDY_SPEC_CLASS_MAP = {
+            'ada_bin_greedy': 'ADABinGreedy',
+            'ada_bin_greedy_simple': 'ADABinGreedySimple',
+            'epsilon_greedy_simple': 'EpsilonGreedySimple',
+            'epsilon_greedy_context_bin': 'EpsilonGreedyContextBin',
+            'lin_ucb': 'LinUCBSpec',
+        }
         
         if strategy == "threshold":
             self.engine.strategy = strategy
             self.engine.model_executor.set_disable_by_batch_size(action)
-            self.engine.scheduler[virtual_engine].daspec_spec = None
-            self.engine.scheduler[virtual_engine].smart_spec = None
-            self.engine.scheduler[virtual_engine].epsilon_greedy_spec = None
-            self.engine.scheduler[virtual_engine].ucbspec = None
+            # 禁用所有策略
+            scheduler = self.engine.scheduler[virtual_engine]
+            for attr in ALL_STRATEGY_ATTRS:
+                setattr(scheduler, attr, None)
             return
+        
         if strategy is not None:
             self.engine.strategy = strategy
             self.engine.scheduler[virtual_engine].profile = profile
             logger.info(f"change_speculative_action: {strategy}, {profile}")
-            if strategy == "smart_spec":
-                self.engine.scheduler[virtual_engine].daspec_spec = None
-                self.engine.scheduler[virtual_engine].ucbspec = None
-                self.engine.scheduler[virtual_engine].epsilon_greedy_spec = None
-            elif strategy == "daspec":
-                self.engine.scheduler[virtual_engine].smart_spec = None
-                self.engine.scheduler[virtual_engine].ucbspec = None
-                self.engine.scheduler[virtual_engine].epsilon_greedy_spec = None
-            elif strategy == "ucb":
-                self.engine.scheduler[virtual_engine].daspec_spec = None
-                self.engine.scheduler[virtual_engine].smart_spec = None
-                self.engine.scheduler[virtual_engine].epsilon_greedy_spec = None
-            elif strategy == "epsilon_greedy":
-                self.engine.scheduler[virtual_engine].daspec_spec = None
-                self.engine.scheduler[virtual_engine].smart_spec = None
-                self.engine.scheduler[virtual_engine].ucbspec = None
-            elif strategy == "epsilon_greedy_with_offload":
-                self.engine.scheduler[virtual_engine].daspec_spec = None
-                self.engine.scheduler[virtual_engine].smart_spec = None
-                self.engine.scheduler[virtual_engine].ucbspec = None
-                self.engine.scheduler[virtual_engine].epsilon_greedy_spec.set_need_c_prefill(True)
-                # epsilon_greedy_with_offload 使用 epsilon_greedy_spec，所以不清理它
-            elif strategy == "epsilon_greedy_with_c_prefill":
-                self.engine.scheduler[virtual_engine].daspec_spec = None
-                self.engine.scheduler[virtual_engine].smart_spec = None
-                self.engine.scheduler[virtual_engine].ucbspec = None
-                self.engine.scheduler[virtual_engine].epsilon_greedy_spec.set_need_c_prefill(True)
-                # from vllm.core.spec_scheduler import ADABinGreedy
-                # num_lookahead_slots = self.engine.scheduler[virtual_engine].scheduler_config.num_lookahead_slots
-                # self.engine.scheduler[virtual_engine].epsilon_greedy_spec = ADABinGreedy(
-                #     num_lookahead_slots + 1,
-                #     max_spec_length=num_lookahead_slots,
-                #     need_c_prefill=True
-                # )
-            else:
-                self.engine.scheduler[virtual_engine].daspec_spec = None
-                self.engine.scheduler[virtual_engine].smart_spec = None
-                self.engine.scheduler[virtual_engine].ucbspec = None
-                self.engine.scheduler[virtual_engine].epsilon_greedy_spec = None
+            
+            scheduler = self.engine.scheduler[virtual_engine]
+            active_attr = STRATEGY_ATTR_MAP.get(strategy)
+            
+            # 如果策略使用 epsilon_greedy_spec，需要根据策略名称动态实例化不同的类
+            if active_attr == 'epsilon_greedy_spec':
+                # 对于新策略，需要动态实例化；对于旧策略（如 epsilon_greedy），如果对象已存在则保留
+                if strategy in EPSILON_GREEDY_SPEC_CLASS_MAP:
+                    class_name = EPSILON_GREEDY_SPEC_CLASS_MAP[strategy]
+                    # 动态导入并实例化对应的类
+                    from vllm.core.spec_scheduler import (
+                        ADABinGreedy, ADABinGreedySimple, EpsilonGreedySimple,
+                        EpsilonGreedyContextBin, LinUCBSpec
+                    )
+                    class_map = {
+                        'ADABinGreedy': ADABinGreedy,
+                        'ADABinGreedySimple': ADABinGreedySimple,
+                        'EpsilonGreedySimple': EpsilonGreedySimple,
+                        'EpsilonGreedyContextBin': EpsilonGreedyContextBin,
+                        'LinUCBSpec': LinUCBSpec,
+                    }
+                    spec_class = class_map.get(class_name)
+                    if spec_class:
+                        # 获取 num_lookahead_slots
+                        num_lookahead_slots = scheduler.scheduler_config.num_lookahead_slots
+                        # 实例化新的对象
+                        spec_obj = spec_class(
+                            num_lookahead_slots + 1,
+                            max_spec_length=num_lookahead_slots
+                        )
+                        setattr(scheduler, active_attr, spec_obj)
+                        logger.info(f"实例化了新的 {class_name} 对象")
+                # 对于旧策略（如 epsilon_greedy），如果对象不存在，则使用默认的 EpsilonGreedySimple
+                elif strategy == 'epsilon_greedy':
+                    existing_obj = getattr(scheduler, active_attr, None)
+                    if existing_obj is None:
+                        from vllm.core.spec_scheduler import EpsilonGreedySimple
+                        num_lookahead_slots = scheduler.scheduler_config.num_lookahead_slots
+                        spec_obj = EpsilonGreedySimple(
+                            num_lookahead_slots + 1,
+                            max_spec_length=num_lookahead_slots
+                        )
+                        setattr(scheduler, active_attr, spec_obj)
+                        logger.info("为 epsilon_greedy 策略实例化了 EpsilonGreedySimple 对象")
+            
+            # 禁用所有策略，除了当前激活的策略
+            for attr in ALL_STRATEGY_ATTRS:
+                if attr != active_attr:
+                    setattr(scheduler, attr, None)
+            
+            # 对于需要 c_prefill 的策略，设置相应属性
+            if strategy in STRATEGIES_NEED_C_PREFILL and active_attr:
+                spec_obj = getattr(scheduler, active_attr, None)
+                if spec_obj is not None and hasattr(spec_obj, 'set_need_c_prefill'):
+                    spec_obj.set_need_c_prefill(True)
         print("action",action)
         self.engine.ilp_manager.change_speculative_action(action,save_action_time_history, profile,file_name, offload)
 

@@ -70,7 +70,7 @@ def parse_args():
     parser.add_argument("--strategy", type=str, default="baseline",
                         choices=["baseline", "ilp", "no-spec"], help="策略名称")
     parser.add_argument("--sub-strategy", type=str, default="ngram",
-                        choices=["ngram", "deep", "nospec", "daspec", "smart_spec", "threshold","ucb","ucb-offload","epsilon_greedy","epsilon_greedy_with_offload","epsilon_greedy_with_c_prefill"], help="子策略名称")
+                        choices=["ngram", "deep", "nospec", "daspec", "smart_spec", "threshold","ucb","ucb-offload","epsilon_greedy","epsilon_greedy_with_offload","epsilon_greedy_with_c_prefill","ada_bin_greedy","ada_bin_greedy_simple","epsilon_greedy_simple","epsilon_greedy_context_bin","lin_ucb"], help="子策略名称")
     parser.add_argument("--speculative-len", type=int, default=1, help="speculative长度")
     parser.add_argument("--draft-model", type=str, default="", help="draft模型")
     parser.add_argument("--profile",action="store_true", help="是否开启profile")
@@ -242,6 +242,11 @@ def get_strategy_name(sub_strategy, speculative_len, select_strategy=None):
         "smart_spec": "smart_spec",
         "daspec": "daspec",
         "ngram": "ngram",
+        "ada_bin_greedy": "ADABinGreedy",
+        "ada_bin_greedy_simple": "ADABinGreedySimple",
+        "epsilon_greedy_simple": "EpsilonGreedySimple",
+        "epsilon_greedy_context_bin": "EpsilonGreedyContextBin",
+        "lin_ucb": "LinUCBSpec",
     }
     
     if sub_strategy == "deep":
@@ -723,6 +728,92 @@ def main():
                 )
                 if args.save_trace == "True":
                     send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy3.json")
+            
+            # 新策略：ada_bin_greedy, ada_bin_greedy_simple, epsilon_greedy_simple, epsilon_greedy_context_bin, lin_ucb
+            # 这些策略都使用 epsilon_greedy_spec 属性，但实例化不同的类
+            if sub_strategy in ["ada_bin_greedy", "ada_bin_greedy_simple", "epsilon_greedy_simple", "epsilon_greedy_context_bin", "lin_ucb"]:
+                # 设置sub_strategy
+                send_speculative_action(args.host, args.port, -1, strategy=sub_strategy, save_action_time_history=save_action_time_history, profile=profile, file_name=f"{profile_file_name}_{sub_strategy}.json", ucb_file_name=f"explore_{sub_strategy}")
+                
+                # action 15 设置选择的策略
+                send_speculative_action(args.host, args.port, 15, strategy=sub_strategy, save_action_time_history=save_action_time_history, profile=profile, file_name=f"{profile_file_name}_{sub_strategy}.json", ucb_file_name=f"explore_{sub_strategy}", select_strategy=args.select_strategy)
+                
+                if args.explore == "True":
+                    print(f"explore True for {sub_strategy}")
+                    send_speculative_action(args.host, args.port, 12, strategy=sub_strategy, save_action_time_history=save_action_time_history, profile=profile, file_name=f"{profile_file_name}_{sub_strategy}.json", ucb_file_name=f"explore_{sub_strategy}")
+                    strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
+                    run_benchmark(
+                        host=args.host,
+                        port=args.port,
+                        model=args.model,
+                        dataset_name=args.dataset_name,
+                        dataset_path=args.dataset_path,
+                        num_prompts=args.num_prompts,
+                        request_rate=rate,
+                        result_dir=args.result_dir,
+                        strategy=args.strategy,
+                        text=benchmark_file_name,
+                        start_index=0,
+                        output_len=args.output_len,
+                        enable_trace=args.enable_trace,
+                        burstiness=args.burstiness,
+                        strategy_name=strategy_name,
+                        increase_block_threshold=args.increase_block_threshold,
+                        decrease_block_threshold=args.decrease_block_threshold
+                    )
+                    if args.save_trace == "True":
+                        send_speculative_action(args.host, args.port, 9, strategy=args.sub_strategy, save_action_time_history=save_action_time_history, profile=profile, file_name=f"{profile_file_name}_{sub_strategy}1.json")
+                    strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
+                    run_benchmark(
+                        host=args.host,
+                        port=args.port,
+                        model=args.model,
+                        dataset_name=args.dataset_name,
+                        dataset_path=args.dataset_path,
+                        num_prompts=args.num_prompts,
+                        request_rate=rate,
+                        result_dir=args.result_dir,
+                        strategy=args.strategy,
+                        text=benchmark_file_name,
+                        start_index=0,
+                        output_len=args.output_len,
+                        enable_trace=args.enable_trace,
+                        burstiness=args.burstiness,
+                        strategy_name=strategy_name,
+                        increase_block_threshold=args.increase_block_threshold,
+                        decrease_block_threshold=args.decrease_block_threshold
+                    )
+                    if args.save_trace == "True":
+                        send_speculative_action(args.host, args.port, 9, strategy=args.sub_strategy, save_action_time_history=save_action_time_history, profile=profile, file_name=f"{profile_file_name}_{sub_strategy}2.json")
+                    # action 为 13 设置save
+                    send_speculative_action(args.host, args.port, 13, strategy=sub_strategy, save_action_time_history=save_action_time_history, profile=profile, file_name=f"{profile_file_name}_{sub_strategy}.json", ucb_file_name=f"{sub_strategy}")
+                    # action 为 14 设置load
+                    send_speculative_action(args.host, args.port, 14, strategy=sub_strategy, save_action_time_history=save_action_time_history, profile=profile, file_name=f"{profile_file_name}_{sub_strategy}.json", ucb_file_name=f"{sub_strategy}")
+                    # action 为 11 设置round robin为False
+                    send_speculative_action(args.host, args.port, 11, strategy=sub_strategy, save_action_time_history=save_action_time_history, profile=profile, file_name=f"{profile_file_name}_{sub_strategy}.json", ucb_file_name=f"{sub_strategy}", select_strategy=args.select_strategy)
+                
+                strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
+                run_benchmark(
+                    host=args.host,
+                    port=args.port,
+                    model=args.model,
+                    dataset_name=args.dataset_name,
+                    dataset_path=args.dataset_path,
+                    num_prompts=args.num_prompts,
+                    request_rate=rate,
+                    result_dir=args.result_dir,
+                    strategy=args.strategy,
+                    text=benchmark_file_name,
+                    start_index=start_index,
+                    output_len=args.output_len,
+                    enable_trace=args.enable_trace,
+                    burstiness=args.burstiness,
+                    strategy_name=strategy_name,
+                    increase_block_threshold=args.increase_block_threshold,
+                    decrease_block_threshold=args.decrease_block_threshold
+                )
+                if args.save_trace == "True":
+                    send_speculative_action(args.host, args.port, 9, strategy=args.sub_strategy, save_action_time_history=save_action_time_history, profile=profile, file_name=f"{profile_file_name}_{sub_strategy}3.json")
     finally:
         # 在 finally 里
         server_process.send_signal(signal.SIGINT)
