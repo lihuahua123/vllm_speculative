@@ -61,9 +61,9 @@ do
         pid=$(pgrep -f "adaptive_engine_example")
         kill $pid
 
-        # python run_benchmark_tests.py --strategy ilp --sub-strategy epsilon_greedy_with_c_prefill --explore $explore --save-trace $SAVE_TRACE --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization --increase-block-threshold $increase_block_threshold --decrease-block-threshold $decrease_block_threshold &>> $FILE_NAME
-        # pid=$(pgrep -f "adaptive_engine_example")
-        # kill $pid
+        python run_benchmark_tests.py --strategy ilp --sub-strategy epsilon_greedy_with_c_prefill --explore $explore --save-trace $SAVE_TRACE --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization --increase-block-threshold $increase_block_threshold --decrease-block-threshold $decrease_block_threshold &>> $FILE_NAME
+        pid=$(pgrep -f "adaptive_engine_example")
+        kill $pid
 
         # python run_benchmark_tests.py --strategy ilp --sub-strategy epsilon_greedy_with_offload --explore $explore --save-trace $SAVE_TRACE --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization --increase-block-threshold $increase_block_threshold --decrease-block-threshold $decrease_block_threshold &>> $FILE_NAME
         # pid=$(pgrep -f "adaptive_engine_example")
