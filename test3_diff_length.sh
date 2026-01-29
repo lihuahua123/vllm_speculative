@@ -31,7 +31,7 @@ draft_model_name=/root/autodl-tmp/deep05b #/root/autodl-tmp/vllm-medusa-vicuna-7
 export HF_ENDPOINT='https://hf-mirror.com'
 for i in 1  # 2 3 4 5
 do
-    for PROMPT_RATE in 5 10 15 20 25 30 35 #5 10 15 20 25 #25 # 24 # 6 8 10 12 14 # 10 15 # 20 25 #0.5 2 5 10
+    for PROMPT_RATE in 15 20 25 30 35 #5 10 15 20 25 #25 # 24 # 6 8 10 12 14 # 10 15 # 20 25 #0.5 2 5 10
     do
         # if [ $PROMPT_RATE -eq 5 ]; then
         #     explore="True"
@@ -47,20 +47,20 @@ do
         kill $pid
 
         # ADABinGreedySimple
-        python run_benchmark_tests.py --strategy ilp --sub-strategy ada_bin_greedy_simple --explore $explore --save-trace $SAVE_TRACE --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization --increase-block-threshold $increase_block_threshold --decrease-block-threshold $decrease_block_threshold &>> $FILE_NAME
-        pid=$(pgrep -f "adaptive_engine_example")
-        kill $pid
+        # python run_benchmark_tests.py --strategy ilp --sub-strategy ada_bin_greedy_simple --explore $explore --save-trace $SAVE_TRACE --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization --increase-block-threshold $increase_block_threshold --decrease-block-threshold $decrease_block_threshold &>> $FILE_NAME
+        # pid=$(pgrep -f "adaptive_engine_example")
+        # kill $pid
 
-        # # EpsilonGreedySimple
-        python run_benchmark_tests.py --strategy ilp --sub-strategy epsilon_greedy_simple --explore $explore --save-trace $SAVE_TRACE --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization --increase-block-threshold $increase_block_threshold --decrease-block-threshold $decrease_block_threshold &>> $FILE_NAME
-        pid=$(pgrep -f "adaptive_engine_example")
-        kill $pid
+        # # # EpsilonGreedySimple
+        # python run_benchmark_tests.py --strategy ilp --sub-strategy epsilon_greedy_simple --explore $explore --save-trace $SAVE_TRACE --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization --increase-block-threshold $increase_block_threshold --decrease-block-threshold $decrease_block_threshold &>> $FILE_NAME
+        # pid=$(pgrep -f "adaptive_engine_example")
+        # kill $pid
 
        
-        # LinUCBSpec
-        python run_benchmark_tests.py --strategy ilp --sub-strategy lin_ucb --explore $explore --save-trace $SAVE_TRACE --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization --increase-block-threshold $increase_block_threshold --decrease-block-threshold $decrease_block_threshold &>> $FILE_NAME
-        pid=$(pgrep -f "adaptive_engine_example")
-        kill $pid
+        # # LinUCBSpec
+        # python run_benchmark_tests.py --strategy ilp --sub-strategy lin_ucb --explore $explore --save-trace $SAVE_TRACE --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization --increase-block-threshold $increase_block_threshold --decrease-block-threshold $decrease_block_threshold &>> $FILE_NAME
+        # pid=$(pgrep -f "adaptive_engine_example")
+        # kill $pid
 
         # python run_benchmark_tests.py --strategy ilp --sub-strategy epsilon_greedy_with_c_prefill --explore $explore --save-trace $SAVE_TRACE --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization --increase-block-threshold $increase_block_threshold --decrease-block-threshold $decrease_block_threshold &>> $FILE_NAME
         # pid=$(pgrep -f "adaptive_engine_example")
@@ -85,31 +85,31 @@ do
         # python run_benchmark_tests.py --strategy ilp --sub-strategy smart_spec  --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
         # pid=$(pgrep -f "adaptive_engine_example")
         # kill $pid
-        # # deep-1
-        # python run_benchmark_tests.py --strategy ilp --sub-strategy deep --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 1 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
-        # pid=$(pgrep -f "adaptive_engine_example")
-        # kill $pid
-        # # deep-2
-        # python run_benchmark_tests.py --strategy ilp --sub-strategy deep --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 2 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
-        # pid=$(pgrep -f "adaptive_engine_example")
-        # kill $pid
-        # # deep-3
-        # python run_benchmark_tests.py --strategy ilp --sub-strategy deep --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 3 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
-        # pid=$(pgrep -f "adaptive_engine_example")
-        # kill $pid
-        # # deep-4
-        # python run_benchmark_tests.py --strategy ilp --sub-strategy deep --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 4 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
-        # pid=$(pgrep -f "adaptive_engine_example")
-        # kill $pid
-        # # deep-5
+        # deep-1
+        python run_benchmark_tests.py --strategy ilp --sub-strategy deep --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 1 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
+        pid=$(pgrep -f "adaptive_engine_example")
+        kill $pid
+        # deep-2
+        python run_benchmark_tests.py --strategy ilp --sub-strategy deep --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 2 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
+        pid=$(pgrep -f "adaptive_engine_example")
+        kill $pid
+        # deep-3
+        python run_benchmark_tests.py --strategy ilp --sub-strategy deep --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 3 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
+        pid=$(pgrep -f "adaptive_engine_example")
+        kill $pid
+        # deep-4
+        python run_benchmark_tests.py --strategy ilp --sub-strategy deep --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 4 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
+        pid=$(pgrep -f "adaptive_engine_example")
+        kill $pid
+        # deep-5
         # python run_benchmark_tests.py --strategy ilp --sub-strategy deep --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 5 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
         # pid=$(pgrep -f "adaptive_engine_example")
         # kill $pid
-        # # nospec
-        # python run_benchmark_tests.py --strategy ilp --sub-strategy nospec --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
-        # pid=$(pgrep -f "adaptive_engine_example")
-        # kill $pid
-        # sleep 3
+        # nospec
+        python run_benchmark_tests.py --strategy ilp --sub-strategy nospec --model $model_name --save-trace $SAVE_TRACE --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
+        pid=$(pgrep -f "adaptive_engine_example")
+        kill $pid
+        sleep 3
         # python run_benchmark_tests.py --strategy ilp --sub-strategy smart_spec --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len $SPECULATIVE_LEN --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME
         # sleep 3
         # python run_benchmark_tests.py --strategy ilp --sub-strategy deep --model $model_name --draft-model $draft_model_name       --dataset-name $data_set_name         --dataset-path $data_set_path   --speculative-len 1 --num-prompts $NUM_PROMPTS --request-rate $PROMPT_RATE --start-index $START_INDEX --num-gpu-blocks-override $num_gpu_blocks_override --enable-trace "$ENABLE_TRACE" --burstiness $burstiness --gpu-memory-utilization $gpu_memory_utilization &>> $FILE_NAME

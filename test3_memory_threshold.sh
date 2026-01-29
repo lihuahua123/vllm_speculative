@@ -30,7 +30,7 @@ draft_model_name=/root/autodl-tmp/deep05b #/root/autodl-tmp/vllm-medusa-vicuna-7
 export HF_ENDPOINT='https://hf-mirror.com'
 for i in 1  # 2 3 4 5
 do
-    for PROMPT_RATE in 30 #5 10 15 20 25 #25 # 24 # 6 8 10 12 14 # 10 15 # 20 25 #0.5 2 5 10
+    for PROMPT_RATE in 10 15 20 25 #5 10 15 20 25 #25 # 24 # 6 8 10 12 14 # 10 15 # 20 25 #0.5 2 5 10
     do
         # if [ $PROMPT_RATE -eq 5 ]; then
         #     explore="True"
@@ -40,7 +40,7 @@ do
         # sleep 3
         # Nightjar
         # 遍历 increase_block_threshold 为 num_gpu_blocks_override 的百分比: 2%, 5%, 10%, 15%, 20%
-        for PERCENTAGE in 2 5 10 15 20
+        for PERCENTAGE in  2
         do
             # 计算百分比值: num_gpu_blocks_override * PERCENTAGE / 100
             increase_block_threshold=$((num_gpu_blocks_override * PERCENTAGE / 100))

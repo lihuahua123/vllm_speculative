@@ -240,18 +240,22 @@ class LLMEngine:
         self.observability_config = vllm_config.observability_config or ObservabilityConfig(  # noqa
         )
 
-        logger.info(
-            "Initializing a V0 LLM engine (v%s) with config: %s, "
-            "use_cached_outputs=%s, ",
-            VLLM_VERSION,
-            vllm_config,
-            use_cached_outputs,
-        )
+        
 
         self.log_stats = log_stats
         self.use_cached_outputs = use_cached_outputs
         self.increase_block_threshold = increase_block_threshold
         self.decrease_block_threshold = decrease_block_threshold
+
+        logger.info(
+            "Initializing a V0 LLM engine (v%s) with config: %s, "
+            "use_cached_outputs=%s, increase_block_threshold=%s, decrease_block_threshold=%s",
+            VLLM_VERSION,
+            vllm_config,
+            use_cached_outputs,
+            increase_block_threshold,
+            decrease_block_threshold,
+        )
 
         if not self.model_config.skip_tokenizer_init:
             self.tokenizer = self._init_tokenizer()

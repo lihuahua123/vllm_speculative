@@ -1517,6 +1517,7 @@ class AsyncLLMEngine(EngineClient):
         # epsilon_greedy_spec 的策略类映射：根据策略名称实例化不同的类
         EPSILON_GREEDY_SPEC_CLASS_MAP = {
             'ada_bin_greedy': 'ADABinGreedy',
+            'epsilon_greedy_with_offload': 'ADABinGreedy',  # offload 策略也使用 ADABinGreedy
             'ada_bin_greedy_simple': 'ADABinGreedySimple',
             'epsilon_greedy_simple': 'EpsilonGreedySimple',
             'epsilon_greedy_context_bin': 'EpsilonGreedyContextBin',
