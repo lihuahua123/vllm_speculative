@@ -377,19 +377,21 @@ class RejectionSampler(SpecDecodeStochasticBaseSampler):
         selected_target_probs = target_probs[batch_indices, probs_indicies,
                                              draft_token_ids]
 
-        
-        
-        # self.target_probs.append(target_probs)
-        # self.draft_probs.append(draft_probs)
-        # self.selected_target_probs.append(selected_target_probs)
-        # self.selected_draft_probs.append(selected_draft_probs)
+       
+        eps = 1e-10
+        ratio = selected_target_probs / selected_draft_probs.clamp(min=eps)
+        capped_ratio = torch.minimum(
+            ratio,
+            torch.full((1, ), 1.0, device=target_probs.device, dtype=target_probs.dtype))
+        # draft 几乎不信自己提出的 token 时（p 过小）强制拒绝
+        capped_ratio = torch.where(
+            selected_draft_probs >= eps,
+            capped_ratio,
+            torch.zeros_like(capped_ratio, device=target_probs.device, dtype=target_probs.dtype),
+        )
 
         uniform_rand = self._create_uniform_samples(seeded_seqs, batch_size,
                                                     k - 1, target_probs.device)
-        capped_ratio = torch.minimum(
-            selected_target_probs / selected_draft_probs,
-            torch.full((1, ), 1, device=target_probs.device))
-        # accepted = torch.zeros_like(capped_ratio, dtype=torch.bool)
         accepted = uniform_rand < capped_ratio
 
         return accepted

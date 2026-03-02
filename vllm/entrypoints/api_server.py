@@ -79,7 +79,12 @@ async def change_speculative_action(request: Request) -> Response:
 async def _generate(request_dict: dict, raw_request: Request) -> Response:
     prompt = request_dict.pop("prompt")
     stream = request_dict.pop("stream", False)
-    sampling_params = SamplingParams(**request_dict)
+    stream_options = request_dict.pop("stream_options", None) or {}
+    include_usage = (stream_options.get("include_usage", False)
+                     if isinstance(stream_options, dict) else False)
+    # 显式取出并传入 ignore_eos，确保 benchmark 的 --ignore-eos 能生效（否则会在 EOS 提前停止）
+    ignore_eos = request_dict.pop("ignore_eos", False)
+    sampling_params = SamplingParams(ignore_eos=ignore_eos, **request_dict)
     request_id = random_uuid()
 
     assert engine is not None
@@ -87,7 +92,9 @@ async def _generate(request_dict: dict, raw_request: Request) -> Response:
 
     # Streaming case
     async def stream_results() -> AsyncGenerator[bytes, None]:
+        last_output = None
         async for request_output in results_generator:
+            last_output = request_output
             prompt = request_output.prompt
             assert prompt is not None
             text_outputs = [
@@ -95,6 +102,19 @@ async def _generate(request_dict: dict, raw_request: Request) -> Response:
             ]
             ret = {"text": text_outputs}
             yield (json.dumps(ret) + "\n").encode("utf-8")
+        if include_usage and last_output is not None:
+            prompt_tokens = (len(last_output.prompt_token_ids)
+                            if last_output.prompt_token_ids else 0)
+            completion_tokens = (len(last_output.outputs[0].token_ids)
+                                if last_output.outputs else 0)
+            usage_chunk = {
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens,
+                }
+            }
+            yield (json.dumps(usage_chunk) + "\n").encode("utf-8")
 
     if stream:
         return StreamingResponse(stream_results())

@@ -79,8 +79,12 @@ def get_cached_tokenizer(tokenizer: AnyTokenizer) -> AnyTokenizer:
     function caches these properties for faster access."""
 
     tokenizer_all_special_ids = set(tokenizer.all_special_ids)
-    tokenizer_all_special_tokens_extended = (
-        tokenizer.all_special_tokens_extended)
+    # all_special_tokens_extended 在部分 tokenizer（如 Qwen2Tokenizer）中不存在，用 all_special_tokens 兜底
+    tokenizer_all_special_tokens_extended = getattr(
+        tokenizer,
+        "all_special_tokens_extended",
+        tokenizer.all_special_tokens,
+    )
     tokenizer_all_special_tokens = set(tokenizer.all_special_tokens)
     tokenizer_vocab = tokenizer.get_vocab()
     tokenizer_len = len(tokenizer)

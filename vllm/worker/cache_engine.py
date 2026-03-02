@@ -262,7 +262,13 @@ class CacheEngine:
         
         allocated = torch.cuda.memory_allocated() / (1024 * 1024 * 1024)  # 转换为GB
         reserved = torch.cuda.memory_reserved() / (1024 * 1024 * 1024)
-        logger.info(f"before increase_gpu_blocks 显存使用情况: 已分配 {allocated:.2f} GB, 已预留 {reserved:.2f} GB")
+        rank_str = ""
+        try:
+            if torch.distributed.is_initialized():
+                rank_str = f" rank={torch.distributed.get_rank()}"
+        except Exception:
+            pass
+        logger.info(f"before increase_gpu_blocks{rank_str} 显存使用情况: 已分配 {allocated:.2f} GB, 已预留 {reserved:.2f} GB")
         begin_time = time.time()
         # 计算新的块数量
         new_num_blocks = self.num_gpu_blocks + increase_num_blocks
@@ -295,16 +301,18 @@ class CacheEngine:
             
         # 更新块数量
         self.num_gpu_blocks = new_num_blocks
-        
+
         # 执行垃圾回收
         #gc.collect()
         #torch.cuda.empty_cache()
-        
-        # allocated = torch.cuda.memory_allocated() / (1024 * 1024 * 1024)  # 转换为GB
-        # reserved = torch.cuda.memory_reserved() / (1024 * 1024 * 1024)
-        logger.info(f"after increase_gpu_blocks 显存使用情况: 已分配 {allocated:.2f} GB, 已预留 {reserved:.2f} GB")
+
+        # # 扩块后重新读取显存（并同步 CUDA 确保统计准确）
+        # torch.cuda.synchronize()
+        # allocated_after = torch.cuda.memory_allocated() / (1024 * 1024 * 1024)
+        # reserved_after = torch.cuda.memory_reserved() / (1024 * 1024 * 1024)
+        # logger.info(f"after increase_gpu_blocks{rank_str} 显存使用情况: 已分配 {allocated_after:.2f} GB, 已预留 {reserved_after:.2f} GB, num_gpu_blocks={new_num_blocks}")
         end_time = time.time()
-        logger.info(f"increase_gpu_blocks 时间: {end_time - begin_time:.2f} 秒")
+        logger.info(f"increase_gpu_blocks{rank_str} 时间: {end_time - begin_time:.2f} 秒")
     def _resolve_migration_dependencies(self, block_migration_map):
         """解析块迁移映射中的依赖关系，确保按正确顺序执行
         

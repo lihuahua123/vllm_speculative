@@ -318,14 +318,14 @@ class RequestTracker:
         active_requests = len(self._request_streams)
         pending_requests = self._new_requests.qsize()
         
-        logger.info(
-            f"[REQUEST_RATE_MONITOR] Request {request_id} added. "
-            f"Current rate: {current_rate:.2f} req/s, "
-            # f"Predicted rate: {predicted_rate:.2f} req/s, "
-            f"Active requests: {active_requests}, "
-            f"Pending requests: {pending_requests}, "
-            f"Rate history size: {len(self._rate_history)}"
-        )
+        # logger.info(
+        #     f"[REQUEST_RATE_MONITOR] Request {request_id} added. "
+        #     f"Current rate: {current_rate:.2f} req/s, "
+        #     # f"Predicted rate: {predicted_rate:.2f} req/s, "
+        #     f"Active requests: {active_requests}, "
+        #     f"Pending requests: {pending_requests}, "
+        #     f"Rate history size: {len(self._rate_history)}"
+        # )
         
         
         if verbose:
@@ -452,9 +452,7 @@ class _AsyncLLMEngine(LLMEngine):
                     self.set_disable_speculative_decoding(True)
                 else:
                     self.set_disable_speculative_decoding(False)
-            #if self.ilp_manager.offload and not self.ilp_manager.profile and (self.strategy == "daspec" or  self.strategy == "ucb" )and not scheduler_outputs.is_empty(): 
-            #    if not (self.scheduler[virtual_engine].ucbspec is not None and self.scheduler[virtual_engine].ucbspec.round_robin):
-            # if self.strategy != "nospec":
+           
             if self.strategy == "epsilon_greedy_with_offload":
                 # print("increase_or_decrease_block_number current_qps:", current_qps)
                 self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine, self.has_been_disabled_speculative_decoding)
@@ -501,9 +499,9 @@ class _AsyncLLMEngine(LLMEngine):
                 # We use ExecuteModelRequest to pass the last sampled_token_ids
                 # to each of the non-last PP stages for in-place prepare_input.
                 last_sampled_token_ids=last_sampled_token_ids)
-            if execute_model_req.num_lookahead_slots != 0:
-                execute_model_req.num_lookahead_slots = best_proposed_lengths
-
+            # FIXME
+            # if execute_model_req.num_lookahead_slots != 0:
+            #     execute_model_req.num_lookahead_slots = best_proposed_lengths
             if allow_async_output_proc:
                 execute_model_req.async_callback = self.async_callbacks[
                     virtual_engine]
@@ -1467,30 +1465,42 @@ class AsyncLLMEngine(EngineClient):
             self.engine.model_executor.change_select_strategy(select_strategy)
             return
         if action == 11:
+            sched = self.engine.scheduler[virtual_engine]
             if strategy == "ucb":
-                self.engine.scheduler[virtual_engine].ucbspec.round_robin = False
-            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload" or strategy == "epsilon_greedy_with_c_prefill" or strategy == "ada_bin_greedy" or strategy == "ada_bin_greedy_simple" or strategy == "epsilon_greedy_simple" or strategy == "epsilon_greedy_context_bin" or strategy == "lin_ucb":
-                self.engine.scheduler[virtual_engine].epsilon_greedy_spec.round_robin = False
+                if getattr(sched, "ucbspec", None) is not None:
+                    sched.ucbspec.round_robin = False
+            elif strategy in ("epsilon_greedy", "epsilon_greedy_with_offload", "epsilon_greedy_with_c_prefill", "ada_bin_greedy", "ada_bin_greedy_simple", "epsilon_greedy_simple", "epsilon_greedy_context_bin", "lin_ucb"):
+                if getattr(sched, "epsilon_greedy_spec", None) is not None:
+                    sched.epsilon_greedy_spec.round_robin = False
             self.engine.ilp_manager.offload = offload
             return
         elif action == 12:
+            sched = self.engine.scheduler[virtual_engine]
             if strategy == "ucb":
-                self.engine.scheduler[virtual_engine].ucbspec.round_robin = True
-            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload" or strategy == "epsilon_greedy_with_c_prefill" or strategy == "ada_bin_greedy" or strategy == "ada_bin_greedy_simple" or strategy == "epsilon_greedy_simple" or strategy == "epsilon_greedy_context_bin" or strategy == "lin_ucb":
-                self.engine.scheduler[virtual_engine].epsilon_greedy_spec.round_robin = True
+                if getattr(sched, "ucbspec", None) is not None:
+                    sched.ucbspec.round_robin = True
+            elif strategy in ("epsilon_greedy", "epsilon_greedy_with_offload", "epsilon_greedy_with_c_prefill", "ada_bin_greedy", "ada_bin_greedy_simple", "epsilon_greedy_simple", "epsilon_greedy_context_bin", "lin_ucb"):
+                if getattr(sched, "epsilon_greedy_spec", None) is not None:
+                    sched.epsilon_greedy_spec.round_robin = True
             self.engine.ilp_manager.offload = offload
             return
         elif action == 13:
+            sched = self.engine.scheduler[virtual_engine]
             if strategy == "ucb":
-                self.engine.scheduler[virtual_engine].ucbspec.save_state(ucb_file_name)
-            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload" or strategy == "epsilon_greedy_with_c_prefill" or strategy == "ada_bin_greedy" or strategy == "ada_bin_greedy_simple" or strategy == "epsilon_greedy_simple" or strategy == "epsilon_greedy_context_bin" or strategy == "lin_ucb":
-                self.engine.scheduler[virtual_engine].epsilon_greedy_spec.save_state(ucb_file_name)
+                if getattr(sched, "ucbspec", None) is not None:
+                    sched.ucbspec.save_state(ucb_file_name)
+            elif strategy in ("epsilon_greedy", "epsilon_greedy_with_offload", "epsilon_greedy_with_c_prefill", "ada_bin_greedy", "ada_bin_greedy_simple", "epsilon_greedy_simple", "epsilon_greedy_context_bin", "lin_ucb"):
+                if getattr(sched, "epsilon_greedy_spec", None) is not None:
+                    sched.epsilon_greedy_spec.save_state(ucb_file_name)
             return
         elif action == 14:
+            sched = self.engine.scheduler[virtual_engine]
             if strategy == "ucb":
-                self.engine.scheduler[virtual_engine].ucbspec.load_state(ucb_file_name)
-            elif strategy == "epsilon_greedy" or strategy == "epsilon_greedy_with_offload" or strategy == "epsilon_greedy_with_c_prefill" or strategy == "ada_bin_greedy" or strategy == "ada_bin_greedy_simple" or strategy == "epsilon_greedy_simple" or strategy == "epsilon_greedy_context_bin" or strategy == "lin_ucb":
-                self.engine.scheduler[virtual_engine].epsilon_greedy_spec.load_state(ucb_file_name)
+                if getattr(sched, "ucbspec", None) is not None:
+                    sched.ucbspec.load_state(ucb_file_name)
+            elif strategy in ("epsilon_greedy", "epsilon_greedy_with_offload", "epsilon_greedy_with_c_prefill", "ada_bin_greedy", "ada_bin_greedy_simple", "epsilon_greedy_simple", "epsilon_greedy_context_bin", "lin_ucb"):
+                if getattr(sched, "epsilon_greedy_spec", None) is not None:
+                    sched.epsilon_greedy_spec.load_state(ucb_file_name)
             return
         
         # 策略配置：定义所有可用的策略属性名称

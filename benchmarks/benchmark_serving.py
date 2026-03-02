@@ -290,6 +290,7 @@ async def benchmark(
     strategy_name: Optional[str] = None,
     increase_block_threshold: int = 150,
     decrease_block_threshold: int = 100,
+    config_output_len: Optional[int] = None,
 ):
     if backend in ASYNC_REQUEST_FUNCS:
         request_func = ASYNC_REQUEST_FUNCS[backend]
@@ -374,8 +375,7 @@ async def benchmark(
             return await request_func(request_func_input=request_func_input,
                                       pbar=pbar)
 
-    benchmark_start_time = time.perf_counter()
-    begin_time = time.time()
+   
     
     # start_index = 3 00 # 前300 用来profile了
     # input_requests_list = [input_requests[start_index:start_index+18],input_requests[start_index+18:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:]]
@@ -390,9 +390,25 @@ async def benchmark(
         #     input_requests_list.append(input_requests[start_index:start_index+req])
         #     start_index += req
         # 这是ok的动态
-        request_rate_list = [5,5,20]
-        input_requests_list = [input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+120],input_requests[start_index+120:]]
-        
+        request_rate_list = [
+            20,
+            20,
+            20
+            #100,
+            #20
+            ]
+        input_requests_list = [
+            input_requests[start_index:start_index+20],
+            input_requests[start_index+20:start_index+40],
+            input_requests[start_index+40:start_index+240],
+            #input_requests[start_index+150:start_index+350]
+        ]
+       
+        # # 最后一段请求的每条 output_len 加 200
+        # if input_requests_list:
+        #     for req in input_requests_list[-1]:
+        #         req.expected_output_len += 200
+
         # request_rate_list = [5,25]
         # input_requests_list = [input_requests[start_index:start_index+100],input_requests[start_index+100:start_index+300]]
         # # request_rate_list = [5,25]
@@ -419,6 +435,23 @@ async def benchmark(
     else:
         request_rate_list = [request_rate]
         input_requests_list = [input_requests[start_index:]]
+    # 汇总：每个请求的 output_len（expected_output_len）与 ignore_eos
+    all_requests_flat = [r for batch in input_requests_list for r in batch]
+    output_lens = [r.expected_output_len for r in all_requests_flat]
+    print(f"request output_lens (expected_output_len): {output_lens}")
+    print(f"ignore_eos: {ignore_eos}")
+    # 每条请求的真实 prompt 长度（用当前 tokenizer 计算，与服务端 tokenize 结果一致）
+    actual_prompt_lens = []
+    for r in all_requests_flat:
+        # print(f"r.prompt: {r.prompt}")
+        if isinstance(r.prompt, dict) and "prompt_token_ids" in r.prompt:
+            actual_prompt_lens.append(len(r.prompt["prompt_token_ids"]))
+        else:
+            actual_prompt_lens.append(
+                len(tokenizer(str(r.prompt), add_special_tokens=False).input_ids))
+    print(f"actual prompt len per request (tokenized): {actual_prompt_lens}")
+    benchmark_start_time = time.perf_counter()
+    begin_time = time.time()
     for index, one_input_requests in enumerate(input_requests_list):
         tasks: list[asyncio.Task] = []
         async for request in get_request(one_input_requests, request_rate_list[index], burstiness, enable_trace=False):
@@ -452,6 +485,7 @@ async def benchmark(
     #print(f"receive response time cost: {end_time - begin_time}")
     texts = []
     for output in outputs_list:
+        # print(f"output.generated_text: {output.generated_text}")
         texts.append(output.generated_text)
     
     with open("texts2.json", "w", encoding="utf-8") as f:
@@ -485,6 +519,17 @@ async def benchmark(
         goodput_config_dict=goodput_config_dict,
     )
 
+    # 每个请求：实际输出长度 - 预期 output_lens，以数组形式打印
+    output_len_diffs = [
+        actual - expected
+        for actual, expected in zip(actual_output_lens, output_lens)
+    ]
+    print(f"output_len diff (actual - expected) per request: {output_len_diffs}")
+
+    # Expected total output tokens if every request generated exactly its max_tokens
+    expected_total_output_tokens = sum(
+        r.expected_output_len for one in input_requests_list for r in one)
+
     print("{s:{c}^{n}}".format(s=' Serving Benchmark Result ', n=50, c='='))
     print("{:<40} {:<10}".format("Successful requests:", metrics.completed))
     print("{:<40} {:<10.2f}".format("Benchmark duration (s):",
@@ -492,6 +537,8 @@ async def benchmark(
     print("{:<40} {:<10}".format("Total input tokens:", metrics.total_input))
     print("{:<40} {:<10}".format("Total generated tokens:",
                                  metrics.total_output))
+    print("{:<40} {:<10}".format("Expected total output tokens:",
+                                 expected_total_output_tokens))
     print("{:<40} {:<10.2f}".format("Request throughput (req/s):",
                                     metrics.request_throughput))
     if goodput_config_dict:
@@ -507,6 +554,8 @@ async def benchmark(
         "completed": metrics.completed,
         "total_input_tokens": metrics.total_input,
         "total_output_tokens": metrics.total_output,
+        "expected_total_output_tokens": expected_total_output_tokens,
+        "config_output_len": config_output_len,
         "request_throughput": metrics.request_throughput,
         "request_goodput:":
         metrics.request_goodput if goodput_config_dict else None,
@@ -585,7 +634,7 @@ def export_to_csv(
     decrease_block_threshold: int = 100,
 ):
     """Export benchmark results to CSV file. Append if file exists, create if not."""
-    # Prepare CSV row data
+    # Prepare CSV row data（含本次配置的 output_len，便于在 benchmark_results.csv 中区分实验）
     row_data = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "strategy": strategy_name if strategy_name else "",
@@ -596,6 +645,8 @@ def export_to_csv(
         "completed": metrics.completed,
         "total_input_tokens": metrics.total_input,
         "total_output_tokens": metrics.total_output,
+        "expected_total_output_tokens": result.get("expected_total_output_tokens", ""),
+        "output_len": result.get("config_output_len", ""),
         "request_throughput_req_per_s": f"{metrics.request_throughput:.2f}",
         "output_throughput_tok_per_s": f"{metrics.output_throughput:.2f}",
         "total_token_throughput_tok_per_s": f"{metrics.total_token_throughput:.2f}",
@@ -648,7 +699,8 @@ def export_to_csv(
     base_fieldnames = [
         "timestamp", "strategy", "model_id", "request_rate", "burstiness", 
         "benchmark_duration_s", "completed", "total_input_tokens", 
-        "total_output_tokens", "request_throughput_req_per_s",
+        "total_output_tokens", "expected_total_output_tokens", "output_len",
+        "request_throughput_req_per_s",
         "request_goodput", "output_throughput_tok_per_s", 
         "total_token_throughput_tok_per_s",
         "increase_block_threshold", "decrease_block_threshold",
@@ -835,26 +887,37 @@ def main(args: argparse.Namespace):
 
     else:
         # For datasets that follow a similar structure, use a mapping.
+        # sharegpt: 若未传 --sharegpt-output-len，则使用 --hf-output-len，便于 run_benchmark_tests 只传 --output-len/--hf-output-len 时生效
+        sharegpt_output_len = (args.sharegpt_output_len
+                               if args.sharegpt_output_len is not None
+                               else args.hf_output_len)
         dataset_mapping = {
             "sharegpt":
             lambda: ShareGPTDataset(random_seed=args.seed,
                                     dataset_path=args.dataset_path).sample(
                                         tokenizer=tokenizer,
                                         num_requests=args.num_prompts,
-                                        output_len=args.sharegpt_output_len,
+                                        output_len=sharegpt_output_len,
                                     ),
             "burstgpt":
             lambda: BurstGPTDataset(random_seed=args.seed,
                                     dataset_path=args.dataset_path).
             sample(tokenizer=tokenizer, num_requests=args.num_prompts),
             "alpaca":
-            lambda: HuggingFaceAlpacaDataset(dataset_path=args.dataset_path,dataset_split="train").sample(
+            lambda: HuggingFaceAlpacaDataset(
+                dataset_path=args.dataset_path,
+                dataset_split="train",
+                random_seed=args.seed,
+            ).sample(
                 tokenizer=tokenizer,
                 num_requests=args.num_prompts,
                 output_len=args.hf_output_len,
             ),
             "specbench":
-            lambda: SpecBenchDataset(dataset_path=args.dataset_path).sample(
+            lambda: SpecBenchDataset(
+                dataset_path=args.dataset_path,
+                random_seed=args.seed,
+            ).sample(
                 tokenizer=tokenizer,
                 num_requests=args.num_prompts,
                 output_len=args.hf_output_len,
@@ -874,6 +937,17 @@ def main(args: argparse.Namespace):
             input_requests = dataset_mapping[args.dataset_name]()
         except KeyError as err:
             raise ValueError(f"Unknown dataset: {args.dataset_name}") from err
+
+    # 本次 benchmark 使用的输出长度配置（用于写入 CSV 等）
+    config_output_len = None
+    if args.dataset_name == "sharegpt":
+        config_output_len = sharegpt_output_len
+    elif args.dataset_name in ("hf", "alpaca", "specbench"):
+        config_output_len = args.hf_output_len
+    elif args.dataset_name == "random":
+        config_output_len = args.random_output_len
+    elif args.dataset_name == "sonnet":
+        config_output_len = args.sonnet_output_len
     
     goodput_config_dict = check_goodput_args(args)
 
@@ -939,6 +1013,7 @@ def main(args: argparse.Namespace):
             strategy_name=strategy_name,
             increase_block_threshold=args.increase_block_threshold,
             decrease_block_threshold=args.decrease_block_threshold,
+            config_output_len=config_output_len,
         ))
 
     # Save config and results to json
