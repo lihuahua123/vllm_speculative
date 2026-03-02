@@ -1332,6 +1332,12 @@ class LLMEngine:
                 assert len(seq_group.seqs) == 1
                 seq = seq_group.seqs[0]
 
+                # Cap at max_tokens: async path can append multiple tokens per
+                # call (one per step); avoid overshooting when ignore_eos=True.
+                if seq.get_output_len() >= seq_group.sampling_params.max_tokens:
+                    seq.status = SequenceStatus.FINISHED_LENGTH_CAPPED
+                    continue
+
                 if self.scheduler_config.is_multi_step:
                     is_prefill_append = seq.data.get_num_uncomputed_tokens(
                     ) == 0
@@ -2228,6 +2234,7 @@ class LLMEngine:
     
     def increase_or_decrease_block_number(self,scheduler_outputs,virtual_engine, has_been_disabled_speculative_decoding):
         have_load_neural_model = self.model_executor.have_load_neural_model()[0]
+        
         if not have_load_neural_model and self.next_step_increase_blcok_number:
             self.next_step_increase_blcok_number = False
             self.increase_block_number()
@@ -2237,7 +2244,8 @@ class LLMEngine:
         # logger.info(f"scheduler_outputs.scheduled_seq_groups: {len(scheduler_outputs.scheduled_seq_groups)}, scheduler_outputs.num_prefill_groups: {scheduler_outputs.num_prefill_groups}, len(self.scheduler[virtual_engine].waiting): {len(self.scheduler[virtual_engine].waiting)},running: {len(self.scheduler[virtual_engine].running)}")
         # FIXME 具有滞后性 如果预先调度，则增加overhead，否则具有滞后性，没准下一次就用不上了, 所以需要改条件
         # only when speculative decoding is disabled, and there is space to increase, and the free blocks is less than the threshold, then increase
-        if  has_been_disabled_speculative_decoding and self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks < self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks \
+        print("len(self.scheduler[virtual_engine].running)",len(self.scheduler[virtual_engine].running),"self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks()",self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks())
+        if  len(self.scheduler[virtual_engine].running) > 100 and self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks < self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks \
             and self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks() < self.increase_block_threshold:
                 can_increase_space = True
         else:

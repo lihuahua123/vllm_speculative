@@ -2169,6 +2169,9 @@ def _maybe_force_spawn():
     reason = None
     if cuda_is_initialized():
         reason = "CUDA is initialized"
+    elif (envs.VLLM_TARGET_DEVICE == "cuda"):
+        # 使用 CUDA 时子进程必须用 spawn，fork 会导致 "Cannot re-initialize CUDA in forked subprocess"
+        reason = "CUDA workers require spawn (fork causes CUDA init error)"
     elif is_in_ray_actor():
         # even if we choose to spawn, we need to pass the ray address
         # to the subprocess so that it knows how to connect to the ray cluster.

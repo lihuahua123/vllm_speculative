@@ -264,7 +264,7 @@ async def async_request_openai_completions(
         headers = {
             "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}"
         }
-
+        print("begin!!")
         output = RequestFuncOutput()
         output.prompt_len = request_func_input.prompt_len
 
@@ -307,9 +307,12 @@ async def async_request_openai_completions(
 
                                 most_recent_timestamp = timestamp
                                 generated_text += text or ""
-                            elif usage := data.get("usage"):
+                            # usage 常与 choices 出现在同一 chunk（如最后一个），
+                            # 故用独立 if 而非 elif，否则永远不会执行
+                            if usage := data.get("usage"):
                                 output.output_tokens = usage.get(
                                     "completion_tokens")
+                                print(f"output.output_tokens using completion_tokens: {output.output_tokens}")
                     if first_chunk_received:
                         output.success = True
                     else:
@@ -406,7 +409,8 @@ async def async_request_openai_chat_completions(
                                                       most_recent_timestamp)
 
                                 generated_text += content or ""
-                            elif usage := data.get("usage"):
+                            # usage 常与 choices 出现在同一 chunk，用独立 if
+                            if usage := data.get("usage"):
                                 output.output_tokens = usage.get(
                                     "completion_tokens")
 
@@ -443,8 +447,10 @@ async def async_request_generate(
             "temperature": 0.0,
             "top_p": 1.0,
             "max_tokens": request_func_input.output_len,
+            "stream_options": {
+                "include_usage": True,
+            },
         }
-        
         if request_func_input.ignore_eos:
             payload["ignore_eos"] = request_func_input.ignore_eos
             
@@ -491,6 +497,11 @@ async def async_request_generate(
 
                                         most_recent_timestamp = timestamp
                                         generated_text = current_text  # 使用最新返回的完整文本
+                                # 服务端在流结束时可发送 usage chunk（需 api_server 支持）
+                                if usage := data.get("usage"):
+                                    output.output_tokens = usage.get(
+                                        "completion_tokens")
+                                    
                             except json.JSONDecodeError:
                                 # 处理JSON解析错误
                                 output.error += f"JSON解析错误: {chunk}\n"

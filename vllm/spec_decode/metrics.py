@@ -70,10 +70,20 @@ class AsyncMetricsCollector:
         self._in_flight_copy: Optional[torch.cuda.Event] = None
 
         pin_memory = is_pin_memory_available()
-        self._aggregate_num_accepted_tokens = torch.tensor(
-            0, dtype=torch.long, device="cpu", pin_memory=pin_memory)
-        self._aggregate_num_emitted_tokens = torch.tensor(
-            0, dtype=torch.long, device="cpu", pin_memory=pin_memory)
+        # 子进程（如 TP worker）中 CUDA 可能尚未初始化，pin_memory 会触发 CUDA 导致 initialization error，故先仅用 CPU tensor
+        try:
+            self._aggregate_num_accepted_tokens = torch.tensor(
+                0, dtype=torch.long, device="cpu", pin_memory=pin_memory)
+            self._aggregate_num_emitted_tokens = torch.tensor(
+                0, dtype=torch.long, device="cpu", pin_memory=pin_memory)
+        except RuntimeError as e:
+            if "CUDA" in str(e) or "initialization" in str(e).lower():
+                self._aggregate_num_accepted_tokens = torch.tensor(
+                    0, dtype=torch.long, device="cpu", pin_memory=False)
+                self._aggregate_num_emitted_tokens = torch.tensor(
+                    0, dtype=torch.long, device="cpu", pin_memory=False)
+            else:
+                raise
         self._aggregate_num_draft_tokens = 0
 
         self._rejsample_metrics_collect_interval_s = collect_interval_s

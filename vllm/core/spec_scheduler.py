@@ -2377,7 +2377,7 @@ class ADABinGreedy:
         self.prior_weights = np.ones((num_log_bins, K))
         self.prior_strength = 1  # 先验强度：相当于预设了 5 次实验的观察值
         self._init_prior_weights()
-
+        self.return_5 = False
         # === 结构参数 ===
         self.context_stats = [{
             'current_block': 1,
@@ -2387,6 +2387,11 @@ class ADABinGreedy:
         } for _ in range(num_log_bins)]
 
         self.total_rounds = 0
+        
+        # === 请求率计算相关 ===
+        self._last_context: Optional[int] = None
+        self._last_timestamp: Optional[float] = None
+        self._calculated_request_rate: float = 0.0  # 计算得到的请求率
 
     def set_need_c_prefill(self, need_c_prefill: bool):
         self.need_c_prefill = need_c_prefill
@@ -2410,9 +2415,6 @@ class ADABinGreedy:
                     # 投机长度越短，初始权重越高
                     self.prior_weights[b_idx][arm_idx] = 1.0 + (self.K - arm_idx) / self.K
 
-
-               
-
     def _get_context_bin(self, context: int) -> int:
         """每2个batch为一个bin的分箱逻辑 """
         # Bin 0: context 1-2, Bin 1: context 3-4, Bin 2: context 5-6, ...
@@ -2420,11 +2422,14 @@ class ADABinGreedy:
         return min(bin_idx, self.num_log_bins - 1)
 
     def select_arm(self, context: int, current_qps=None, skip_neural_net_proposer_step_nums: Optional[List[int]] = None) -> int:
+      
         self.total_rounds += 1
         ctx_idx = self._get_context_bin(context)
         s = self.context_stats[ctx_idx]
-        print("context:", context,"ctx_idx:", ctx_idx,"current_qps:", current_qps)
-
+        if context > 100:
+            self.have_disabled = True
+            return 0
+       
         # ===== 强制探索模式（由 explore=True -> action=12 -> round_robin=True）=====
         # 目标：对“每个 batch(bin)”把所有 speculative length(K 个 arm) 都至少尝试一次；
         # 若已全部尝试过，则退回原来的 ADA-BinGreedy 决策逻辑。
@@ -2439,10 +2444,8 @@ class ADABinGreedy:
             else:
                 # 已经把该 ctx_idx 下的所有 arm 都探索过一次了
                 print(f"ADABinGreedy (round_robin explore): ctx_idx={ctx_idx}, all_arms_explored -> fallback")
-
-        if (context > 20 and current_qps > 2):
-            self.have_disabled = True
-            return 0
+        
+       
         # 如果提供了 skip_neural_net_proposer_step_nums 列表，可以在这里使用
         # 例如：根据跳过步数调整决策逻辑
         c_prefill = 0
@@ -2500,8 +2503,7 @@ class ADABinGreedy:
             p_val = self.prior_weights[ctx_idx, :]
             combined_scores = np.ones(self.K)
             if self.have_disabled:
-                # if self.need_c_prefill:
-                #     return 0
+                return 0
                 combined_scores[0] = 1/avg_r[0]
                 for arm_idx in range(1, self.K):
                     combined_scores[arm_idx] = 1/avg_r[arm_idx] + c_prefill/ self.spec_lengths[arm_idx]

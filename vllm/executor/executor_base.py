@@ -281,26 +281,30 @@ class ExecutorBase(ABC):
     def switch_draft_model_to_neural(self):
         return self.collective_rpc("switch_draft_model_to_neural")
     
+    def _need_worker_output_for_tp(self) -> bool:
+       
+        return False
+
     def load_neural_model_async(self):
-        return self.collective_rpc("load_neural_model_async", need_worker_output=False)
+        return self.collective_rpc("load_neural_model_async", need_worker_output=self._need_worker_output_for_tp())
     
     def have_load_neural_model(self):
-        return self.collective_rpc("have_load_neural_model", need_worker_output=False)
+        return self.collective_rpc("have_load_neural_model", need_worker_output=self._need_worker_output_for_tp())
     
     def set_ngram_prompt_lookup_window_size(self,ngram_prompt_lookup_min,ngram_prompt_lookup_max):
-        return self.collective_rpc("set_ngram_prompt_lookup_window_size", kwargs=dict(ngram_prompt_lookup_min=ngram_prompt_lookup_min,ngram_prompt_lookup_max=ngram_prompt_lookup_max))
+        return self.collective_rpc("set_ngram_prompt_lookup_window_size", kwargs=dict(ngram_prompt_lookup_min=ngram_prompt_lookup_min,ngram_prompt_lookup_max=ngram_prompt_lookup_max), need_worker_output=self._need_worker_output_for_tp())
     
     def set_disable_by_batch_size(self,disable_by_batch_size):
-        return self.collective_rpc("set_disable_by_batch_size", kwargs=dict(disable_by_batch_size=disable_by_batch_size))
+        return self.collective_rpc("set_disable_by_batch_size", kwargs=dict(disable_by_batch_size=disable_by_batch_size), need_worker_output=self._need_worker_output_for_tp())
     
     def set_disable_speculative_decoding(self,disable_speculative_decoding):
-        return self.collective_rpc("set_disable_speculative_decoding", kwargs=dict(disable_speculative_decoding=disable_speculative_decoding),need_worker_output=False)
+        return self.collective_rpc("set_disable_speculative_decoding", kwargs=dict(disable_speculative_decoding=disable_speculative_decoding), need_worker_output=self._need_worker_output_for_tp())
     
     def get_disable_speculative_decoding(self):
-        return self.collective_rpc("get_disable_speculative_decoding")
+        return self.collective_rpc("get_disable_speculative_decoding", need_worker_output=self._need_worker_output_for_tp())
 
     def offload_proposer_worker(self):
-        return self.collective_rpc("offload_proposer_worker",need_worker_output=False)
+        return self.collective_rpc("offload_proposer_worker", need_worker_output=self._need_worker_output_for_tp())
     
     def increase_cache_blocks(self,num_gpu_blocks: int) -> None:
         return self.collective_rpc("increase_cache_blocks", kwargs=dict(num_gpu_blocks=num_gpu_blocks), need_worker_output=False)

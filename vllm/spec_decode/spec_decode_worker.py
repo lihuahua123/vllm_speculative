@@ -363,6 +363,10 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         self.using_ngram_draft_model = False
         self.stage_times = None
         self.select_strategy = None
+        # TP>1 时，driver 设置此值，下一次 execute_model broadcast 时 rank1 会执行扩/缩块
+        self._pending_increase_cache_blocks: int = 0
+        self._pending_decrease_cache_blocks: int = 0
+        self._pending_decrease_block_migration_map = None
 
     def init_device(self) -> None:
         """Initialize both scorer and proposer models.
@@ -435,8 +439,12 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         """
         (self.scorer_worker.model_runner.model.sampler.include_gpu_probs_tensor
          ) = True
+        # RejectionSampler 需要 target 的完整概率分布以计算 (q-p)_+ 的恢复分布；
+        # 若对 scorer 做 greedy 原地修改（one-hot），恢复分布会退化为总是输出 argmax，
+        # 导致在 greedy 下大量输出同一 token（如感叹号）。因此仅对非 rejection_sampler 修改。
         (self.scorer_worker.model_runner.model.sampler.
-         should_modify_greedy_probs_inplace) = True
+         should_modify_greedy_probs_inplace) = not isinstance(
+             self.spec_decode_sampler, RejectionSampler)
         self.proposer_worker.set_include_gpu_probs_tensor()
         self.proposer_worker.set_should_modify_greedy_probs_inplace()
 
@@ -574,6 +582,9 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
             # worker that there are prefills as part of the speculative batch
             # and hence it needs to run an extra prefill forward pass.
             run_spec_proposer_for_prefill=atleast_one_prompt,
+            # 正常 execute_model 时不需要扩/缩块（扩/缩块已在 increase/decrease_cache_blocks 里同步完成）
+            increase_cache_blocks=0,
+            decrease_cache_blocks=0,
         )
         broadcast_tensor_dict(broadcast_dict, src=self._driver_rank)
 
@@ -794,6 +805,19 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         data = broadcast_tensor_dict(src=self._driver_rank)
         if not data:
             return False
+
+        # TP>1 时，rank1 也执行扩/缩块
+        increase_blocks = data.get("increase_cache_blocks", 0)
+        if increase_blocks > 0:
+            self._do_increase_cache_blocks(increase_blocks)
+        decrease_blocks = data.get("decrease_cache_blocks", 0)
+        if decrease_blocks > 0:
+            self._do_decrease_cache_blocks(decrease_blocks, None)
+        
+        # 如果是纯控制指令（只做扩/缩块，不做 forward），直接返回继续等下一个 broadcast
+        if data.get("control_only", False):
+            return True
+
         num_lookahead_slots = data["num_lookahead_slots"]
 
         # In case of prefill, scorer_worker has to be run before proposer so
@@ -937,8 +961,17 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         # Get probabilities of target model, including bonus tokens.
         proposal_verifier_probs = proposal_scores.probs[spec_indices]
         proposal_verifier_token_ids = proposal_scores.token_ids[spec_indices]
-        # Check if proposal_verifier_probs contains values other than 0 and 1
-    
+        # RejectionSampler 必须使用完整概率分布；(q-p)_+ 若用 one-hot 会退化为总是输出 argmax。
+        # 用 logprobs 转 probs 可避免 scorer 的 greedy 原地修改（或 worker 未正确配置）导致 one-hot。
+        if isinstance(self.spec_decode_sampler, RejectionSampler) and len(
+                spec_indices) > 0:
+            spec_logprobs = proposal_scores.logprobs[spec_indices]
+            proposal_verifier_probs = torch.exp(
+                spec_logprobs.clamp(min=-1e10)).to(
+                    proposal_verifier_probs.dtype)
+            proposal_verifier_probs = proposal_verifier_probs / (
+                proposal_verifier_probs.sum(dim=-1, keepdim=True) + 1e-12)
+
         # Get non-speculative sampled tokens from target model.
         non_spec_token_ids = proposal_scores.token_ids[non_spec_indices]
 
@@ -1418,6 +1451,10 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         spec_decode_sampler.num_emitted_tokens = org_spec_decode_sampler.num_emitted_tokens
         spec_decode_sampler.num_draft_tokens = org_spec_decode_sampler.num_draft_tokens
         self.spec_decode_sampler = spec_decode_sampler
+        # 与 _configure_model_sampler_for_spec_decode 一致：rejection_sampler 时 scorer 不改为 one-hot
+        (self.scorer_worker.model_runner.model.sampler.
+         should_modify_greedy_probs_inplace) = not isinstance(
+             self.spec_decode_sampler, RejectionSampler)
         return True
     
     def get_metrics(self):
@@ -1595,16 +1632,39 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
     def get_disable_speculative_decoding(self):
         return self.disable_speculative_decoding
 
-    def increase_cache_blocks(self,num_gpu_blocks: int) -> None:
-        allocated = torch.cuda.memory_allocated() / (1024 * 1024 * 1024)  # 转换为GB
+    def _do_increase_cache_blocks(self, num_gpu_blocks: int) -> None:
+        """实际执行扩块的逻辑，driver 和 non-driver 都会调用"""
+        allocated = torch.cuda.memory_allocated() / (1024 * 1024 * 1024)
         reserved = torch.cuda.memory_reserved() / (1024 * 1024 * 1024)
-        print(f"当前显存使用情况: 已分配 {allocated:.2f}GB, 已预留 {reserved:.2f}GB")
+        rank_str = f" rank={self.rank}" if model_parallel_is_initialized() else ""
+        print(f"[increase_cache_blocks{rank_str}] 当前显存: 已分配 {allocated:.2f}GB, 已预留 {reserved:.2f}GB, +{num_gpu_blocks} blocks")
         self.scorer_worker.increase_cache_blocks(num_gpu_blocks=num_gpu_blocks)
-        # self.proposer_worker.increase_cache_blocks(num_gpu_blocks=num_gpu_blocks)
+
+    def _do_decrease_cache_blocks(self, num_gpu_blocks: int, block_migration_map) -> None:
+        """实际执行缩块的逻辑，driver 和 non-driver 都会调用"""
+        self.scorer_worker.decrease_cache_blocks(num_gpu_blocks=num_gpu_blocks, block_migration_map=block_migration_map)
+
+    def increase_cache_blocks(self, num_gpu_blocks: int) -> None:
+        # TP>1 时，driver 发 broadcast 让 rank1 立即执行扩块（同一 step 内同步）
+        if model_parallel_is_initialized() and self.rank == self._driver_rank:
+            broadcast_tensor_dict(dict(
+                increase_cache_blocks=num_gpu_blocks,
+                decrease_cache_blocks=0,
+                control_only=True,  # 告诉 rank1 这是控制指令，不做 forward
+            ), src=self._driver_rank)
+        # driver 自己也执行
+        self._do_increase_cache_blocks(num_gpu_blocks)
         
-    def decrease_cache_blocks(self,num_gpu_blocks: int,block_migration_map=None) -> None:
-        self.scorer_worker.decrease_cache_blocks(num_gpu_blocks=num_gpu_blocks,block_migration_map=block_migration_map)
-        # self.proposer_worker.decrease_cache_blocks(num_gpu_blocks=num_gpu_blocks)
+    def decrease_cache_blocks(self, num_gpu_blocks: int, block_migration_map=None) -> None:
+        # TP>1 时，driver 发 broadcast 让 rank1 立即执行缩块（同一 step 内同步）
+        if model_parallel_is_initialized() and self.rank == self._driver_rank:
+            broadcast_tensor_dict(dict(
+                increase_cache_blocks=0,
+                decrease_cache_blocks=num_gpu_blocks,
+                control_only=True,
+            ), src=self._driver_rank)
+        # driver 自己也执行
+        self._do_decrease_cache_blocks(num_gpu_blocks, block_migration_map)
     
     def save_selected_probs(self):
         self.spec_decode_sampler.save_selected_probs()

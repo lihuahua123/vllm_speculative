@@ -85,9 +85,12 @@ class StopChecker:
             seq.status = SequenceStatus.FINISHED_LENGTH_CAPPED
             return
 
-        # Check if the sequence has reached max_tokens.
-        if seq.get_output_len() == sampling_params.max_tokens:
+        # Check if the sequence has reached or exceeded max_tokens.
+        # Use >= so we stop even when async/speculative path overshoots (e.g.
+        # multiple tokens appended in one step before stop check runs).
+        if seq.get_output_len() >= sampling_params.max_tokens:
             seq.status = SequenceStatus.FINISHED_LENGTH_CAPPED
+            a = seq.get_output_len()
             return
 
     @staticmethod

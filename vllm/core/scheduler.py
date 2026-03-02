@@ -569,7 +569,7 @@ class Scheduler:
             # self.daspec_spec = DASpecWithExploration(verify_model_profile, draft_model_profile, max_proposed_length=self.scheduler_config.num_lookahead_slots)
             # 不稳定 
             self.ucbspec = UCBSpec(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
-            # self.epsilon_greedy_spec = EpsilonGreedySpecSimple(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
+
             self.epsilon_greedy_spec = EpsilonGreedySimple(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
             # ADABinGreedy(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
 
@@ -597,8 +597,10 @@ class Scheduler:
             # damie 
             # self.ucbspec = EpsilonGreedySpecSlidingWindow(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
         else:
-            self.smart_spec = None  
+            self.smart_spec = None
             self.daspec_spec = None
+            self.ucbspec = None
+            self.epsilon_greedy_spec = None
         self.profile = False
         self.proposer_worker_to_cpu = False
         self.disable_spec_cnt = 0
@@ -876,8 +878,8 @@ class Scheduler:
                     ret.prefill_seq_groups_list.append(seq_group)
                 else:
                     # if skip the proposal then continue skip the proposal
-                    if self.need_disable_spec and (self.epsilon_greedy_spec is not None or self.smart_spec is not None):
-                        seq_group.skip_neural_net_proposer_step_num += 1
+                    # if self.need_disable_spec and (self.epsilon_greedy_spec is not None or self.smart_spec is not None):
+                    #     seq_group.skip_neural_net_proposer_step_num += 1
                     scheduled_seq_group.token_chunk_size = 1
                     decode_seq_groups.append(scheduled_seq_group)
                     scheduled_seq_group.seq_group.num_speculative_tokens = seq_group.num_speculative_tokens
@@ -1604,8 +1606,8 @@ class Scheduler:
             self.speculative_metrics_history.append(speculative_metrics)
             if self.ucbspec is not None:
                 self.ucbspec.update(speculative_metrics[7],speculative_metrics[3], speculative_metrics[4]+speculative_metrics[3],speculative_metrics[0]+speculative_metrics[1]+speculative_metrics[2])
-            if self.epsilon_greedy_spec is not None:
-                self.epsilon_greedy_spec.update(speculative_metrics[7],speculative_metrics[3], speculative_metrics[4]+speculative_metrics[3],speculative_metrics[0]+speculative_metrics[1]+speculative_metrics[2])
+            # if self.epsilon_greedy_spec is not None:
+            #     self.epsilon_greedy_spec.update(speculative_metrics[7],speculative_metrics[3], speculative_metrics[4]+speculative_metrics[3],speculative_metrics[0]+speculative_metrics[1]+speculative_metrics[2])
             if self.daspec_spec is not None: #and self.daspec_spec.train_table_avg[speculative_metrics[7]][speculative_metrics[3]] < 0:
                 new = speculative_metrics[4] + speculative_metrics[3]
                 self.daspec_spec.online_correction_factor(speculative_metrics[7],speculative_metrics[3],new)
@@ -1617,8 +1619,8 @@ class Scheduler:
             # 即使是decode 且proposal_length为0，也要更新ucbspec，因为ucbspec是根据proposal_length来更新
             if self.ucbspec is not None:
                 self.ucbspec.update(speculative_metrics[7],speculative_metrics[3], speculative_metrics[3],speculative_metrics[0]+speculative_metrics[1]+speculative_metrics[2])
-            if self.epsilon_greedy_spec is not None:
-                self.epsilon_greedy_spec.update(speculative_metrics[7],speculative_metrics[3], speculative_metrics[3],speculative_metrics[0]+speculative_metrics[1]+speculative_metrics[2])
+            # if self.epsilon_greedy_spec is not None:
+            #     self.epsilon_greedy_spec.update(speculative_metrics[7],speculative_metrics[3], speculative_metrics[3],speculative_metrics[0]+speculative_metrics[1]+speculative_metrics[2])
         
         best_batch = None
         scheduler_start_time = time.perf_counter()
@@ -1772,7 +1774,7 @@ class Scheduler:
         
         # Move to next cache (if exists)
         self.cache_id = self.next_cache_id
-        best_proposed_lengths = self.last_best_proposed_lengths # self.scheduler_config.num_lookahead_slots
+        best_proposed_lengths = 5 #self.last_best_proposed_lengths # self.scheduler_config.num_lookahead_slots
         is_decode = (scheduler_outputs.num_prefill_groups == 0)
         
         # print("waiting", len(self.waiting), "running", len(self.running), "seq_group_metadata_list", len(seq_group_metadata_list))
