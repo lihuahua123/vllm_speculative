@@ -224,6 +224,7 @@ class EngineArgs:
     use_tqdm_on_load: bool = True
     increase_block_threshold: int = 150
     decrease_block_threshold: int = 100
+    persist_steps: int = 3
 
     def __post_init__(self):
         if not self.tokenizer:
@@ -552,6 +553,12 @@ class EngineArgs:
             type=int,
             default=EngineArgs.decrease_block_threshold,
             help='Threshold offset for free GPU blocks to trigger block number decrease.')
+        parser.add_argument(
+            '--persist-steps',
+            type=int,
+            default=EngineArgs.persist_steps,
+            help='Number of consecutive scheduler steps required before '
+            'triggering block expansion or contraction.')
         parser.add_argument('--max-num-batched-tokens',
                             type=int,
                             default=EngineArgs.max_num_batched_tokens,

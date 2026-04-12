@@ -308,6 +308,7 @@ async def benchmark(
     strategy_name: Optional[str] = None,
     increase_block_threshold: int = 150,
     decrease_block_threshold: int = 100,
+    persist_steps: int = 3,
     config_output_len: Optional[int] = None,
     export_step_log: Optional[str] = None,
 ):
@@ -633,7 +634,8 @@ async def benchmark(
                   burstiness, goodput_config_dict, selected_percentile_metrics,
                   strategy_name=strategy_name,
                   increase_block_threshold=increase_block_threshold,
-                  decrease_block_threshold=decrease_block_threshold)
+                  decrease_block_threshold=decrease_block_threshold,
+                  persist_steps=persist_steps)
 
     return result
 
@@ -651,6 +653,7 @@ def export_to_csv(
     csv_file: str = "benchmark_results.csv",
     increase_block_threshold: int = 150,
     decrease_block_threshold: int = 100,
+    persist_steps: int = 3,
 ):
     """Export benchmark results to CSV file. Append if file exists, create if not."""
     # Prepare CSV row data（含本次配置的 output_len，便于在 benchmark_results.csv 中区分实验）
@@ -671,6 +674,7 @@ def export_to_csv(
         "total_token_throughput_tok_per_s": f"{metrics.total_token_throughput:.2f}",
         "increase_block_threshold": increase_block_threshold,
         "decrease_block_threshold": decrease_block_threshold,
+        "persist_steps": persist_steps,
     }
     
     # Add goodput if available
@@ -722,7 +726,7 @@ def export_to_csv(
         "request_throughput_req_per_s",
         "request_goodput", "output_throughput_tok_per_s", 
         "total_token_throughput_tok_per_s",
-        "increase_block_threshold", "decrease_block_threshold",
+        "increase_block_threshold", "decrease_block_threshold", "persist_steps",
     ]
     
     # Add metric fields in order
@@ -1035,6 +1039,7 @@ def main(args: argparse.Namespace):
             strategy_name=strategy_name,
             increase_block_threshold=args.increase_block_threshold,
             decrease_block_threshold=args.decrease_block_threshold,
+            persist_steps=args.persist_steps,
             config_output_len=config_output_len,
             export_step_log=args.export_step_log,
         ))
@@ -1408,6 +1413,11 @@ if __name__ == "__main__":
                         type=int,
                         default=100,
                         help="Threshold offset for free GPU blocks to trigger block number decrease.")
+    parser.add_argument("--persist-steps",
+                        type=int,
+                        default=3,
+                        help="Number of consecutive steps required before "
+                        "triggering block expansion or contraction.")
     parser.add_argument("--export-step-log",
                         type=str,
                         default=None,

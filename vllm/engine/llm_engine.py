@@ -236,6 +236,7 @@ class LLMEngine:
         use_cached_outputs: bool = False,
         increase_block_threshold: int = 150,
         decrease_block_threshold: int = 100,
+        persist_steps: int = 3,
     ) -> None:
         if envs.VLLM_USE_V1:
             raise ValueError(
@@ -265,17 +266,19 @@ class LLMEngine:
         self.use_cached_outputs = use_cached_outputs
         self.increase_block_threshold = increase_block_threshold
         self.decrease_block_threshold = decrease_block_threshold
+        self.persist_steps = persist_steps
         self.nightjar_event_logger = NightjarEventLogger(
             os.getenv("NIGHTJAR_EVENT_LOG_PATH"))
 
         logger.info(
             "Initializing a V0 LLM engine (v%s) with config: %s, "
-            "use_cached_outputs=%s, increase_block_threshold=%s, decrease_block_threshold=%s",
+            "use_cached_outputs=%s, increase_block_threshold=%s, decrease_block_threshold=%s, persist_steps=%s",
             VLLM_VERSION,
             vllm_config,
             use_cached_outputs,
             increase_block_threshold,
             decrease_block_threshold,
+            persist_steps,
         )
 
         if not self.model_config.skip_tokenizer_init:
@@ -474,6 +477,8 @@ class LLMEngine:
         self.has_been_disabled_speculative_decoding = False
         self.has_been_increase_block_number = False
         self.next_step_increase_blcok_number = False
+        self.low_free_block_persist_steps = 0
+        self.high_free_block_persist_steps = 0
         self.last_batch_size = 0
         self.max_resolve_batch_size = 0
 
@@ -554,6 +559,7 @@ class LLMEngine:
         disable_log_stats: bool = False,
         increase_block_threshold: int = 150,
         decrease_block_threshold: int = 100,
+        persist_steps: int = 3,
     ) -> "LLMEngine":
         return cls(
             vllm_config=vllm_config,
@@ -563,6 +569,7 @@ class LLMEngine:
             stat_loggers=stat_loggers,
             increase_block_threshold=increase_block_threshold,
             decrease_block_threshold=decrease_block_threshold,
+            persist_steps=persist_steps,
         )
 
     @classmethod
@@ -588,6 +595,7 @@ class LLMEngine:
             disable_log_stats=engine_args.disable_log_stats,
             increase_block_threshold=engine_args.increase_block_threshold,
             decrease_block_threshold=engine_args.decrease_block_threshold,
+            persist_steps=engine_args.persist_steps,
         )
 
     def __reduce__(self):
@@ -2271,16 +2279,34 @@ class LLMEngine:
             virtual_engine].block_manager.get_num_free_gpu_blocks()
         waiting_len = len(self.scheduler[virtual_engine].waiting)
         running_len = len(self.scheduler[virtual_engine].running)
-        if  len(self.scheduler[virtual_engine].running) > 100 and self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks < self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks \
-            and self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks() < self.increase_block_threshold:
-                can_increase_space = True
+        low_memory_condition = (
+            running_len > 100
+            and self.scheduler[virtual_engine].block_manager.
+            num_usable_gpu_blocks <
+            self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks
+            and free_gpu_blocks < self.increase_block_threshold)
+        high_free_condition = (
+            waiting_len == 0
+            and self.scheduler[virtual_engine].block_manager.
+            num_usable_gpu_blocks ==
+            self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks
+            and self.cache_config.num_virtual_blocks +
+            self.decrease_block_threshold < free_gpu_blocks)
+
+        if low_memory_condition:
+            self.low_free_block_persist_steps += 1
         else:
-            # len(self.scheduler[virtual_engine].running) < 2 and 
-            # upload can be happen anytime
-            if  len(self.scheduler[virtual_engine].waiting) == 0 and \
-                self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks == self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks and \
-                self.cache_config.num_virtual_blocks + self.decrease_block_threshold <  self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks():
-                can_decrease_space = True
+            self.low_free_block_persist_steps = 0
+
+        if high_free_condition:
+            self.high_free_block_persist_steps += 1
+        else:
+            self.high_free_block_persist_steps = 0
+
+        can_increase_space = (
+            self.low_free_block_persist_steps >= self.persist_steps)
+        can_decrease_space = (
+            self.high_free_block_persist_steps >= self.persist_steps)
         if can_increase_space:
             logger.info("increase block number")
             self.log_nightjar_event(
@@ -2289,12 +2315,18 @@ class LLMEngine:
                     "free_gpu_blocks": free_gpu_blocks,
                     "waiting_len": waiting_len,
                     "running_len": running_len,
+                    "low_memory_persist_steps":
+                    self.low_free_block_persist_steps,
+                    "high_free_persist_steps":
+                    self.high_free_block_persist_steps,
+                    "persist_steps": self.persist_steps,
                     "increase_block_threshold": self.increase_block_threshold,
                     "decrease_block_threshold": self.decrease_block_threshold,
                 })
             self.set_disable_speculative_decoding(True)
             self.offload_proposer_worker()
             self.next_step_increase_blcok_number = True
+            self.low_free_block_persist_steps = 0
             
         if can_decrease_space:
             logger.info("decrease block number")
@@ -2304,12 +2336,18 @@ class LLMEngine:
                     "free_gpu_blocks": free_gpu_blocks,
                     "waiting_len": waiting_len,
                     "running_len": running_len,
+                    "low_memory_persist_steps":
+                    self.low_free_block_persist_steps,
+                    "high_free_persist_steps":
+                    self.high_free_block_persist_steps,
+                    "persist_steps": self.persist_steps,
                     "increase_block_threshold": self.increase_block_threshold,
                     "decrease_block_threshold": self.decrease_block_threshold,
                 })
             self.set_disable_speculative_decoding(False)
             self.decrease_block_number()
             self.load_neural_model_async()
+            self.high_free_block_persist_steps = 0
 
     def try_scheduler(self) -> None:
         virtual_engine = 0
