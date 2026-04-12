@@ -453,7 +453,7 @@ class _AsyncLLMEngine(LLMEngine):
                 else:
                     self.set_disable_speculative_decoding(False)
            
-            if self.strategy == "epsilon_greedy_with_offload":
+            if self.engine.enable_memory_elasticity:
                 # print("increase_or_decrease_block_number current_qps:", current_qps)
                 self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine, self.has_been_disabled_speculative_decoding)
             ctx.seq_group_metadata_list = seq_group_metadata_list
@@ -1421,6 +1421,7 @@ class AsyncLLMEngine(EngineClient):
         """Change the speculative action."""
         virtual_engine = 0
         self.engine.ilp_manager.offload = offload
+        self.engine.enable_memory_elasticity = offload
         if action == 10:
             # Get current GPU memory usage
             total_memory = torch.cuda.get_device_properties(0).total_memory
@@ -1473,6 +1474,7 @@ class AsyncLLMEngine(EngineClient):
                 if getattr(sched, "epsilon_greedy_spec", None) is not None:
                     sched.epsilon_greedy_spec.round_robin = False
             self.engine.ilp_manager.offload = offload
+            self.engine.enable_memory_elasticity = offload
             return
         elif action == 12:
             sched = self.engine.scheduler[virtual_engine]
@@ -1483,6 +1485,7 @@ class AsyncLLMEngine(EngineClient):
                 if getattr(sched, "epsilon_greedy_spec", None) is not None:
                     sched.epsilon_greedy_spec.round_robin = True
             self.engine.ilp_manager.offload = offload
+            self.engine.enable_memory_elasticity = offload
             return
         elif action == 13:
             sched = self.engine.scheduler[virtual_engine]
@@ -1545,52 +1548,54 @@ class AsyncLLMEngine(EngineClient):
         
         if strategy is not None:
             self.engine.strategy = strategy
-            self.engine.scheduler[virtual_engine].profile = profile
-            logger.info(f"change_speculative_action: {strategy}, {profile}")
-            
-            scheduler = self.engine.scheduler[virtual_engine]
-            active_attr = STRATEGY_ATTR_MAP.get(strategy)
-            
-            # 如果策略使用 epsilon_greedy_spec，需要根据策略名称动态实例化不同的类
-            if active_attr == 'epsilon_greedy_spec':
-                # 对于新策略，需要动态实例化；对于旧策略（如 epsilon_greedy），如果对象已存在则保留
-                if strategy in EPSILON_GREEDY_SPEC_CLASS_MAP:
-                    class_name = EPSILON_GREEDY_SPEC_CLASS_MAP[strategy]
-                    # 动态导入并实例化对应的类
-                    from vllm.core.spec_scheduler import (
-                        ADABinGreedy, ADABinGreedySimple, EpsilonGreedySimple,
-                        EpsilonGreedyContextBin, LinUCBSpec
+        self.engine.enable_memory_elasticity = (
+            offload or strategy == "epsilon_greedy_with_offload")
+        self.engine.scheduler[virtual_engine].profile = profile
+        logger.info(f"change_speculative_action: {strategy}, {profile}")
+        
+        scheduler = self.engine.scheduler[virtual_engine]
+        active_attr = STRATEGY_ATTR_MAP.get(strategy)
+        
+        # 如果策略使用 epsilon_greedy_spec，需要根据策略名称动态实例化不同的类
+        if active_attr == 'epsilon_greedy_spec':
+            # 对于新策略，需要动态实例化；对于旧策略（如 epsilon_greedy），如果对象已存在则保留
+            if strategy in EPSILON_GREEDY_SPEC_CLASS_MAP:
+                class_name = EPSILON_GREEDY_SPEC_CLASS_MAP[strategy]
+                # 动态导入并实例化对应的类
+                from vllm.core.spec_scheduler import (
+                    ADABinGreedy, ADABinGreedySimple, EpsilonGreedySimple,
+                    EpsilonGreedyContextBin, LinUCBSpec
+                )
+                class_map = {
+                    'ADABinGreedy': ADABinGreedy,
+                    'ADABinGreedySimple': ADABinGreedySimple,
+                    'EpsilonGreedySimple': EpsilonGreedySimple,
+                    'EpsilonGreedyContextBin': EpsilonGreedyContextBin,
+                    'LinUCBSpec': LinUCBSpec,
+                }
+                spec_class = class_map.get(class_name)
+                if spec_class:
+                    # 获取 num_lookahead_slots
+                    num_lookahead_slots = scheduler.scheduler_config.num_lookahead_slots
+                    # 实例化新的对象
+                    spec_obj = spec_class(
+                        num_lookahead_slots + 1,
+                        max_spec_length=num_lookahead_slots
                     )
-                    class_map = {
-                        'ADABinGreedy': ADABinGreedy,
-                        'ADABinGreedySimple': ADABinGreedySimple,
-                        'EpsilonGreedySimple': EpsilonGreedySimple,
-                        'EpsilonGreedyContextBin': EpsilonGreedyContextBin,
-                        'LinUCBSpec': LinUCBSpec,
-                    }
-                    spec_class = class_map.get(class_name)
-                    if spec_class:
-                        # 获取 num_lookahead_slots
-                        num_lookahead_slots = scheduler.scheduler_config.num_lookahead_slots
-                        # 实例化新的对象
-                        spec_obj = spec_class(
-                            num_lookahead_slots + 1,
-                            max_spec_length=num_lookahead_slots
-                        )
-                        setattr(scheduler, active_attr, spec_obj)
-                        logger.info(f"实例化了新的 {class_name} 对象")
-                # 对于旧策略（如 epsilon_greedy），如果对象不存在，则使用默认的 EpsilonGreedySimple
-                elif strategy == 'epsilon_greedy':
-                    existing_obj = getattr(scheduler, active_attr, None)
-                    if existing_obj is None:
-                        from vllm.core.spec_scheduler import EpsilonGreedySimple
-                        num_lookahead_slots = scheduler.scheduler_config.num_lookahead_slots
-                        spec_obj = EpsilonGreedySimple(
-                            num_lookahead_slots + 1,
-                            max_spec_length=num_lookahead_slots
-                        )
-                        setattr(scheduler, active_attr, spec_obj)
-                        logger.info("为 epsilon_greedy 策略实例化了 EpsilonGreedySimple 对象")
+                    setattr(scheduler, active_attr, spec_obj)
+                    logger.info(f"实例化了新的 {class_name} 对象")
+            # 对于旧策略（如 epsilon_greedy），如果对象不存在，则使用默认的 EpsilonGreedySimple
+            elif strategy == 'epsilon_greedy':
+                existing_obj = getattr(scheduler, active_attr, None)
+                if existing_obj is None:
+                    from vllm.core.spec_scheduler import EpsilonGreedySimple
+                    num_lookahead_slots = scheduler.scheduler_config.num_lookahead_slots
+                    spec_obj = EpsilonGreedySimple(
+                        num_lookahead_slots + 1,
+                        max_spec_length=num_lookahead_slots
+                    )
+                    setattr(scheduler, active_attr, spec_obj)
+                    logger.info("为 epsilon_greedy 策略实例化了 EpsilonGreedySimple 对象")
             
             # 禁用所有策略，除了当前激活的策略
             for attr in ALL_STRATEGY_ATTRS:

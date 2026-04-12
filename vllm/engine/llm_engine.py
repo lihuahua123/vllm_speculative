@@ -477,6 +477,7 @@ class LLMEngine:
         self.has_been_disabled_speculative_decoding = False
         self.has_been_increase_block_number = False
         self.next_step_increase_blcok_number = False
+        self.enable_memory_elasticity = False
         self.low_free_block_persist_steps = 0
         self.high_free_block_persist_steps = 0
         self.last_batch_size = 0
