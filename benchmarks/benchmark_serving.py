@@ -80,6 +80,15 @@ def configure_nightjar_logging_endpoint(base_url: str,
                 f"Failed to configure nightjar logging: {response.status}")
 
 
+def load_trace_plan(trace_plan_path: str) -> list[dict[str, float]]:
+    with open(trace_plan_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    segments = data.get("segments", data)
+    if not isinstance(segments, list):
+        raise ValueError("Trace plan must contain a list of segments.")
+    return segments
+
+
 @dataclass
 class BenchmarkMetrics:
     completed: int
@@ -304,6 +313,7 @@ async def benchmark(
     max_concurrency: Optional[int],
     lora_modules: Optional[Iterable[str]],
     enable_trace: bool = False,
+    trace_plan: Optional[str] = None,
     start_index: int = 0,
     strategy_name: Optional[str] = None,
     increase_block_threshold: int = 150,
@@ -405,52 +415,22 @@ async def benchmark(
     input_requests_list = []#[input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:start_index+540]] # [input_requests] #[input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:]]
     print(f"enable_trace: {enable_trace}")
     if enable_trace:
-        # request_rate_list = np.load('./azureqps.npy') #[1,5,1,10,15,2]
-        # for req in request_rate_list:
-        #     input_requests_list.append(input_requests[start_index:start_index+req])
-        #     start_index += req
-        # 这是ok的动态
-        request_rate_list = [
-            20,
-            20,
-            20
-            #100,
-            #20
+        if trace_plan:
+            segments = load_trace_plan(trace_plan)
+            cursor = start_index
+            for segment in segments:
+                request_rate_list.append(float(segment["request_rate"]))
+                num_requests = int(segment["num_requests"])
+                next_cursor = cursor + num_requests
+                input_requests_list.append(input_requests[cursor:next_cursor])
+                cursor = next_cursor
+        else:
+            request_rate_list = [20, 20, 20]
+            input_requests_list = [
+                input_requests[start_index:start_index + 20],
+                input_requests[start_index + 20:start_index + 40],
+                input_requests[start_index + 40:start_index + 240],
             ]
-        input_requests_list = [
-            input_requests[start_index:start_index+20],
-            input_requests[start_index+20:start_index+40],
-            input_requests[start_index+40:start_index+240],
-            #input_requests[start_index+150:start_index+350]
-        ]
-       
-        # # 最后一段请求的每条 output_len 加 200
-        # if input_requests_list:
-        #     for req in input_requests_list[-1]:
-        #         req.expected_output_len += 200
-
-        # request_rate_list = [5,25]
-        # input_requests_list = [input_requests[start_index:start_index+100],input_requests[start_index+100:start_index+300]]
-        # # request_rate_list = [5,25]
-        # input_requests_list = [input_requests[start_index:start_index+10],input_requests[start_index+10:start_index+100]]
- 
-        # input_requests_list = [input_requests[start_index+120:]]
-        # request_rate_list = [2,5,5,25]
-        # input_requests_list = [input_requests[start_index:start_index+20],
-        #                        input_requests[start_index+20:start_index+120],
-        #                        input_requests[start_index+120:start_index+220],
-        #                        input_requests[start_index+220:start_index+320]]
-        # # request_rate_list = [1,1,2,1,5,10,25,1,1]
-        #input_requests_list = [input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+120],input_requests[start_index+120:start_index+320]]
-        # for req in request_rate_list[:6]:
-        #     input_requests_list.append(input_requests[start_index:start_index+20])
-        #     start_index += 20
-        # input_requests_list.append(input_requests[start_index:start_index+200])
-        # start_index += 200
-        # input_requests_list.append(input_requests[start_index:start_index+5])
-        # start_index += 5
-        # input_requests_list.append(input_requests[start_index:start_index+10])
-        # assert len(input_requests_list) == len(request_rate_list)
         print(f"request_rate_list: {request_rate_list}")
     else:
         request_rate_list = [request_rate]
@@ -1035,6 +1015,7 @@ def main(args: argparse.Namespace):
             max_concurrency=args.max_concurrency,
             lora_modules=args.lora_modules,
             enable_trace=args.enable_trace,
+            trace_plan=args.trace_plan,
             start_index=args.start_index,
             strategy_name=strategy_name,
             increase_block_threshold=args.increase_block_threshold,
@@ -1401,6 +1382,11 @@ if __name__ == "__main__":
     parser.add_argument("--enable-trace",
                         action="store_true",
                         help="Enable trace mode for the benchmark.")
+    parser.add_argument("--trace-plan",
+                        type=str,
+                        default=None,
+                        help="Optional JSON trace plan file with segment "
+                        "request rates and request counts.")
     parser.add_argument("--start-index",
                         type=int,
                         default=0,
