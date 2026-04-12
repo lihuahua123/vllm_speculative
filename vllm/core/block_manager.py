@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """A block manager that manages token blocks."""
+import time
 from typing import Dict, List, Optional
 from typing import Sequence as GenericSequence
 from typing import Tuple
@@ -559,6 +560,7 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         """Decreases the number of GPU blocks and updates all block tables accordingly."""
         if decrease_num_blocks <= 0:
             return
+        start_time = time.time()
         
         # Get current and new size
         current_size = self.num_usable_gpu_blocks
@@ -649,6 +651,19 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         
         # Now decrease the blocks in the allocator
         self.block_allocator._allocators[Device.GPU].decrease_block_number(current_size, decrease_num_blocks)
+        end_time = time.time()
+        if hasattr(self, "nightjar_event_logger"):
+            self.nightjar_event_logger.log(
+                "kv_block_migration", {
+                    "current_size": current_size,
+                    "new_size": new_size,
+                    "decrease_num_blocks": decrease_num_blocks,
+                    "migrated_block_count": len(block_mapping),
+                    "duration_ms": (end_time - start_time) * 1000.0,
+                    "free_gpu_blocks": self.get_num_free_gpu_blocks(),
+                    "usable_gpu_blocks": self.num_usable_gpu_blocks,
+                    "total_gpu_blocks": self.num_total_gpu_blocks,
+                })
         return block_mapping
 
     def increase_gpu_blocks(self, increase_num_blocks: int) -> None:

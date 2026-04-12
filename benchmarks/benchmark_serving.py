@@ -32,6 +32,7 @@ import json
 import os
 import random
 import time
+import urllib.request
 import warnings
 from collections.abc import AsyncGenerator, Iterable
 from dataclasses import dataclass
@@ -60,6 +61,23 @@ from benchmark_dataset import (BurstGPTDataset, HuggingFaceDataset,
 from benchmark_utils import convert_to_pytorch_benchmark_format, write_to_json
 
 MILLISECONDS_TO_SECONDS_CONVERSION = 1000
+
+
+def configure_nightjar_logging_endpoint(base_url: str,
+                                        export_step_log: Optional[str]) -> None:
+    if not export_step_log:
+        return
+    payload = json.dumps({"path": export_step_log}).encode("utf-8")
+    request = urllib.request.Request(
+        f"{base_url}/nightjar_logging",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        if response.status != 200:
+            raise RuntimeError(
+                f"Failed to configure nightjar logging: {response.status}")
 
 
 @dataclass
@@ -291,6 +309,7 @@ async def benchmark(
     increase_block_threshold: int = 150,
     decrease_block_threshold: int = 100,
     config_output_len: Optional[int] = None,
+    export_step_log: Optional[str] = None,
 ):
     if backend in ASYNC_REQUEST_FUNCS:
         request_func = ASYNC_REQUEST_FUNCS[backend]
@@ -986,6 +1005,9 @@ def main(args: argparse.Namespace):
     gc.collect()
     gc.freeze()
 
+    if args.export_step_log:
+        configure_nightjar_logging_endpoint(base_url, args.export_step_log)
+
     benchmark_result = asyncio.run(
         benchmark(
             backend=backend,
@@ -1014,6 +1036,7 @@ def main(args: argparse.Namespace):
             increase_block_threshold=args.increase_block_threshold,
             decrease_block_threshold=args.decrease_block_threshold,
             config_output_len=config_output_len,
+            export_step_log=args.export_step_log,
         ))
 
     # Save config and results to json
@@ -1385,6 +1408,11 @@ if __name__ == "__main__":
                         type=int,
                         default=100,
                         help="Threshold offset for free GPU blocks to trigger block number decrease.")
+    parser.add_argument("--export-step-log",
+                        type=str,
+                        default=None,
+                        help="Optional JSONL path on the server host for "
+                        "Nightjar step/event logs.")
 
     args = parser.parse_args()
 

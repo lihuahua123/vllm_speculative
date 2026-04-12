@@ -75,6 +75,15 @@ async def change_speculative_action(request: Request) -> Response:
     engine.change_speculative_action(action,strategy,save_action_time_history, profile,file_name, offload,ucb_file_name,select_strategy)
     return Response(status_code=200)
 
+
+@app.post("/nightjar_logging")
+async def configure_nightjar_logging(request: Request) -> Response:
+    request_dict = await request.json()
+    path = request_dict.get("path")
+    assert engine is not None
+    engine.engine.configure_nightjar_event_logger(path)
+    return JSONResponse({"success": True, "path": path})
+
 @with_cancellation
 async def _generate(request_dict: dict, raw_request: Request) -> Response:
     prompt = request_dict.pop("prompt")

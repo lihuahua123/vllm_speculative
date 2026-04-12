@@ -8,7 +8,7 @@ from collections import deque
 from joblib import load
 import numpy as np
 from dataclasses import dataclass, field
-from typing import Callable, Deque, Dict, Iterable, List, Optional
+from typing import Any, Callable, Deque, Dict, Iterable, List, Optional
 from typing import Sequence as GenericSequence
 from typing import Set, Tuple, Union
 from vllm.engine.metrics_types import Stats
@@ -1604,6 +1604,44 @@ class Scheduler:
             metric_value = float(speculative_metrics[4]/(speculative_metrics[7]*speculative_metrics[3]))
             self.speculative_metrics_cache.append(metric_value)
             self.speculative_metrics_history.append(speculative_metrics)
+            if hasattr(self, "nightjar_event_logger"):
+                batch_size = int(speculative_metrics[3])
+                proposal_length = int(speculative_metrics[7])
+                num_accepted_tokens = int(speculative_metrics[4])
+                acceptance_rate = 0.0
+                if batch_size > 0 and proposal_length > 0:
+                    acceptance_rate = num_accepted_tokens / (
+                        batch_size * proposal_length)
+                self.nightjar_event_logger.log(
+                    "speculative_step", {
+                        "batch_size": batch_size,
+                        "proposal_length_gamma": proposal_length,
+                        "num_accepted_tokens": num_accepted_tokens,
+                        "acceptance_rate": acceptance_rate,
+                        "draft_time_ms": float(speculative_metrics[0]) *
+                        1000.0,
+                        "scoring_time_ms": float(speculative_metrics[1]) *
+                        1000.0,
+                        "verify_time_ms": float(speculative_metrics[2]) *
+                        1000.0,
+                        "step_total_time_ms": float(speculative_metrics[0] +
+                                                    speculative_metrics[1] +
+                                                    speculative_metrics[2]) *
+                        1000.0,
+                        "context_length": int(speculative_metrics[5]),
+                        "stage": int(speculative_metrics[6]),
+                        "queue_len": len(self.waiting),
+                        "num_running": len(self.running),
+                        "num_swapped": len(self.swapped),
+                        "free_gpu_blocks":
+                        self.block_manager.get_num_free_gpu_blocks(),
+                        "usable_gpu_blocks":
+                        self.block_manager.num_usable_gpu_blocks,
+                        "total_gpu_blocks":
+                        self.block_manager.num_total_gpu_blocks,
+                        "draft_model_on_gpu": not self.proposer_worker_to_cpu,
+                        "speculation_enabled": proposal_length > 0,
+                    })
             if self.ucbspec is not None:
                 self.ucbspec.update(speculative_metrics[7],speculative_metrics[3], speculative_metrics[4]+speculative_metrics[3],speculative_metrics[0]+speculative_metrics[1]+speculative_metrics[2])
             # if self.epsilon_greedy_spec is not None:
@@ -1617,6 +1655,37 @@ class Scheduler:
         
         if not self.proposer_worker_to_cpu and speculative_metrics is not None and speculative_metrics[6] == SequenceStage.DECODE.value and speculative_metrics[7] == 0:
             # 即使是decode 且proposal_length为0，也要更新ucbspec，因为ucbspec是根据proposal_length来更新
+            if hasattr(self, "nightjar_event_logger"):
+                self.nightjar_event_logger.log(
+                    "speculative_step", {
+                        "batch_size": int(speculative_metrics[3]),
+                        "proposal_length_gamma": 0,
+                        "num_accepted_tokens": 0,
+                        "acceptance_rate": 0.0,
+                        "draft_time_ms": float(speculative_metrics[0]) *
+                        1000.0,
+                        "scoring_time_ms": float(speculative_metrics[1]) *
+                        1000.0,
+                        "verify_time_ms": float(speculative_metrics[2]) *
+                        1000.0,
+                        "step_total_time_ms": float(speculative_metrics[0] +
+                                                    speculative_metrics[1] +
+                                                    speculative_metrics[2]) *
+                        1000.0,
+                        "context_length": int(speculative_metrics[5]),
+                        "stage": int(speculative_metrics[6]),
+                        "queue_len": len(self.waiting),
+                        "num_running": len(self.running),
+                        "num_swapped": len(self.swapped),
+                        "free_gpu_blocks":
+                        self.block_manager.get_num_free_gpu_blocks(),
+                        "usable_gpu_blocks":
+                        self.block_manager.num_usable_gpu_blocks,
+                        "total_gpu_blocks":
+                        self.block_manager.num_total_gpu_blocks,
+                        "draft_model_on_gpu": not self.proposer_worker_to_cpu,
+                        "speculation_enabled": False,
+                    })
             if self.ucbspec is not None:
                 self.ucbspec.update(speculative_metrics[7],speculative_metrics[3], speculative_metrics[3],speculative_metrics[0]+speculative_metrics[1]+speculative_metrics[2])
             # if self.epsilon_greedy_spec is not None:
@@ -2421,4 +2490,3 @@ class Scheduler:
             running_queue_size=len(self.running),
             preempted=(len(running_scheduled.preempted) + len(running_scheduled.swapped_out)),
         )
-

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import copy
+import os
 import time
 from collections import Counter as collectionsCounter
 from collections import deque
@@ -62,6 +63,7 @@ from vllm.utils import (Counter, Device, deprecate_kwargs,
 from vllm.version import __version__ as VLLM_VERSION
 from vllm.worker.model_runner_base import InputProcessingError
 from vllm.engine.ilp_optimizer import ILPAction
+from vllm.engine.nightjar_event_logger import NightjarEventLogger
 logger = init_logger(__name__)
 _LOCAL_LOGGING_INTERVAL_SEC = 5
 
@@ -205,6 +207,23 @@ class LLMEngine:
 
     tokenizer: Optional[BaseTokenizerGroup]
 
+    def _attach_nightjar_logger(self) -> None:
+        for scheduler in getattr(self, "scheduler", []):
+            scheduler.nightjar_event_logger = self.nightjar_event_logger
+            if hasattr(scheduler, "block_manager"):
+                scheduler.block_manager.nightjar_event_logger = (
+                    self.nightjar_event_logger)
+
+    def configure_nightjar_event_logger(self, path: Optional[str]) -> None:
+        self.nightjar_event_logger.configure(path)
+        self._attach_nightjar_logger()
+        logger.info("Configured Nightjar event log path: %s",
+                    self.nightjar_event_logger.path)
+
+    def log_nightjar_event(self, event_type: str,
+                           payload: Dict[str, object]) -> None:
+        self.nightjar_event_logger.log(event_type, payload)
+
     def __init__(
         self,
         vllm_config: VllmConfig,
@@ -246,6 +265,8 @@ class LLMEngine:
         self.use_cached_outputs = use_cached_outputs
         self.increase_block_threshold = increase_block_threshold
         self.decrease_block_threshold = decrease_block_threshold
+        self.nightjar_event_logger = NightjarEventLogger(
+            os.getenv("NIGHTJAR_EVENT_LOG_PATH"))
 
         logger.info(
             "Initializing a V0 LLM engine (v%s) with config: %s, "
@@ -378,6 +399,7 @@ class LLMEngine:
                 if self.model_config.use_async_output_proc else None)
             for v_id in range(self.parallel_config.pipeline_parallel_size)
         ]
+        self._attach_nightjar_logger()
 
         # Metric Logging.
         if self.log_stats:
@@ -2245,6 +2267,10 @@ class LLMEngine:
         # FIXME 具有滞后性 如果预先调度，则增加overhead，否则具有滞后性，没准下一次就用不上了, 所以需要改条件
         # only when speculative decoding is disabled, and there is space to increase, and the free blocks is less than the threshold, then increase
         print("len(self.scheduler[virtual_engine].running)",len(self.scheduler[virtual_engine].running),"self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks()",self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks())
+        free_gpu_blocks = self.scheduler[
+            virtual_engine].block_manager.get_num_free_gpu_blocks()
+        waiting_len = len(self.scheduler[virtual_engine].waiting)
+        running_len = len(self.scheduler[virtual_engine].running)
         if  len(self.scheduler[virtual_engine].running) > 100 and self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks < self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks \
             and self.scheduler[virtual_engine].block_manager.get_num_free_gpu_blocks() < self.increase_block_threshold:
                 can_increase_space = True
@@ -2257,12 +2283,30 @@ class LLMEngine:
                 can_decrease_space = True
         if can_increase_space:
             logger.info("increase block number")
+            self.log_nightjar_event(
+                "memory_policy_decision", {
+                    "action": "expand_kv_cache",
+                    "free_gpu_blocks": free_gpu_blocks,
+                    "waiting_len": waiting_len,
+                    "running_len": running_len,
+                    "increase_block_threshold": self.increase_block_threshold,
+                    "decrease_block_threshold": self.decrease_block_threshold,
+                })
             self.set_disable_speculative_decoding(True)
             self.offload_proposer_worker()
             self.next_step_increase_blcok_number = True
             
         if can_decrease_space:
             logger.info("decrease block number")
+            self.log_nightjar_event(
+                "memory_policy_decision", {
+                    "action": "restore_draft_model",
+                    "free_gpu_blocks": free_gpu_blocks,
+                    "waiting_len": waiting_len,
+                    "running_len": running_len,
+                    "increase_block_threshold": self.increase_block_threshold,
+                    "decrease_block_threshold": self.decrease_block_threshold,
+                })
             self.set_disable_speculative_decoding(False)
             self.decrease_block_number()
             self.load_neural_model_async()
@@ -2304,6 +2348,18 @@ class LLMEngine:
             self.scheduler[virtual_engine].block_manager.increase_gpu_blocks(increased_blocks)
             self.scheduler[virtual_engine].block_manager.increase_usable_gpu_blocks(increased_blocks)
         end_time = time.time()
+        self.log_nightjar_event(
+            "memory_expand", {
+                "increased_blocks": increased_blocks,
+                "duration_ms": (end_time - start_time) * 1000.0,
+                "usable_gpu_blocks":
+                self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks,
+                "total_gpu_blocks":
+                self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks,
+                "free_gpu_blocks":
+                self.scheduler[virtual_engine].block_manager.
+                get_num_free_gpu_blocks(),
+            })
         print(f"Time taken to increase block number: {end_time - start_time} seconds")
         return True
         
@@ -2323,6 +2379,19 @@ class LLMEngine:
         self.model_executor.decrease_cache_blocks(decreased_blocks, block_migration_map)
         
         end_time = time.time()
+        self.log_nightjar_event(
+            "memory_contract", {
+                "decreased_blocks": decreased_blocks,
+                "duration_ms": (end_time - start_time) * 1000.0,
+                "migrated_block_count": len(block_migration_map),
+                "usable_gpu_blocks":
+                self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks,
+                "total_gpu_blocks":
+                self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks,
+                "free_gpu_blocks":
+                self.scheduler[virtual_engine].block_manager.
+                get_num_free_gpu_blocks(),
+            })
         print(f"Time taken to decrease block number: {end_time - start_time} seconds")
 
     def set_disable_speculative_decoding(self,disable_speculative_decoding):
