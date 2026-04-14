@@ -11,6 +11,7 @@ import requests
 import psutil
 import json
 from typing import List, Tuple
+from functools import partial
 
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -82,6 +83,7 @@ def parse_args():
     parser.add_argument("--enable-trace", type=str, default="False", help="是否开启trace")
     parser.add_argument("--burstiness", type=float, default=1.0, help="burstiness")
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.50, help="gpu memory utilization")
+    parser.add_argument("--max-model-len", type=int, default=2048, help="Maximum model context length passed to the server")
     parser.add_argument("--tensor-parallel-size", type=int, default=1, help="target model tensor parallel size")
     parser.add_argument("--speculative-draft-tensor-parallel-size", type=int, default=1, help="draft model tensor parallel size")
     parser.add_argument("--explore", type=str, default="False", help="是否开启explore")
@@ -95,10 +97,15 @@ def parse_args():
     parser.add_argument("--trace-window-sec", type=float, default=1.0, help="Window size in seconds for trace summaries")
     parser.add_argument("--export-trace-summary", type=str, default=None, help="Optional JSON path for exporting trace summary")
     parser.add_argument("--export-step-log", type=str, default=None, help="Optional JSONL path on the server host for Nightjar step/event logs")
+    parser.add_argument("--max-concurrency", type=int, default=None, help="Optional max concurrency passed to benchmark_serving.py")
+    parser.add_argument("--random-input-len", type=int, default=None, help="Random dataset input length forwarded to benchmark_serving.py")
+    parser.add_argument("--random-output-len", type=int, default=None, help="Random dataset output length forwarded to benchmark_serving.py")
+    parser.add_argument("--random-range-ratio", type=float, default=1.0, help="Random dataset length range ratio forwarded to benchmark_serving.py")
+    parser.add_argument("--random-prefix-len", type=int, default=0, help="Random dataset prefix length forwarded to benchmark_serving.py")
     return parser.parse_args()
 
 
-def start_server(model, host, port, strategy,sub_strategy,draft_model,speculative_len=1,num_gpu_blocks_override=28845,gpu_memory_utilization=0.85,increase_block_threshold=150,decrease_block_threshold=100,persist_steps=3,tensor_parallel_size=1,speculative_draft_tensor_parallel_size=1):
+def start_server(model, host, port, strategy,sub_strategy,draft_model,speculative_len=1,num_gpu_blocks_override=28845,gpu_memory_utilization=0.85,increase_block_threshold=150,decrease_block_threshold=100,persist_steps=3,max_model_len=2048,tensor_parallel_size=1,speculative_draft_tensor_parallel_size=1):
     """启动vLLM服务器"""
     print(f"正在启动vLLM服务器，模型: {model}, 地址: {host}:{port}...")
 
@@ -123,7 +130,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
         # "--ngram_prompt_lookup_max", "4",
         "--enforce-eager",
         "--no-enable-prefix-caching",
-        "--max-model-len", "2048",#"27432",
+        "--max-model-len", str(max_model_len),#"27432",
         # "--enable-chunked-prefill",
         # "--max_num_batched_tokens", "256",
         "--strategy", strategy,
@@ -177,7 +184,9 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
                  strategy_name=None, increase_block_threshold=150,
                  decrease_block_threshold=100, seed=42, trace_plan=None,
                  trace_window_sec=1.0, export_trace_summary=None,
-                 export_step_log=None):
+                 export_step_log=None, max_concurrency=None,
+                 random_input_len=None, random_output_len=None,
+                 random_range_ratio=1.0, random_prefix_len=0):
     """运行单个请求率的基准测试"""
     print(f"正在运行基准测试，strategy: {strategy}, 请求率: {request_rate} QPS...")
 
@@ -213,6 +222,8 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
     ]
     if strategy_name:
         benchmark_cmd.extend(["--strategy-name", strategy_name])
+    if max_concurrency is not None:
+        benchmark_cmd.extend(["--max-concurrency", str(max_concurrency)])
     if enable_trace.lower() == "true":
         benchmark_cmd.append("--enable-trace")
     if trace_plan:
@@ -230,6 +241,13 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
         if dataset_name == "sharegpt":
             benchmark_cmd.append("--sharegpt-output-len")
             benchmark_cmd.append(str(output_len))
+    if dataset_name == "random":
+        if random_input_len is not None:
+            benchmark_cmd.extend(["--random-input-len", str(random_input_len)])
+        if random_output_len is not None:
+            benchmark_cmd.extend(["--random-output-len", str(random_output_len)])
+        benchmark_cmd.extend(["--random-range-ratio", str(random_range_ratio)])
+        benchmark_cmd.extend(["--random-prefix-len", str(random_prefix_len)])
     print(f"benchmark_cmd: {benchmark_cmd}")
     benchmark_env = os.environ.copy()
     existing_pythonpath = benchmark_env.get("PYTHONPATH", "")
@@ -313,6 +331,14 @@ def get_strategy_name(sub_strategy, speculative_len, select_strategy=None):
 def main():
     args = parse_args()
     print(f"args: {args}")
+    run_benchmark_fn = partial(
+        run_benchmark,
+        max_concurrency=args.max_concurrency,
+        random_input_len=args.random_input_len,
+        random_output_len=args.random_output_len,
+        random_range_ratio=args.random_range_ratio,
+        random_prefix_len=args.random_prefix_len,
+    )
     # 启动服务器
     server_process = start_server(
         args.model,
@@ -327,6 +353,7 @@ def main():
         args.increase_block_threshold,
         args.decrease_block_threshold,
         args.persist_steps,
+        args.max_model_len,
         args.tensor_parallel_size,
         args.speculative_draft_tensor_parallel_size,
     )
@@ -353,7 +380,7 @@ def main():
                 send_speculative_action(args.host, args.port, 1,strategy=args.sub_strategy,profile=profile)
                 time.sleep(5)
                 strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                run_benchmark(
+                run_benchmark_fn(
                         host=args.host,
                         port=args.port,
                         model=args.model,
@@ -380,7 +407,7 @@ def main():
                 send_speculative_action(args.host, args.port, 2,strategy=args.sub_strategy,profile=profile)
                 time.sleep(5)
                 strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                run_benchmark(
+                run_benchmark_fn(
                         host=args.host,
                         port=args.port,
                         model=args.model,
@@ -412,7 +439,7 @@ def main():
 
                 time.sleep(5)
                 strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                run_benchmark(
+                run_benchmark_fn(
                         host=args.host,
                         port=args.port,
                         model=args.model,
@@ -438,7 +465,7 @@ def main():
             if sub_strategy == "daspec":
                 send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_daspec.json")
                 strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                run_benchmark(
+                run_benchmark_fn(
                     host=args.host,
                     port=args.port,
                     model=args.model,
@@ -461,7 +488,7 @@ def main():
             if sub_strategy == "smart_spec":
                 send_speculative_action(args.host, args.port, -1,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_smart_spec.json")
                 strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                run_benchmark(
+                run_benchmark_fn(
                     host=args.host,
                     port=args.port,
                     model=args.model,
@@ -484,7 +511,7 @@ def main():
             if sub_strategy == "threshold":
                 send_speculative_action(args.host, args.port, 50,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_threshold.json")
                 strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                run_benchmark(
+                run_benchmark_fn(
                     host=args.host,
                     port=args.port,
                     model=args.model,
@@ -513,7 +540,7 @@ def main():
                     send_speculative_action(args.host, args.port, 12,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json",ucb_file_name=f"explore_ucb")
 
                     strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                    run_benchmark(
+                    run_benchmark_fn(
                         host=args.host,
                         port=args.port,
                         model=args.model,
@@ -535,7 +562,7 @@ def main():
                 send_speculative_action(args.host, args.port, 11,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json",ucb_file_name=f"explore_ucb")
 
                 strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                run_benchmark(
+                run_benchmark_fn(
                     host=args.host,
                     port=args.port,
                     model=args.model,
@@ -567,7 +594,7 @@ def main():
                     print("explore True")
                     send_speculative_action(args.host, args.port, 12,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"explore_epsilon_greedy")
                     strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                    run_benchmark(
+                    run_benchmark_fn(
                         host=args.host,
                         port=args.port,
                         model=args.model,
@@ -590,7 +617,7 @@ def main():
                     if args.save_trace == "True":
                         send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy1.json")
                     strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                    run_benchmark(
+                    run_benchmark_fn(
                         host=args.host,
                         port=args.port,
                         model=args.model,
@@ -621,7 +648,7 @@ def main():
                 send_speculative_action(args.host, args.port, 11,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"epsilon_greedy",select_strategy=args.select_strategy)
 
                 strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                run_benchmark(
+                run_benchmark_fn(
                     host=args.host,
                     port=args.port,
                     model=args.model,
@@ -651,7 +678,7 @@ def main():
                     print("explore True")
                     send_speculative_action(args.host, args.port, 12,strategy="epsilon_greedy_with_offload",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy_with_offload.json",offload=True,ucb_file_name=f"explore_epsilon_greedy_with_offload")
                     strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                    run_benchmark(
+                    run_benchmark_fn(
                         host=args.host,
                         port=args.port,
                         model=args.model,
@@ -674,7 +701,7 @@ def main():
                     if args.save_trace == "True":
                         send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy_with_offload1.json")
                     strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                    run_benchmark(
+                    run_benchmark_fn(
                         host=args.host,
                         port=args.port,
                         model=args.model,
@@ -705,7 +732,7 @@ def main():
                 send_speculative_action(args.host, args.port, 11,strategy="epsilon_greedy_with_offload",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy_with_offload.json",offload=True,ucb_file_name=f"epsilon_greedy_with_offload",select_strategy=args.select_strategy)
 
                 strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                run_benchmark(
+                run_benchmark_fn(
                     host=args.host,
                     port=args.port,
                     model=args.model,
@@ -737,7 +764,7 @@ def main():
                     print("explore True")
                     send_speculative_action(args.host, args.port, 12,strategy="epsilon_greedy_with_c_prefill",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"explore_epsilon_greedy")
                     strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                    run_benchmark(
+                    run_benchmark_fn(
                         host=args.host,
                         port=args.port,
                         model=args.model,
@@ -760,7 +787,7 @@ def main():
                     if args.save_trace == "True":
                         send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy1.json")
                     strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                    run_benchmark(
+                    run_benchmark_fn(
                         host=args.host,
                         port=args.port,
                         model=args.model,
@@ -791,7 +818,7 @@ def main():
                 send_speculative_action(args.host, args.port, 11,strategy="epsilon_greedy_with_c_prefill",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"epsilon_greedy",select_strategy=args.select_strategy)
 
                 strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                run_benchmark(
+                run_benchmark_fn(
                     host=args.host,
                     port=args.port,
                     model=args.model,
@@ -825,7 +852,7 @@ def main():
                     print(f"explore True for {sub_strategy}")
                     send_speculative_action(args.host, args.port, 12, strategy=sub_strategy, save_action_time_history=save_action_time_history, profile=profile, file_name=f"{profile_file_name}_{sub_strategy}.json", ucb_file_name=f"explore_{sub_strategy}")
                     strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                    run_benchmark(
+                    run_benchmark_fn(
                         host=args.host,
                         port=args.port,
                         model=args.model,
@@ -848,7 +875,7 @@ def main():
                     if args.save_trace == "True":
                         send_speculative_action(args.host, args.port, 9, strategy=args.sub_strategy, save_action_time_history=save_action_time_history, profile=profile, file_name=f"{profile_file_name}_{sub_strategy}1.json")
                     strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                    run_benchmark(
+                    run_benchmark_fn(
                         host=args.host,
                         port=args.port,
                         model=args.model,
@@ -878,7 +905,7 @@ def main():
                     send_speculative_action(args.host, args.port, 11, strategy=sub_strategy, save_action_time_history=save_action_time_history, profile=profile, file_name=f"{profile_file_name}_{sub_strategy}.json", ucb_file_name=f"{sub_strategy}", select_strategy=args.select_strategy)
                 
                 strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
-                run_benchmark(
+                run_benchmark_fn(
                     host=args.host,
                     port=args.port,
                     model=args.model,

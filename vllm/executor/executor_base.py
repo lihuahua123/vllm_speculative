@@ -290,6 +290,9 @@ class ExecutorBase(ABC):
     
     def have_load_neural_model(self):
         return self.collective_rpc("have_load_neural_model", need_worker_output=self._need_worker_output_for_tp())
+
+    def get_draft_transfer_status(self):
+        return self.collective_rpc("get_draft_transfer_status", need_worker_output=self._need_worker_output_for_tp())
     
     def set_ngram_prompt_lookup_window_size(self,ngram_prompt_lookup_min,ngram_prompt_lookup_max):
         return self.collective_rpc("set_ngram_prompt_lookup_window_size", kwargs=dict(ngram_prompt_lookup_min=ngram_prompt_lookup_min,ngram_prompt_lookup_max=ngram_prompt_lookup_max), need_worker_output=self._need_worker_output_for_tp())

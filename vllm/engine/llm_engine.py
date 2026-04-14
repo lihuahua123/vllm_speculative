@@ -224,6 +224,55 @@ class LLMEngine:
                            payload: Dict[str, object]) -> None:
         self.nightjar_event_logger.log(event_type, payload)
 
+    def _log_draft_transfer_start(self, status: Optional[dict]) -> None:
+        if not status:
+            return
+        current = status.get("current") or {}
+        transfer_id = current.get("transfer_id")
+        direction = current.get("direction")
+        if not transfer_id or not direction:
+            return
+        self.log_nightjar_event(
+            "draft_transfer_start", {
+                "transfer_id": transfer_id,
+                "direction": direction,
+                "bytes": current.get("bytes", 0),
+                "draft_model_state": self.draft_model_state,
+            })
+
+    def _poll_and_log_draft_transfer(self) -> Optional[dict]:
+        statuses = self.model_executor.get_draft_transfer_status()
+        if not statuses:
+            return None
+        status = statuses[0] or {}
+        last_completed = status.get("last_completed") or {}
+        transfer_id = last_completed.get("transfer_id")
+        if (transfer_id
+                and transfer_id != self._last_logged_completed_transfer_id
+                and last_completed.get("status") == "done"):
+            self._last_logged_completed_transfer_id = transfer_id
+            direction = last_completed.get("direction")
+            if direction == "cpu_to_gpu":
+                self.draft_model_state = "on_gpu"
+                self.proposer_worker_to_cpu = False
+                self.scheduler[0].proposer_worker_to_cpu = False
+            elif direction == "gpu_to_cpu":
+                self.draft_model_state = "on_cpu"
+                self.proposer_worker_to_cpu = True
+                self.scheduler[0].proposer_worker_to_cpu = True
+            self.log_nightjar_event(
+                "draft_transfer_done", {
+                    "transfer_id": transfer_id,
+                    "direction": direction,
+                    "bytes": last_completed.get("bytes", 0),
+                    "duration_ms": last_completed.get("duration_ms"),
+                    "submit_ts": last_completed.get("submit_ts"),
+                    "start_ts": last_completed.get("start_ts"),
+                    "complete_ts": last_completed.get("complete_ts"),
+                    "draft_model_state": self.draft_model_state,
+                })
+        return status
+
     def __init__(
         self,
         vllm_config: VllmConfig,
@@ -454,6 +503,8 @@ class LLMEngine:
 
         self.seq_id_to_seq_group: Dict[str, SequenceGroupBase] = {}
         self.proposer_worker_to_cpu = False
+        self.draft_model_state = "on_gpu"
+        self._last_logged_completed_transfer_id: Optional[str] = None
         self.disable_by_batch_size = self.vllm_config.speculative_config.disable_by_batch_size  if self.vllm_config.speculative_config else float("inf")
         if self.disable_by_batch_size is not None and self.disable_by_batch_size != float("inf"):
             self.disable_by_batch_size = self.disable_by_batch_size + 1
@@ -466,9 +517,11 @@ class LLMEngine:
             if hasattr(self.vllm_config.speculative_config, 'speculative_model') and self.vllm_config.speculative_config.model == "ngram":
                 self.proposer_worker_to_cpu = True
                 self.using_ngram_draft_model = True
+                self.draft_model_state = "on_cpu"
             else:
                 self.proposer_worker_to_cpu = False
                 self.using_ngram_draft_model = False
+                self.draft_model_state = "on_gpu"
 
 
         # Flag to set when an input fails to process and the engine should run
@@ -2231,15 +2284,20 @@ class LLMEngine:
         if self.proposer_worker_to_cpu:
             virtual_engine = 0 
             self.model_executor.load_neural_model_async()
-            self.proposer_worker_to_cpu = False
-            self.scheduler[virtual_engine].proposer_worker_to_cpu = False
+            self.draft_model_state = "reloading"
+            status = self._poll_and_log_draft_transfer()
+            self.scheduler[virtual_engine].proposer_worker_to_cpu = True
+            self._log_draft_transfer_start(status)
 
     def offload_proposer_worker(self) -> None:
         if not self.proposer_worker_to_cpu:
             virtual_engine = 0
             self.model_executor.offload_proposer_worker()
+            self.draft_model_state = "offloading"
             self.proposer_worker_to_cpu = True
             self.scheduler[virtual_engine].proposer_worker_to_cpu = True
+            status = self._poll_and_log_draft_transfer()
+            self._log_draft_transfer_start(status)
             
     def switch_to_neural_draft_model(self) -> None:
         """Switch from n-gram draft model back to neural draft model."""
@@ -2264,6 +2322,7 @@ class LLMEngine:
             logger.warning("Model executor does not support switching to neural draft model")
     
     def increase_or_decrease_block_number(self,scheduler_outputs,virtual_engine, has_been_disabled_speculative_decoding):
+        self._poll_and_log_draft_transfer()
         have_load_neural_model = self.model_executor.have_load_neural_model()[0]
         
         if not have_load_neural_model and self.next_step_increase_blcok_number:

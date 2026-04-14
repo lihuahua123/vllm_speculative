@@ -358,7 +358,22 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         self.num_accepted_tokens = 0
         self.proposer_worker_to_cpu = False # 是否开始迁移到CPU
         self.proposer_worker_on_cpu = False # 是否在CPU上
+        self.proposer_worker_reloading = False
+        self.proposer_worker_offloading = False
         self.event = None
+        self._draft_transfer_seq = 0
+        self._draft_transfer_status = {
+            "active": False,
+            "direction": None,
+            "transfer_id": None,
+            "bytes": 0,
+            "submit_ts": None,
+            "start_ts": None,
+            "complete_ts": None,
+            "duration_ms": None,
+            "status": "idle",
+        }
+        self._last_completed_transfer = None
         self.need_decrease_block_number = False
         self.using_ngram_draft_model = False
         self.stage_times = None
@@ -1462,6 +1477,64 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
     
     def clear_metrics(self):
         self.spec_decode_sampler.last_metrics = []
+
+    def _estimate_draft_model_bytes(self) -> int:
+        total_bytes = 0
+        if not hasattr(self, "model") or self.model is None:
+            return total_bytes
+        for tensor in self.model.parameters():
+            total_bytes += tensor.numel() * tensor.element_size()
+        for tensor in self.model.buffers():
+            total_bytes += tensor.numel() * tensor.element_size()
+        return total_bytes
+
+    def _begin_draft_transfer(self, direction: str) -> dict:
+        self._draft_transfer_seq += 1
+        transfer = {
+            "active": True,
+            "direction": direction,
+            "transfer_id": f"draft-transfer-{self._draft_transfer_seq}",
+            "bytes": self._estimate_draft_model_bytes(),
+            "submit_ts": time.time(),
+            "start_ts": None,
+            "complete_ts": None,
+            "duration_ms": None,
+            "status": "submitted",
+        }
+        self._draft_transfer_status = transfer
+        return transfer
+
+    def _mark_draft_transfer_running(self) -> None:
+        if not self._draft_transfer_status["active"]:
+            return
+        self._draft_transfer_status["start_ts"] = time.time()
+        self._draft_transfer_status["status"] = "running"
+
+    def _mark_draft_transfer_done(self) -> None:
+        if not self._draft_transfer_status["active"]:
+            return
+        complete_ts = time.time()
+        start_ts = self._draft_transfer_status["start_ts"]
+        duration_ms = None
+        if start_ts is not None:
+            duration_ms = (complete_ts - start_ts) * 1000.0
+        self._draft_transfer_status["complete_ts"] = complete_ts
+        self._draft_transfer_status["duration_ms"] = duration_ms
+        self._draft_transfer_status["status"] = "done"
+        self._draft_transfer_status["active"] = False
+        self._last_completed_transfer = dict(self._draft_transfer_status)
+
+    def get_draft_transfer_status(self):
+        return {
+            "active": self._draft_transfer_status["active"],
+            "current": dict(self._draft_transfer_status),
+            "last_completed": (None if self._last_completed_transfer is None
+                                else dict(self._last_completed_transfer)),
+            "proposer_worker_to_cpu": self.proposer_worker_to_cpu,
+            "proposer_worker_on_cpu": self.proposer_worker_on_cpu,
+            "proposer_worker_reloading": self.proposer_worker_reloading,
+            "proposer_worker_offloading": self.proposer_worker_offloading,
+        }
     
     def offload_proposer_worker(self):
     
@@ -1479,15 +1552,22 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
 
         print("offload model to cpu!!!x2")
         begin_time = time.time()
+        self._begin_draft_transfer("gpu_to_cpu")
+        self.proposer_worker_offloading = True
         
         def move_model_to_cpu():
             try:
                 # model = self.old_proposer_worker.model_runner.model
-                
+                self._mark_draft_transfer_running()
                 self.model.to("cpu", non_blocking=True)
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
                 self.proposer_worker_on_cpu = True
+                self.proposer_worker_offloading = False
+                self._mark_draft_transfer_done()
                 logger.info(f"模型迁移到CPU完成，耗时: {time.time() - begin_time} 秒")
             except Exception as e:
+                self.proposer_worker_offloading = False
                 logger.error(f"模型迁移到CPU时发生错误: {str(e)}")
         
         # 使用全局线程池提交任务，不等待任务完成
@@ -1508,10 +1588,15 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         if hasattr(self.old_proposer_worker, 'model_runner') and hasattr(self.old_proposer_worker.model_runner, 'model'):
             logger.info("Moving neural draft model back to CUDA")
             start_time = time.time()
+            self._begin_draft_transfer("cpu_to_gpu")
+            self.proposer_worker_reloading = True
             def move_model_to_cuda():
+                self._mark_draft_transfer_running()
                 self.event = torch.cuda.Event(enable_timing=False)
                 self.model.to("cuda", non_blocking=True)
+                torch.cuda.synchronize()
                 self.event.record()
+                self._mark_draft_transfer_done()
             _global_executor.submit(move_model_to_cuda)
             end_time = time.time()
             logger.info(f"Time taken to move neural draft model back to CUDA: {end_time - start_time} seconds")
@@ -1520,6 +1605,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         if self.event is not None and self.event.query():
             self.proposer_worker_on_cpu = False
             self.proposer_worker_to_cpu = False
+            self.proposer_worker_reloading = False
             self.event = None
             return True
         if self.proposer_worker_on_cpu:
