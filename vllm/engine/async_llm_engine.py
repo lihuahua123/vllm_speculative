@@ -453,7 +453,7 @@ class _AsyncLLMEngine(LLMEngine):
                 else:
                     self.set_disable_speculative_decoding(False)
            
-            if self.engine.enable_memory_elasticity:
+            if self.enable_memory_elasticity:
                 # print("increase_or_decrease_block_number current_qps:", current_qps)
                 self.increase_or_decrease_block_number(scheduler_outputs,virtual_engine, self.has_been_disabled_speculative_decoding)
             ctx.seq_group_metadata_list = seq_group_metadata_list
@@ -811,6 +811,7 @@ class AsyncLLMEngine(EngineClient):
         disable_log_stats: bool = False,
         increase_block_threshold: int = 150,
         decrease_block_threshold: int = 100,
+        persist_steps: int = 3,
     ) -> "AsyncLLMEngine":
         """Create an AsyncLLMEngine from the EngineArgs."""
 
@@ -824,6 +825,7 @@ class AsyncLLMEngine(EngineClient):
             stat_loggers=stat_loggers,
             increase_block_threshold=increase_block_threshold,
             decrease_block_threshold=decrease_block_threshold,
+            persist_steps=persist_steps,
         )
 
     @classmethod
@@ -852,6 +854,7 @@ class AsyncLLMEngine(EngineClient):
             disable_log_requests=False,
             increase_block_threshold=engine_args.increase_block_threshold,
             decrease_block_threshold=engine_args.decrease_block_threshold,
+            persist_steps=engine_args.persist_steps,
         )
 
     @property

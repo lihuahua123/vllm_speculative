@@ -2281,8 +2281,7 @@ class LLMEngine:
         waiting_len = len(self.scheduler[virtual_engine].waiting)
         running_len = len(self.scheduler[virtual_engine].running)
         low_memory_condition = (
-            running_len > 100
-            and self.scheduler[virtual_engine].block_manager.
+            self.scheduler[virtual_engine].block_manager.
             num_usable_gpu_blocks <
             self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks
             and free_gpu_blocks < self.increase_block_threshold)

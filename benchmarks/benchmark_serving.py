@@ -412,7 +412,7 @@ async def benchmark(
     # request_rate_list = [1,0.1,1,0.1]
     outputs_list = []
     request_rate_list =  []#
-    input_requests_list = []#[input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:start_index+540]] # [input_requests] #[input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:]]
+    input_requests_list = [] # [input_requests] #[input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:]]
     print(f"enable_trace: {enable_trace}")
     if enable_trace:
         if trace_plan:
@@ -425,11 +425,12 @@ async def benchmark(
                 input_requests_list.append(input_requests[cursor:next_cursor])
                 cursor = next_cursor
         else:
-            request_rate_list = [20, 20, 20]
+            request_rate_list = [20, 20, 20, 20]
             input_requests_list = [
-                input_requests[start_index:start_index + 20],
-                input_requests[start_index + 20:start_index + 40],
-                input_requests[start_index + 40:start_index + 240],
+                input_requests[start_index:start_index+100],
+                input_requests[start_index+100:start_index+200],
+                input_requests[start_index+200:start_index+300],
+                input_requests[start_index+300:start_index+400]
             ]
         print(f"request_rate_list: {request_rate_list}")
     else:

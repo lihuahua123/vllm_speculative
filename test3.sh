@@ -14,6 +14,7 @@ gpu_memory_utilization=0.85
 increase_block_threshold=150
 decrease_block_threshold=100
 # python -m vllm.entrypoints.openai.api_server  --model /root/autodl-tmp/Qwen2.5-32B-Instruct --gpu-memory-utilization 0.85 --speculative-model [ngram] --ngram_prompt_lookup_max 4 --num-speculative-tokens 4 --enforce-eager  --no-enable-prefix-caching --max-model-len 2048 --tensor_parallel_size 2
+# python -m vllm.entrypoints.openai.api_server  --model /root/autodl-tmp/DeepSeek-R1-Distill-Qwen-7B --gpu-memory-utilization 0.85 --speculative-model [ngram] --ngram_prompt_lookup_max 4 --num-speculative-tokens 4 --enforce-eager  --no-enable-prefix-caching --max-model-len 2048 --tensor_parallel_size 1
 rm -rf $FILE_NAME
 data_set_name=sharegpt
 data_set_path=/root/autodl-tmp/sharegpt.json # $data_set_path

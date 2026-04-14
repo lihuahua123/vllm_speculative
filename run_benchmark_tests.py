@@ -12,6 +12,8 @@ import psutil
 import json
 from typing import List, Tuple
 
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+
 
 def check_server_health(host: str,
                         port: int,
@@ -80,16 +82,19 @@ def parse_args():
     parser.add_argument("--enable-trace", type=str, default="False", help="是否开启trace")
     parser.add_argument("--burstiness", type=float, default=1.0, help="burstiness")
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.50, help="gpu memory utilization")
+    parser.add_argument("--tensor-parallel-size", type=int, default=1, help="target model tensor parallel size")
+    parser.add_argument("--speculative-draft-tensor-parallel-size", type=int, default=1, help="draft model tensor parallel size")
     parser.add_argument("--explore", type=str, default="False", help="是否开启explore")
     parser.add_argument("--select-strategy", type=str, default=None, help="select策略")
     parser.add_argument("--save-trace", type=str, default="False", help="是否保存trace")
     parser.add_argument("--increase-block-threshold", type=int, default=150, help="Threshold for free GPU blocks to trigger block number increase")
     parser.add_argument("--decrease-block-threshold", type=int, default=100, help="Threshold offset for free GPU blocks to trigger block number decrease")
+    parser.add_argument("--persist-steps", type=int, default=3, help="Number of consecutive scheduler steps required before triggering block expansion or contraction")
     parser.add_argument("--seed", type=int, default=42, help="随机种子，保证每次 benchmark 使用同一批 dataset")
     return parser.parse_args()
 
 
-def start_server(model, host, port, strategy,sub_strategy,draft_model,speculative_len=1,num_gpu_blocks_override=28845,gpu_memory_utilization=0.85,increase_block_threshold=150,decrease_block_threshold=100):
+def start_server(model, host, port, strategy,sub_strategy,draft_model,speculative_len=1,num_gpu_blocks_override=28845,gpu_memory_utilization=0.85,increase_block_threshold=150,decrease_block_threshold=100,persist_steps=3,tensor_parallel_size=1,speculative_draft_tensor_parallel_size=1):
     """启动vLLM服务器"""
     print(f"正在启动vLLM服务器，模型: {model}, 地址: {host}:{port}...")
 
@@ -98,6 +103,10 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     # 设置环境变量
     my_env = os.environ.copy()
     my_env["VLLM_USE_V1"] = "0"
+    existing_pythonpath = my_env.get("PYTHONPATH", "")
+    my_env["PYTHONPATH"] = (
+        REPO_ROOT if not existing_pythonpath else
+        f"{REPO_ROOT}:{existing_pythonpath}")
 
     exec_cmd =[
         sys.executable,
@@ -114,8 +123,9 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
         # "--enable-chunked-prefill",
         # "--max_num_batched_tokens", "256",
         "--strategy", strategy,
-        "--tensor-parallel-size", "2",
-        "--speculative-draft-tensor-parallel-size", "1",
+        "--tensor-parallel-size", str(tensor_parallel_size),
+        "--speculative-draft-tensor-parallel-size",
+        str(speculative_draft_tensor_parallel_size),
     ]
     if strategy != "no-spec":
         exec_cmd.append("--speculative-model")
@@ -132,8 +142,10 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     exec_cmd.append(str(increase_block_threshold))
     exec_cmd.append("--decrease-block-threshold")
     exec_cmd.append(str(decrease_block_threshold))
+    exec_cmd.append("--persist-steps")
+    exec_cmd.append(str(persist_steps))
     print(f"exec_cmd: {exec_cmd}")
-    server_process = subprocess.Popen(exec_cmd, env=my_env)
+    server_process = subprocess.Popen(exec_cmd, env=my_env, cwd=REPO_ROOT)
     # 等待服务器启动
     print("等待服务器启动...")
     time.sleep(60)
@@ -194,7 +206,15 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
             benchmark_cmd.append("--sharegpt-output-len")
             benchmark_cmd.append(str(output_len))
     print(f"benchmark_cmd: {benchmark_cmd}")
-    subprocess.run(benchmark_cmd)
+    benchmark_env = os.environ.copy()
+    existing_pythonpath = benchmark_env.get("PYTHONPATH", "")
+    benchmark_env["PYTHONPATH"] = (
+        REPO_ROOT if not existing_pythonpath else
+        f"{REPO_ROOT}:{existing_pythonpath}")
+    subprocess.run(benchmark_cmd,
+                   cwd=REPO_ROOT,
+                   env=benchmark_env,
+                   check=True)
     print(f"完成请求率为 {request_rate} QPS 的基准测试，结果保存在 {os.path.join(result_dir, result_filename)}")
 
 def send_speculative_action(host, port, action,strategy="ilp",save_action_time_history=False, profile=False,file_name=None, offload=False,ucb_file_name=None,select_strategy=None):
@@ -269,7 +289,22 @@ def main():
     args = parse_args()
     print(f"args: {args}")
     # 启动服务器
-    server_process = start_server(args.model, args.host, args.port, args.strategy,args.sub_strategy,args.draft_model,args.speculative_len,args.num_gpu_blocks_override,args.gpu_memory_utilization,args.increase_block_threshold,args.decrease_block_threshold)
+    server_process = start_server(
+        args.model,
+        args.host,
+        args.port,
+        args.strategy,
+        args.sub_strategy,
+        args.draft_model,
+        args.speculative_len,
+        args.num_gpu_blocks_override,
+        args.gpu_memory_utilization,
+        args.increase_block_threshold,
+        args.decrease_block_threshold,
+        args.persist_steps,
+        args.tensor_parallel_size,
+        args.speculative_draft_tensor_parallel_size,
+    )
     sub_strategy = args.sub_strategy
     start_index = args.start_index
     try:
