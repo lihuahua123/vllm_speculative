@@ -561,6 +561,10 @@ class Scheduler:
         verify_model_online = 'llama-Verify-online_RiverDecisionTree.pkl'
         draft_model_online = 'llama-eagle-online_RiverDecisionTree.pkl'
         generated_token_num_predict_model = 'generated_data_num_predict_model_lr.pkl'
+        self.smart_spec = None
+        self.daspec_spec = None
+        self.ucbspec = None
+        self.epsilon_greedy_spec = None
         # FIXME
         if self.scheduler_config.num_lookahead_slots > 0 and os.path.exists(verify_model_profile_smart) and os.path.exists(draft_model_profile_smart):
             self.smart_spec = SmartSpec(load(verify_model_profile_smart), load(draft_model_profile_smart), self.scheduler_config.num_lookahead_slots)
@@ -596,11 +600,6 @@ class Scheduler:
             # self.ucbspec = EpsilonGreedySpec3(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
             # damie 
             # self.ucbspec = EpsilonGreedySpecSlidingWindow(self.scheduler_config.num_lookahead_slots+1,max_spec_length=self.scheduler_config.num_lookahead_slots)
-        else:
-            self.smart_spec = None
-            self.daspec_spec = None
-            self.ucbspec = None
-            self.epsilon_greedy_spec = None
         self.profile = False
         self.proposer_worker_to_cpu = False
         self.disable_spec_cnt = 0

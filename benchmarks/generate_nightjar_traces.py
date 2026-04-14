@@ -10,32 +10,112 @@ from pathlib import Path
 
 def burst_spike() -> list[dict[str, float]]:
     return [
-        {"request_rate": 2, "num_requests": 30},
-        {"request_rate": 8, "num_requests": 40},
-        {"request_rate": 24, "num_requests": 80},
-        {"request_rate": 40, "num_requests": 120},
-        {"request_rate": 6, "num_requests": 40},
+        {
+            "label": "pre_spike",
+            "request_rate": 2,
+            "num_requests": 30,
+            "burstiness": 1.0
+        },
+        {
+            "label": "ramp_up",
+            "request_rate": 8,
+            "num_requests": 40,
+            "burstiness": 0.9
+        },
+        {
+            "label": "burst_peak",
+            "request_rate": 24,
+            "num_requests": 80,
+            "burstiness": 0.5
+        },
+        {
+            "label": "migration_pressure_peak",
+            "request_rate": 40,
+            "num_requests": 120,
+            "burstiness": 0.35
+        },
+        {
+            "label": "recovery",
+            "request_rate": 6,
+            "num_requests": 40,
+            "burstiness": 1.2
+        },
     ]
 
 
 def high_low_oscillation() -> list[dict[str, float]]:
     return [
-        {"request_rate": 4, "num_requests": 30},
-        {"request_rate": 28, "num_requests": 30},
-        {"request_rate": 4, "num_requests": 30},
-        {"request_rate": 28, "num_requests": 30},
-        {"request_rate": 4, "num_requests": 30},
-        {"request_rate": 28, "num_requests": 30},
+        {
+            "label": "low_0",
+            "request_rate": 4,
+            "num_requests": 30,
+            "burstiness": 1.1
+        },
+        {
+            "label": "high_0",
+            "request_rate": 28,
+            "num_requests": 30,
+            "burstiness": 0.7
+        },
+        {
+            "label": "low_1",
+            "request_rate": 4,
+            "num_requests": 30,
+            "burstiness": 1.1
+        },
+        {
+            "label": "high_1",
+            "request_rate": 28,
+            "num_requests": 30,
+            "burstiness": 0.7
+        },
+        {
+            "label": "low_2",
+            "request_rate": 4,
+            "num_requests": 30,
+            "burstiness": 1.1
+        },
+        {
+            "label": "high_2",
+            "request_rate": 28,
+            "num_requests": 30,
+            "burstiness": 0.7
+        },
     ]
 
 
 def sync_migration_worst_case() -> list[dict[str, float]]:
     return [
-        {"request_rate": 6, "num_requests": 40},
-        {"request_rate": 36, "num_requests": 140},
-        {"request_rate": 36, "num_requests": 140},
-        {"request_rate": 3, "num_requests": 20},
-        {"request_rate": 30, "num_requests": 120},
+        {
+            "label": "low_load_with_draft_resident",
+            "request_rate": 6,
+            "num_requests": 40,
+            "burstiness": 1.0
+        },
+        {
+            "label": "first_contraction_wave",
+            "request_rate": 36,
+            "num_requests": 140,
+            "burstiness": 0.45
+        },
+        {
+            "label": "sustained_contract_pressure",
+            "request_rate": 36,
+            "num_requests": 140,
+            "burstiness": 0.45
+        },
+        {
+            "label": "reload_window",
+            "request_rate": 3,
+            "num_requests": 20,
+            "burstiness": 1.3
+        },
+        {
+            "label": "second_contraction_wave",
+            "request_rate": 30,
+            "num_requests": 120,
+            "burstiness": 0.4
+        },
     ]
 
 

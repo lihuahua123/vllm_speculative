@@ -91,6 +91,10 @@ def parse_args():
     parser.add_argument("--decrease-block-threshold", type=int, default=100, help="Threshold offset for free GPU blocks to trigger block number decrease")
     parser.add_argument("--persist-steps", type=int, default=3, help="Number of consecutive scheduler steps required before triggering block expansion or contraction")
     parser.add_argument("--seed", type=int, default=42, help="随机种子，保证每次 benchmark 使用同一批 dataset")
+    parser.add_argument("--trace-plan", type=str, default=None, help="Optional JSON trace plan path for bursty stress benchmarks")
+    parser.add_argument("--trace-window-sec", type=float, default=1.0, help="Window size in seconds for trace summaries")
+    parser.add_argument("--export-trace-summary", type=str, default=None, help="Optional JSON path for exporting trace summary")
+    parser.add_argument("--export-step-log", type=str, default=None, help="Optional JSONL path on the server host for Nightjar step/event logs")
     return parser.parse_args()
 
 
@@ -135,6 +139,14 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
             exec_cmd.append("1")
         else:
             exec_cmd.append(str(speculative_len))
+
+        # vLLM requires a positive prompt lookup window when using [ngram]
+        # as a model-free draft backend.
+        if draft_model == "[ngram]":
+            exec_cmd.append("--ngram-prompt-lookup-min")
+            exec_cmd.append("1")
+            exec_cmd.append("--ngram-prompt-lookup-max")
+            exec_cmd.append(str(speculative_len))
     if strategy == "ilp":
         exec_cmd.append("--num_gpu_blocks_override")
         exec_cmd.append(str(num_gpu_blocks_override))
@@ -160,7 +172,12 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
     return server_process
 
 def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
-                 request_rate, result_dir, strategy, text, start_index=0, output_len=None, enable_trace="False", burstiness=1.0, strategy_name=None, increase_block_threshold=150, decrease_block_threshold=100, seed=42):
+                 request_rate, result_dir, strategy, text, start_index=0,
+                 output_len=None, enable_trace="False", burstiness=1.0,
+                 strategy_name=None, increase_block_threshold=150,
+                 decrease_block_threshold=100, seed=42, trace_plan=None,
+                 trace_window_sec=1.0, export_trace_summary=None,
+                 export_step_log=None):
     """运行单个请求率的基准测试"""
     print(f"正在运行基准测试，strategy: {strategy}, 请求率: {request_rate} QPS...")
 
@@ -198,6 +215,14 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
         benchmark_cmd.extend(["--strategy-name", strategy_name])
     if enable_trace.lower() == "true":
         benchmark_cmd.append("--enable-trace")
+    if trace_plan:
+        benchmark_cmd.extend(["--trace-plan", trace_plan])
+    if trace_window_sec is not None:
+        benchmark_cmd.extend(["--trace-window-sec", str(trace_window_sec)])
+    if export_trace_summary:
+        benchmark_cmd.extend(["--export-trace-summary", export_trace_summary])
+    if export_step_log:
+        benchmark_cmd.extend(["--export-step-log", export_step_log])
     if output_len is not None:
         benchmark_cmd.append("--hf-output-len")
         benchmark_cmd.append(str(output_len))

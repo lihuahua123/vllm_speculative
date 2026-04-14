@@ -165,6 +165,7 @@ class NGramWorker(NonLLMProposerWorkerBase):
         # Unused parameter. NGramWorker does not use the KV Cache and
         # therefore does not need this parameter.
         seq_ids_with_bonus_token_in_last_step: Set[int],
+        **kwargs,
     ) -> SpeculativeProposals:
         """Produce speculations given an input batch of sequences. The number of
         speculative tokens per sequence is determined by max_proposal_len.

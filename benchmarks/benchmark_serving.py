@@ -63,6 +63,15 @@ from benchmark_utils import convert_to_pytorch_benchmark_format, write_to_json
 MILLISECONDS_TO_SECONDS_CONVERSION = 1000
 
 
+@dataclass
+class TraceSegment:
+    segment_id: int
+    request_rate: float
+    num_requests: int
+    burstiness: float = 1.0
+    label: str = ""
+
+
 def configure_nightjar_logging_endpoint(base_url: str,
                                         export_step_log: Optional[str]) -> None:
     if not export_step_log:
@@ -80,13 +89,170 @@ def configure_nightjar_logging_endpoint(base_url: str,
                 f"Failed to configure nightjar logging: {response.status}")
 
 
-def load_trace_plan(trace_plan_path: str) -> list[dict[str, float]]:
+def load_trace_plan(trace_plan_path: str) -> list[TraceSegment]:
     with open(trace_plan_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     segments = data.get("segments", data)
     if not isinstance(segments, list):
         raise ValueError("Trace plan must contain a list of segments.")
-    return segments
+    parsed_segments: list[TraceSegment] = []
+    for index, segment in enumerate(segments):
+        if not isinstance(segment, dict):
+            raise ValueError("Each trace segment must be a JSON object.")
+        parsed_segments.append(
+            TraceSegment(
+                segment_id=index,
+                request_rate=float(segment["request_rate"]),
+                num_requests=int(segment["num_requests"]),
+                burstiness=float(segment.get("burstiness", 1.0)),
+                label=str(segment.get("label", f"segment_{index}")),
+            ))
+    return parsed_segments
+
+
+def build_trace_segments(enable_trace: bool,
+                         trace_plan: Optional[str],
+                         request_rate: float,
+                         burstiness: float) -> list[TraceSegment]:
+    if not enable_trace:
+        return [
+            TraceSegment(segment_id=0,
+                         request_rate=request_rate,
+                         num_requests=-1,
+                         burstiness=burstiness,
+                         label="steady")
+        ]
+    if trace_plan:
+        return load_trace_plan(trace_plan)
+    return [
+        TraceSegment(segment_id=0,
+                     request_rate=20.0,
+                     num_requests=100,
+                     burstiness=burstiness,
+                     label="warmup"),
+        TraceSegment(segment_id=1,
+                     request_rate=20.0,
+                     num_requests=100,
+                     burstiness=burstiness,
+                     label="steady_1"),
+        TraceSegment(segment_id=2,
+                     request_rate=20.0,
+                     num_requests=100,
+                     burstiness=burstiness,
+                     label="steady_2"),
+        TraceSegment(segment_id=3,
+                     request_rate=20.0,
+                     num_requests=100,
+                     burstiness=burstiness,
+                     label="steady_3"),
+    ]
+
+
+def summarize_trace_windows(
+    outputs: list[RequestFuncOutput],
+    send_times: list[float],
+    segment_ids: list[int],
+    segment_labels: dict[int, str],
+    benchmark_start_time: float,
+    trace_window_sec: float,
+) -> dict[str, Any]:
+    if not outputs or not send_times:
+        return {"segments": [], "windows": []}
+
+    segment_rows: list[dict[str, Any]] = []
+    for segment_id in sorted(set(segment_ids)):
+        indices = [
+            index for index, one_segment_id in enumerate(segment_ids)
+            if one_segment_id == segment_id
+        ]
+        one_outputs = [outputs[index] for index in indices]
+        successes = [output for output in one_outputs if output.success]
+        ttfts_ms = [output.ttft * 1000 for output in successes]
+        e2els_ms = [output.latency * 1000 for output in successes]
+        segment_rows.append({
+            "segment_id":
+            segment_id,
+            "label":
+            segment_labels.get(segment_id, f"segment_{segment_id}"),
+            "requests":
+            len(indices),
+            "completed":
+            len(successes),
+            "completion_ratio":
+            len(successes) / len(indices) if indices else 0.0,
+            "mean_ttft_ms":
+            float(np.mean(ttfts_ms)) if ttfts_ms else 0.0,
+            "p95_ttft_ms":
+            float(np.percentile(ttfts_ms, 95)) if ttfts_ms else 0.0,
+            "mean_e2el_ms":
+            float(np.mean(e2els_ms)) if e2els_ms else 0.0,
+            "p95_e2el_ms":
+            float(np.percentile(e2els_ms, 95)) if e2els_ms else 0.0,
+        })
+
+    end_times = [
+        send_time + output.latency for send_time, output in zip(send_times, outputs)
+    ]
+    benchmark_end_time = max(end_times) if end_times else benchmark_start_time
+    total_duration = max(benchmark_end_time - benchmark_start_time, 0.0)
+    if trace_window_sec <= 0:
+        trace_window_sec = 1.0
+    num_windows = max(1, int(np.ceil(total_duration / trace_window_sec)))
+    window_rows: list[dict[str, Any]] = []
+    for window_index in range(num_windows):
+        start_offset = window_index * trace_window_sec
+        end_offset = start_offset + trace_window_sec
+        indices = [
+            index for index, send_time in enumerate(send_times)
+            if start_offset <= (send_time - benchmark_start_time) < end_offset
+        ]
+        if not indices:
+            window_rows.append({
+                "window_index": window_index,
+                "start_s": round(start_offset, 4),
+                "end_s": round(end_offset, 4),
+                "arrivals": 0,
+                "completed": 0,
+                "offered_load_rps": 0.0,
+                "completion_rps": 0.0,
+                "mean_ttft_ms": 0.0,
+                "p95_ttft_ms": 0.0,
+                "mean_e2el_ms": 0.0,
+                "p95_e2el_ms": 0.0,
+            })
+            continue
+        one_outputs = [outputs[index] for index in indices]
+        successes = [output for output in one_outputs if output.success]
+        ttfts_ms = [output.ttft * 1000 for output in successes]
+        e2els_ms = [output.latency * 1000 for output in successes]
+        completed = sum(
+            1 for index in indices
+            if start_offset <= (end_times[index] - benchmark_start_time) < end_offset)
+        window_rows.append({
+            "window_index":
+            window_index,
+            "start_s":
+            round(start_offset, 4),
+            "end_s":
+            round(end_offset, 4),
+            "arrivals":
+            len(indices),
+            "completed":
+            completed,
+            "offered_load_rps":
+            len(indices) / trace_window_sec,
+            "completion_rps":
+            completed / trace_window_sec,
+            "mean_ttft_ms":
+            float(np.mean(ttfts_ms)) if ttfts_ms else 0.0,
+            "p95_ttft_ms":
+            float(np.percentile(ttfts_ms, 95)) if ttfts_ms else 0.0,
+            "mean_e2el_ms":
+            float(np.mean(e2els_ms)) if e2els_ms else 0.0,
+            "p95_e2el_ms":
+            float(np.percentile(e2els_ms, 95)) if e2els_ms else 0.0,
+        })
+    return {"segments": segment_rows, "windows": window_rows}
 
 
 @dataclass
@@ -321,6 +487,8 @@ async def benchmark(
     persist_steps: int = 3,
     config_output_len: Optional[int] = None,
     export_step_log: Optional[str] = None,
+    trace_window_sec: float = 1.0,
+    export_trace_summary: Optional[str] = None,
 ):
     if backend in ASYNC_REQUEST_FUNCS:
         request_func = ASYNC_REQUEST_FUNCS[backend]
@@ -411,30 +579,27 @@ async def benchmark(
     # input_requests_list = [input_requests[start_index:start_index+18],input_requests[start_index+18:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:]]
     # request_rate_list = [1,0.1,1,0.1]
     outputs_list = []
-    request_rate_list =  []#
-    input_requests_list = [] # [input_requests] #[input_requests[start_index:start_index+20],input_requests[start_index+20:start_index+40],input_requests[start_index+40:]]
+    send_times: list[float] = []
+    request_segment_ids: list[int] = []
+    trace_segments = build_trace_segments(enable_trace, trace_plan, request_rate,
+                                         burstiness)
+    segment_labels = {
+        segment.segment_id: segment.label
+        for segment in trace_segments
+    }
     print(f"enable_trace: {enable_trace}")
+    print("trace_segments:",
+          [(segment.segment_id, segment.label, segment.request_rate,
+            segment.num_requests, segment.burstiness)
+           for segment in trace_segments])
+    input_requests_list = []
     if enable_trace:
-        if trace_plan:
-            segments = load_trace_plan(trace_plan)
-            cursor = start_index
-            for segment in segments:
-                request_rate_list.append(float(segment["request_rate"]))
-                num_requests = int(segment["num_requests"])
-                next_cursor = cursor + num_requests
-                input_requests_list.append(input_requests[cursor:next_cursor])
-                cursor = next_cursor
-        else:
-            request_rate_list = [20, 20, 20, 20]
-            input_requests_list = [
-                input_requests[start_index:start_index+100],
-                input_requests[start_index+100:start_index+200],
-                input_requests[start_index+200:start_index+300],
-                input_requests[start_index+300:start_index+400]
-            ]
-        print(f"request_rate_list: {request_rate_list}")
+        cursor = start_index
+        for segment in trace_segments:
+            next_cursor = cursor + segment.num_requests
+            input_requests_list.append(input_requests[cursor:next_cursor])
+            cursor = next_cursor
     else:
-        request_rate_list = [request_rate]
         input_requests_list = [input_requests[start_index:]]
     # 汇总：每个请求的 output_len（expected_output_len）与 ignore_eos
     all_requests_flat = [r for batch in input_requests_list for r in batch]
@@ -452,10 +617,13 @@ async def benchmark(
                 len(tokenizer(str(r.prompt), add_special_tokens=False).input_ids))
     print(f"actual prompt len per request (tokenized): {actual_prompt_lens}")
     benchmark_start_time = time.perf_counter()
-    begin_time = time.time()
+    tasks: list[asyncio.Task] = []
     for index, one_input_requests in enumerate(input_requests_list):
-        tasks: list[asyncio.Task] = []
-        async for request in get_request(one_input_requests, request_rate_list[index], burstiness, enable_trace=False):
+        segment = trace_segments[index] if enable_trace else trace_segments[0]
+        async for request in get_request(one_input_requests,
+                                         segment.request_rate,
+                                         segment.burstiness,
+                                         enable_trace=False):
             prompt, prompt_len, output_len, mm_content = request.prompt, \
                 request.prompt_len, request.expected_output_len, \
                     request.multi_modal_data
@@ -473,17 +641,13 @@ async def benchmark(
                                                 logprobs=logprobs,
                                                 multi_modal_content=mm_content,
                                                 ignore_eos=ignore_eos)
+            send_times.append(time.perf_counter())
+            request_segment_ids.append(segment.segment_id)
             tasks.append(
                 asyncio.create_task(
                     limited_request_func(request_func_input=request_func_input,
                                         pbar=pbar)))
-        end_time = time.time()
-        #print(f"send request time cost: {end_time - begin_time}")
-        begin_time = time.time()
-        outputs: list[RequestFuncOutput] = await asyncio.gather(*tasks)
-        outputs_list  += outputs
-        end_time = time.time()
-    #print(f"receive response time cost: {end_time - begin_time}")
+    outputs_list = await asyncio.gather(*tasks)
     texts = []
     for output in outputs_list:
         # print(f"output.generated_text: {output.generated_text}")
@@ -550,6 +714,19 @@ async def benchmark(
     print("{:<40} {:<10.2f}".format("Total Token throughput (tok/s):",
                                     metrics.total_token_throughput))
 
+    trace_summary = summarize_trace_windows(outputs_list, send_times,
+                                            request_segment_ids,
+                                            segment_labels,
+                                            benchmark_start_time,
+                                            trace_window_sec)
+    if trace_summary["segments"]:
+        print("{s:{c}^{n}}".format(s=' Trace Segment Summary ', n=50, c='-'))
+        for row in trace_summary["segments"]:
+            print(f"segment {row['segment_id']} [{row['label']}]: "
+                  f"req={row['requests']}, completed={row['completed']}, "
+                  f"mean_ttft={row['mean_ttft_ms']:.2f} ms, "
+                  f"p95_e2el={row['p95_e2el_ms']:.2f} ms")
+
     result = {
         "duration": benchmark_duration,
         "completed": metrics.completed,
@@ -562,12 +739,13 @@ async def benchmark(
         metrics.request_goodput if goodput_config_dict else None,
         "output_throughput": metrics.output_throughput,
         "total_token_throughput": metrics.total_token_throughput,
-        "input_lens": [output.prompt_len for output in outputs],
+        "input_lens": [output.prompt_len for output in outputs_list],
         "output_lens": actual_output_lens,
-        "ttfts": [output.ttft for output in outputs],
-        "itls": [output.itl for output in outputs],
-        "generated_texts": [output.generated_text for output in outputs],
-        "errors": [output.error for output in outputs],
+        "ttfts": [output.ttft for output in outputs_list],
+        "itls": [output.itl for output in outputs_list],
+        "generated_texts": [output.generated_text for output in outputs_list],
+        "errors": [output.error for output in outputs_list],
+        "trace_summary": trace_summary,
     }
 
     def process_one_metric(
@@ -609,6 +787,11 @@ async def benchmark(
     process_one_metric("e2el", "E2EL", "End-to-end Latency")
 
     print("=" * 50)
+
+    if export_trace_summary:
+        with open(export_trace_summary, "w", encoding="utf-8") as f:
+            json.dump(trace_summary, f, ensure_ascii=False, indent=2)
+        print(f"Trace summary exported to {export_trace_summary}")
 
     # Export results to CSV
     export_to_csv(metrics, result, benchmark_duration, model_id, request_rate, 
@@ -1024,6 +1207,8 @@ def main(args: argparse.Namespace):
             persist_steps=args.persist_steps,
             config_output_len=config_output_len,
             export_step_log=args.export_step_log,
+            trace_window_sec=args.trace_window_sec,
+            export_trace_summary=args.export_trace_summary,
         ))
 
     # Save config and results to json
@@ -1410,6 +1595,16 @@ if __name__ == "__main__":
                         default=None,
                         help="Optional JSONL path on the server host for "
                         "Nightjar step/event logs.")
+    parser.add_argument("--trace-window-sec",
+                        type=float,
+                        default=1.0,
+                        help="Window size in seconds for burst/oscillation "
+                        "trace summaries.")
+    parser.add_argument("--export-trace-summary",
+                        type=str,
+                        default=None,
+                        help="Optional JSON path for exporting per-segment "
+                        "and per-window trace summaries.")
 
     args = parser.parse_args()
 
