@@ -155,7 +155,7 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
             exec_cmd.append("--ngram-prompt-lookup-max")
             exec_cmd.append(str(speculative_len))
     if strategy == "ilp":
-        exec_cmd.append("--num_gpu_blocks_override")
+        exec_cmd.append("--num-gpu-blocks-override")
         exec_cmd.append(str(num_gpu_blocks_override))
     exec_cmd.append("--increase-block-threshold")
     exec_cmd.append(str(increase_block_threshold))
@@ -586,13 +586,13 @@ def main():
                 # send_speculative_action(args.host, args.port, 10,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ucb.json",ucb_file_name=f"explore_ucb")
             if sub_strategy == "epsilon_greedy":
                 # 设置sub_strategy为ucb
-                send_speculative_action(args.host, args.port, -1,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"explore_epsilon_greedy")
+                send_speculative_action(args.host, args.port, -1,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=False,ucb_file_name=f"explore_epsilon_greedy")
                 # action 15 设置选择的策略
-                send_speculative_action(args.host, args.port, 15,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"explore_epsilon_greedy",select_strategy=args.select_strategy)
+                send_speculative_action(args.host, args.port, 15,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=False,ucb_file_name=f"explore_epsilon_greedy",select_strategy=args.select_strategy)
 
                 if args.explore == "True":
                     print("explore True")
-                    send_speculative_action(args.host, args.port, 12,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"explore_epsilon_greedy")
+                    send_speculative_action(args.host, args.port, 12,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=False,ucb_file_name=f"explore_epsilon_greedy")
                     strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
                     run_benchmark_fn(
                         host=args.host,
@@ -640,12 +640,12 @@ def main():
                     if args.save_trace == "True":
                         send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy2.json")
                     # action 为 13 设置save explore_ucb
-                    send_speculative_action(args.host, args.port, 13,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"epsilon_greedy")
+                    send_speculative_action(args.host, args.port, 13,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=False,ucb_file_name=f"epsilon_greedy")
                     # action 为 14 设置load explore_ucb
-                    send_speculative_action(args.host, args.port, 14,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"epsilon_greedy")
+                    send_speculative_action(args.host, args.port, 14,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=False,ucb_file_name=f"epsilon_greedy")
                     print("explore True 2")
                 # action 为 11 设置round robin为False
-                send_speculative_action(args.host, args.port, 11,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=True,ucb_file_name=f"epsilon_greedy",select_strategy=args.select_strategy)
+                send_speculative_action(args.host, args.port, 11,strategy="epsilon_greedy",save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_epsilon_greedy.json",offload=False,ucb_file_name=f"epsilon_greedy",select_strategy=args.select_strategy)
 
                 strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
                 run_benchmark_fn(

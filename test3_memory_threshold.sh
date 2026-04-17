@@ -17,6 +17,7 @@ data_set_path=/root/autodl-tmp/sharegpt.json # $data_set_path
 # data_set_name=specbench    #--dataset-path tatsu-lab/alpaca
 # data_set_path=./question_shuffled.jsonl # $data_set_path
 # data_set_name=alpaca
+# --dataset-path tatsu-lab/alpaca
 # data_set_path=tatsu-lab/alpaca
 burstiness=1.0
 # output_len=256 # 
@@ -114,6 +115,7 @@ do
     done
 done
 # data_set_name=alpaca
+# --dataset-path tatsu-lab/alpaca
 # data_set_path=tatsu-lab/alpaca
 # FILE_NAME=a154new.log
 # rm -rf $FILE_NAME

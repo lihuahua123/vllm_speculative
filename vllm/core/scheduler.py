@@ -1844,6 +1844,19 @@ class Scheduler:
         self.cache_id = self.next_cache_id
         best_proposed_lengths = 5 #self.last_best_proposed_lengths # self.scheduler_config.num_lookahead_slots
         is_decode = (scheduler_outputs.num_prefill_groups == 0)
+        active_specs = [
+            ("smart_spec", self.smart_spec),
+            ("ucb", self.ucbspec),
+            ("epsilon_greedy", self.epsilon_greedy_spec),
+            ("daspec", self.daspec_spec),
+        ]
+        non_null_specs = [(name, obj) for name, obj in active_specs if obj is not None]
+        if len(non_null_specs) > 1:
+            keep_name = "epsilon_greedy" if self.epsilon_greedy_spec is not None else non_null_specs[0][0]
+            self.smart_spec = self.smart_spec if keep_name == "smart_spec" else None
+            self.ucbspec = self.ucbspec if keep_name == "ucb" else None
+            self.epsilon_greedy_spec = self.epsilon_greedy_spec if keep_name == "epsilon_greedy" else None
+            self.daspec_spec = self.daspec_spec if keep_name == "daspec" else None
         
         # print("waiting", len(self.waiting), "running", len(self.running), "seq_group_metadata_list", len(seq_group_metadata_list))
         if not self.profile and self.smart_spec is not None and len(self.running) > 0: 

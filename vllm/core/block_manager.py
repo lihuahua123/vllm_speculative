@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """A block manager that manages token blocks."""
 import time
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from typing import Sequence as GenericSequence
 from typing import Tuple
 
@@ -556,10 +556,10 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         """
         return self._computed_blocks_tracker.get_num_cached_tokens(seq)
     
-    def decrease_gpu_blocks(self, decrease_num_blocks: int) -> List[Tuple[Block, Block]]:
+    def decrease_gpu_blocks(self, decrease_num_blocks: int) -> Dict[str, Any]:
         """Decreases the number of GPU blocks and updates all block tables accordingly."""
         if decrease_num_blocks <= 0:
-            return
+            return {"block_mapping": {}}
         start_time = time.time()
         
         # Get current and new size
@@ -569,11 +569,14 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         
         # First identify all blocks that need to be migrated
         blocks_to_migrate = {}  # old_block -> seq_id
+        seq_migration_counts: Dict[int, int] = {}
         for seq_id, block_table in self.block_tables.items():
             for block in block_table.blocks:
                 if block is not None and block.block_id is not None:
                     if block.block_id >= new_size:
                         blocks_to_migrate[block] = seq_id
+                        seq_migration_counts[seq_id] = (
+                            seq_migration_counts.get(seq_id, 0) + 1)
 
         # Create a map to hold new blocks that will replace old ones
         block_mapping = {}  # old_block -> new_block
@@ -652,19 +655,37 @@ class SelfAttnBlockSpaceManager(BlockSpaceManager):
         # Now decrease the blocks in the allocator
         self.block_allocator._allocators[Device.GPU].decrease_block_number(current_size, decrease_num_blocks)
         end_time = time.time()
+        affected_seq_count = len(seq_migration_counts)
+        max_blocks_migrated_per_seq = (
+            max(seq_migration_counts.values()) if seq_migration_counts else 0)
+        mean_blocks_migrated_per_seq = (
+            float(len(block_mapping)) / affected_seq_count
+            if affected_seq_count > 0 else 0.0)
+        migration_stats = {
+            "block_mapping": block_mapping,
+            "migrated_block_count": len(block_mapping),
+            "affected_seq_count": affected_seq_count,
+            "max_blocks_migrated_per_seq": max_blocks_migrated_per_seq,
+            "mean_blocks_migrated_per_seq": mean_blocks_migrated_per_seq,
+        }
         if hasattr(self, "nightjar_event_logger"):
             self.nightjar_event_logger.log(
                 "kv_block_migration", {
                     "current_size": current_size,
                     "new_size": new_size,
                     "decrease_num_blocks": decrease_num_blocks,
-                    "migrated_block_count": len(block_mapping),
+                    "migrated_block_count": migration_stats["migrated_block_count"],
+                    "affected_seq_count": affected_seq_count,
+                    "max_blocks_migrated_per_seq":
+                    max_blocks_migrated_per_seq,
+                    "mean_blocks_migrated_per_seq":
+                    mean_blocks_migrated_per_seq,
                     "duration_ms": (end_time - start_time) * 1000.0,
                     "free_gpu_blocks": self.get_num_free_gpu_blocks(),
                     "usable_gpu_blocks": self.num_usable_gpu_blocks,
                     "total_gpu_blocks": self.num_total_gpu_blocks,
                 })
-        return block_mapping
+        return migration_stats
 
     def increase_gpu_blocks(self, increase_num_blocks: int) -> None:
         """Increases the number of GPU blocks and updates all block tables accordingly.

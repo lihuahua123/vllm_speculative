@@ -393,6 +393,34 @@ class _AsyncLLMEngine(LLMEngine):
         self.stage_data = None
         self.pass_stage_data = None
 
+    def _get_default_stage_data(
+        self,
+        execute_model_req: ExecuteModelRequest,
+    ) -> Tuple[float, float, float, int, int, int, int, int, uuid.UUID]:
+        # Keep a shape-compatible fallback for non-speculative workers that do
+        # not implement speculative metrics collection.
+        batch_size = max(len(execute_model_req.seq_group_metadata_list), 1)
+        return (
+            0.0,
+            0.0,
+            0.0,
+            batch_size,
+            0,
+            0,
+            0,
+            execute_model_req.num_lookahead_slots,
+            uuid.uuid4(),
+        )
+
+    def _get_stage_data(
+        self,
+        execute_model_req: ExecuteModelRequest,
+    ) -> Tuple[float, float, float, int, int, int, int, int, uuid.UUID]:
+        try:
+            return self.model_executor.get_speculative_metrics()[0]
+        except (AttributeError, NotImplementedError):
+            return self._get_default_stage_data(execute_model_req)
+
     async def step_async(
         self, virtual_engine: int, request_tracker = None
     ) -> List[Union[RequestOutput, PoolingRequestOutput]]:
@@ -509,7 +537,7 @@ class _AsyncLLMEngine(LLMEngine):
             # Execute the model.
             outputs = await self.model_executor.execute_model_async(
                 execute_model_req)
-            metrics = self.model_executor.get_speculative_metrics()[0]
+            metrics = self._get_stage_data(execute_model_req)
             self.stage_data = metrics
             if self.ilp_manager.profile:
                 self.ilp_manager.optimizer.record_metrics(self.ilp_manager._get_current_metrics(metrics))
@@ -1423,6 +1451,26 @@ class AsyncLLMEngine(EngineClient):
     def change_speculative_action(self, action:int,strategy= None, save_action_time_history:bool=False, profile:bool=False,file_name:str=None, offload:bool=False,ucb_file_name:str=None,select_strategy:str=None):  # noqa: E501
         """Change the speculative action."""
         virtual_engine = 0
+        scheduler = self.engine.scheduler[virtual_engine]
+        all_strategy_attrs = ['daspec_spec', 'smart_spec', 'ucbspec', 'epsilon_greedy_spec']
+        strategy_attr_map = {
+            'smart_spec': 'smart_spec',
+            'daspec': 'daspec_spec',
+            'ucb': 'ucbspec',
+            'epsilon_greedy': 'epsilon_greedy_spec',
+            'epsilon_greedy_with_offload': 'epsilon_greedy_spec',
+            'epsilon_greedy_with_c_prefill': 'epsilon_greedy_spec',
+            'ada_bin_greedy': 'epsilon_greedy_spec',
+            'ada_bin_greedy_simple': 'epsilon_greedy_spec',
+            'epsilon_greedy_simple': 'epsilon_greedy_spec',
+            'epsilon_greedy_context_bin': 'epsilon_greedy_spec',
+            'lin_ucb': 'epsilon_greedy_spec',
+        }
+        active_attr = strategy_attr_map.get(strategy)
+        if strategy is not None and active_attr is not None:
+            for attr in all_strategy_attrs:
+                if attr != active_attr:
+                    setattr(scheduler, attr, None)
         self.engine.ilp_manager.offload = offload
         self.engine.enable_memory_elasticity = offload
         if action == 10:
@@ -1469,63 +1517,47 @@ class AsyncLLMEngine(EngineClient):
             self.engine.model_executor.change_select_strategy(select_strategy)
             return
         if action == 11:
-            sched = self.engine.scheduler[virtual_engine]
             if strategy == "ucb":
-                if getattr(sched, "ucbspec", None) is not None:
-                    sched.ucbspec.round_robin = False
+                if getattr(scheduler, "ucbspec", None) is not None:
+                    scheduler.ucbspec.round_robin = False
             elif strategy in ("epsilon_greedy", "epsilon_greedy_with_offload", "epsilon_greedy_with_c_prefill", "ada_bin_greedy", "ada_bin_greedy_simple", "epsilon_greedy_simple", "epsilon_greedy_context_bin", "lin_ucb"):
-                if getattr(sched, "epsilon_greedy_spec", None) is not None:
-                    sched.epsilon_greedy_spec.round_robin = False
+                if getattr(scheduler, "epsilon_greedy_spec", None) is not None:
+                    scheduler.epsilon_greedy_spec.round_robin = False
             self.engine.ilp_manager.offload = offload
             self.engine.enable_memory_elasticity = offload
             return
         elif action == 12:
-            sched = self.engine.scheduler[virtual_engine]
             if strategy == "ucb":
-                if getattr(sched, "ucbspec", None) is not None:
-                    sched.ucbspec.round_robin = True
+                if getattr(scheduler, "ucbspec", None) is not None:
+                    scheduler.ucbspec.round_robin = True
             elif strategy in ("epsilon_greedy", "epsilon_greedy_with_offload", "epsilon_greedy_with_c_prefill", "ada_bin_greedy", "ada_bin_greedy_simple", "epsilon_greedy_simple", "epsilon_greedy_context_bin", "lin_ucb"):
-                if getattr(sched, "epsilon_greedy_spec", None) is not None:
-                    sched.epsilon_greedy_spec.round_robin = True
+                if getattr(scheduler, "epsilon_greedy_spec", None) is not None:
+                    scheduler.epsilon_greedy_spec.round_robin = True
             self.engine.ilp_manager.offload = offload
             self.engine.enable_memory_elasticity = offload
             return
         elif action == 13:
-            sched = self.engine.scheduler[virtual_engine]
             if strategy == "ucb":
-                if getattr(sched, "ucbspec", None) is not None:
-                    sched.ucbspec.save_state(ucb_file_name)
+                if getattr(scheduler, "ucbspec", None) is not None:
+                    scheduler.ucbspec.save_state(ucb_file_name)
             elif strategy in ("epsilon_greedy", "epsilon_greedy_with_offload", "epsilon_greedy_with_c_prefill", "ada_bin_greedy", "ada_bin_greedy_simple", "epsilon_greedy_simple", "epsilon_greedy_context_bin", "lin_ucb"):
-                if getattr(sched, "epsilon_greedy_spec", None) is not None:
-                    sched.epsilon_greedy_spec.save_state(ucb_file_name)
+                if getattr(scheduler, "epsilon_greedy_spec", None) is not None:
+                    scheduler.epsilon_greedy_spec.save_state(ucb_file_name)
             return
         elif action == 14:
-            sched = self.engine.scheduler[virtual_engine]
             if strategy == "ucb":
-                if getattr(sched, "ucbspec", None) is not None:
-                    sched.ucbspec.load_state(ucb_file_name)
+                if getattr(scheduler, "ucbspec", None) is not None:
+                    scheduler.ucbspec.load_state(ucb_file_name)
             elif strategy in ("epsilon_greedy", "epsilon_greedy_with_offload", "epsilon_greedy_with_c_prefill", "ada_bin_greedy", "ada_bin_greedy_simple", "epsilon_greedy_simple", "epsilon_greedy_context_bin", "lin_ucb"):
-                if getattr(sched, "epsilon_greedy_spec", None) is not None:
-                    sched.epsilon_greedy_spec.load_state(ucb_file_name)
+                if getattr(scheduler, "epsilon_greedy_spec", None) is not None:
+                    scheduler.epsilon_greedy_spec.load_state(ucb_file_name)
             return
         
         # 策略配置：定义所有可用的策略属性名称
-        ALL_STRATEGY_ATTRS = ['daspec_spec', 'smart_spec', 'ucbspec', 'epsilon_greedy_spec']
+        ALL_STRATEGY_ATTRS = all_strategy_attrs
         
         # 策略映射：每个策略对应的属性名称（如果策略使用某个属性，则保留它，否则禁用）
-        STRATEGY_ATTR_MAP = {
-            'smart_spec': 'smart_spec',
-            'daspec': 'daspec_spec',
-            'ucb': 'ucbspec',
-            'epsilon_greedy': 'epsilon_greedy_spec',
-            'epsilon_greedy_with_offload': 'epsilon_greedy_spec',
-            'epsilon_greedy_with_c_prefill': 'epsilon_greedy_spec',
-            'ada_bin_greedy': 'epsilon_greedy_spec',
-            'ada_bin_greedy_simple': 'epsilon_greedy_spec',
-            'epsilon_greedy_simple': 'epsilon_greedy_spec',
-            'epsilon_greedy_context_bin': 'epsilon_greedy_spec',
-            'lin_ucb': 'epsilon_greedy_spec',
-        }
+        STRATEGY_ATTR_MAP = strategy_attr_map
         
         # 需要调用 set_need_c_prefill(True) 的策略
         STRATEGIES_NEED_C_PREFILL = {'epsilon_greedy_with_offload', 'epsilon_greedy_with_c_prefill'}
@@ -1556,7 +1588,6 @@ class AsyncLLMEngine(EngineClient):
         self.engine.scheduler[virtual_engine].profile = profile
         logger.info(f"change_speculative_action: {strategy}, {profile}")
         
-        scheduler = self.engine.scheduler[virtual_engine]
         active_attr = STRATEGY_ATTR_MAP.get(strategy)
         
         # 如果策略使用 epsilon_greedy_spec，需要根据策略名称动态实例化不同的类

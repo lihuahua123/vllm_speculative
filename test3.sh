@@ -29,6 +29,7 @@ export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$HF_HOME/datasets}"
 # export HF_DATASETS_OFFLINE=1
 
 # data_set_name=alpaca
+# --dataset-path tatsu-lab/alpaca
 # data_set_path=tatsu-lab/alpaca
 burstiness=1.0
 # 不设 output_len 时用数据集每条样本的 expected_output_len；同一批数据(seed 已固定)+ignore_eos 下，total_output_tokens 应一致
@@ -139,6 +140,7 @@ do
     done
 done
 # data_set_name=alpaca
+# --dataset-path tatsu-lab/alpaca
 # data_set_path=tatsu-lab/alpaca
 # FILE_NAME=a154new.log
 # rm -rf $FILE_NAME

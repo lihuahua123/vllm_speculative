@@ -18,6 +18,7 @@ rm -rf $FILE_NAME
 # data_set_path=./question_shuffled.jsonl # $data_set_path
 export HF_ENDPOINT='https://hf-mirror.com'
 data_set_name=alpaca
+# --dataset-path tatsu-lab/alpaca
 data_set_path=tatsu-lab/alpaca
 burstiness=1.0
 # output_len=256 # 
@@ -124,6 +125,7 @@ do
     done
 done
 # data_set_name=alpaca
+# --dataset-path tatsu-lab/alpaca
 # data_set_path=tatsu-lab/alpaca
 # FILE_NAME=a154new.log
 # rm -rf $FILE_NAME

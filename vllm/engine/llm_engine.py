@@ -2462,6 +2462,8 @@ class LLMEngine:
         
     def decrease_block_number(self):
         virtual_engine = 0
+        scheduler = self.scheduler[virtual_engine]
+        block_manager = scheduler.block_manager
         if self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks - self.cache_config.num_virtual_blocks \
             == self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks:
             logger.info("decrease block number@!!!!! already decrease to the limit")
@@ -2471,23 +2473,40 @@ class LLMEngine:
         decreased_blocks = self.cache_config.num_virtual_blocks
         print(f"decrease block number@!!!!!{decreased_blocks}")
         # Use the new method that properly updates block tables
-        block_migration_map = self.scheduler[virtual_engine].block_manager.decrease_gpu_blocks(decreased_blocks)
-        self.scheduler[virtual_engine].block_manager.decrease_usable_gpu_blocks(decreased_blocks)
+        migration_stats = block_manager.decrease_gpu_blocks(decreased_blocks)
+        block_migration_map = migration_stats["block_mapping"]
+        block_manager.decrease_usable_gpu_blocks(decreased_blocks)
         self.model_executor.decrease_cache_blocks(decreased_blocks, block_migration_map)
+
+        running_len_at_migration = len(scheduler.running)
+        waiting_len_at_migration = len(scheduler.waiting)
+        affected_seq_count = int(migration_stats.get("affected_seq_count", 0))
+        affected_running_ratio = (
+            float(affected_seq_count) / float(running_len_at_migration)
+            if running_len_at_migration > 0 else 0.0)
         
         end_time = time.time()
         self.log_nightjar_event(
             "memory_contract", {
                 "decreased_blocks": decreased_blocks,
                 "duration_ms": (end_time - start_time) * 1000.0,
-                "migrated_block_count": len(block_migration_map),
+                "migrated_block_count": int(
+                    migration_stats.get("migrated_block_count",
+                                        len(block_migration_map))),
+                "affected_seq_count": affected_seq_count,
+                "max_blocks_migrated_per_seq": int(
+                    migration_stats.get("max_blocks_migrated_per_seq", 0)),
+                "mean_blocks_migrated_per_seq": float(
+                    migration_stats.get("mean_blocks_migrated_per_seq", 0.0)),
+                "running_len_at_migration": running_len_at_migration,
+                "waiting_len_at_migration": waiting_len_at_migration,
+                "affected_running_ratio": affected_running_ratio,
                 "usable_gpu_blocks":
-                self.scheduler[virtual_engine].block_manager.num_usable_gpu_blocks,
+                block_manager.num_usable_gpu_blocks,
                 "total_gpu_blocks":
-                self.scheduler[virtual_engine].block_manager.num_total_gpu_blocks,
+                block_manager.num_total_gpu_blocks,
                 "free_gpu_blocks":
-                self.scheduler[virtual_engine].block_manager.
-                get_num_free_gpu_blocks(),
+                block_manager.get_num_free_gpu_blocks(),
             })
         print(f"Time taken to decrease block number: {end_time - start_time} seconds")
 

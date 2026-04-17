@@ -36,6 +36,7 @@ DATASET_NAME="${DATASET_NAME:-sharegpt}"
 DATASET_PATH="${DATASET_PATH:-/root/autodl-tmp/sharegpt.json}"
 # 可切到其他数据集做补充：
 # DATASET_NAME=alpaca
+# --dataset-path tatsu-lab/alpaca
 # DATASET_PATH=tatsu-lab/alpaca
 # DATASET_NAME=specbench
 # DATASET_PATH=/root/autodl-tmp/nightjar/vllm_speculative/question_shuffled.jsonl

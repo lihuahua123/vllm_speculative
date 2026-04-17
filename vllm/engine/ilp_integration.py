@@ -133,7 +133,7 @@ class ILPOptimizationManager:
                 self.engine.switch_to_ngram_draft_model()
                 # 先转移再offload TODO: proposer KV cache offload
                 self.engine.scheduler[virtual_engine].smart_spec = None
-                self.engine.offload_proposer_worker()
+                if self.engine.speculative_config is not None: self.engine.offload_proposer_worker()
                 self.engine.increase_block_number()
                 
             
@@ -147,7 +147,7 @@ class ILPOptimizationManager:
             self.engine.scheduler[virtual_engine].smart_spec = None
             self.engine.scheduler[virtual_engine].daspec = None
             self.engine.scheduler[virtual_engine].scheduler_config.num_lookahead_slots = 0
-            self.engine.offload_proposer_worker()
+            if self.engine.speculative_config is not None: self.engine.offload_proposer_worker()
             self.engine.increase_block_number()
             self.optimizer.current_model_index = -1  # No speculative decoding
             self.optimizer.last_action = action
