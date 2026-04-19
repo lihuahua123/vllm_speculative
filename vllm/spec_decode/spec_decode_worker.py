@@ -370,7 +370,12 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
             "submit_ts": None,
             "start_ts": None,
             "complete_ts": None,
+            "ready_ts": None,
+            "dispatch_overhead_us": None,
+            "queue_delay_ms": None,
             "duration_ms": None,
+            "total_duration_ms": None,
+            "ready_latency_ms": None,
             "status": "idle",
         }
         self._last_completed_transfer = None
@@ -1498,7 +1503,12 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
             "submit_ts": time.time(),
             "start_ts": None,
             "complete_ts": None,
+            "ready_ts": None,
+            "dispatch_overhead_us": None,
+            "queue_delay_ms": None,
             "duration_ms": None,
+            "total_duration_ms": None,
+            "ready_latency_ms": None,
             "status": "submitted",
         }
         self._draft_transfer_status = transfer
@@ -1507,7 +1517,12 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
     def _mark_draft_transfer_running(self) -> None:
         if not self._draft_transfer_status["active"]:
             return
-        self._draft_transfer_status["start_ts"] = time.time()
+        start_ts = time.time()
+        submit_ts = self._draft_transfer_status["submit_ts"]
+        self._draft_transfer_status["start_ts"] = start_ts
+        if submit_ts is not None:
+            self._draft_transfer_status["queue_delay_ms"] = (
+                start_ts - submit_ts) * 1000.0
         self._draft_transfer_status["status"] = "running"
 
     def _mark_draft_transfer_done(self) -> None:
@@ -1515,14 +1530,34 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
             return
         complete_ts = time.time()
         start_ts = self._draft_transfer_status["start_ts"]
+        submit_ts = self._draft_transfer_status["submit_ts"]
         duration_ms = None
+        total_duration_ms = None
         if start_ts is not None:
             duration_ms = (complete_ts - start_ts) * 1000.0
+        if submit_ts is not None:
+            total_duration_ms = (complete_ts - submit_ts) * 1000.0
         self._draft_transfer_status["complete_ts"] = complete_ts
         self._draft_transfer_status["duration_ms"] = duration_ms
+        self._draft_transfer_status["total_duration_ms"] = total_duration_ms
         self._draft_transfer_status["status"] = "done"
         self._draft_transfer_status["active"] = False
         self._last_completed_transfer = dict(self._draft_transfer_status)
+
+    def _mark_draft_transfer_ready(self, ready_ts: Optional[float] = None) -> None:
+        target = self._draft_transfer_status
+        if target.get("transfer_id") is None and self._last_completed_transfer is None:
+            return
+        ready_ts = time.time() if ready_ts is None else ready_ts
+        submit_ts = target.get("submit_ts")
+        ready_latency_ms = None
+        if submit_ts is not None:
+            ready_latency_ms = (ready_ts - submit_ts) * 1000.0
+        target["ready_ts"] = ready_ts
+        target["ready_latency_ms"] = ready_latency_ms
+        if self._last_completed_transfer is not None:
+            self._last_completed_transfer["ready_ts"] = ready_ts
+            self._last_completed_transfer["ready_latency_ms"] = ready_latency_ms
 
     def get_draft_transfer_status(self):
         return {
@@ -1552,7 +1587,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
 
         print("offload model to cpu!!!x2")
         begin_time = time.time()
-        self._begin_draft_transfer("gpu_to_cpu")
+        transfer = self._begin_draft_transfer("gpu_to_cpu")
         self.proposer_worker_offloading = True
         
         def move_model_to_cpu():
@@ -1565,6 +1600,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
                 self.proposer_worker_on_cpu = True
                 self.proposer_worker_offloading = False
                 self._mark_draft_transfer_done()
+                self._mark_draft_transfer_ready()
                 logger.info(f"模型迁移到CPU完成，耗时: {time.time() - begin_time} 秒")
             except Exception as e:
                 self.proposer_worker_offloading = False
@@ -1572,6 +1608,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         
         # 使用全局线程池提交任务，不等待任务完成
         _global_executor.submit(move_model_to_cpu)
+        transfer["dispatch_overhead_us"] = (time.time() - begin_time) * 1e6
         
         self.proposer_worker_to_cpu = True
         logger.info(f"已启动异步线程将模型迁移到CPU，耗时: {time.time() - begin_time} 秒")
@@ -1588,7 +1625,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
         if hasattr(self.old_proposer_worker, 'model_runner') and hasattr(self.old_proposer_worker.model_runner, 'model'):
             logger.info("Moving neural draft model back to CUDA")
             start_time = time.time()
-            self._begin_draft_transfer("cpu_to_gpu")
+            transfer = self._begin_draft_transfer("cpu_to_gpu")
             self.proposer_worker_reloading = True
             def move_model_to_cuda():
                 self._mark_draft_transfer_running()
@@ -1598,6 +1635,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
                 self.event.record()
                 self._mark_draft_transfer_done()
             _global_executor.submit(move_model_to_cuda)
+            transfer["dispatch_overhead_us"] = (time.time() - start_time) * 1e6
             end_time = time.time()
             logger.info(f"Time taken to move neural draft model back to CUDA: {end_time - start_time} seconds")
         
@@ -1606,6 +1644,7 @@ class SpecDecodeWorker(LoRANotSupportedWorkerBase):
             self.proposer_worker_on_cpu = False
             self.proposer_worker_to_cpu = False
             self.proposer_worker_reloading = False
+            self._mark_draft_transfer_ready()
             self.event = None
             return True
         if self.proposer_worker_on_cpu:

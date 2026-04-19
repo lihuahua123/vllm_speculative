@@ -116,6 +116,25 @@ def main() -> None:
             "p99": percentile(wall_latencies_ms, 0.99),
         },
         "aggregate_bandwidth_gib_s": aggregate_bandwidth_gbps,
+        "dispatch_overhead_us": 0.0,
+        "per_transfer_elapsed_ms": {
+            "mean": statistics.mean(latencies_ms) if latencies_ms else 0.0,
+            "p50": percentile(latencies_ms, 0.50),
+            "p95": percentile(latencies_ms, 0.95),
+            "p99": percentile(latencies_ms, 0.99),
+        },
+        "batch_completion_ms": {
+            "mean": avg_wall_ms,
+            "p50": percentile(wall_latencies_ms, 0.50),
+            "p95": percentile(wall_latencies_ms, 0.95),
+            "p99": percentile(wall_latencies_ms, 0.99),
+        },
+        "draft_available_ms": {
+            "mean": avg_wall_ms,
+            "p50": percentile(wall_latencies_ms, 0.50),
+            "p95": percentile(wall_latencies_ms, 0.95),
+            "p99": percentile(wall_latencies_ms, 0.99),
+        },
     }
 
     text = json.dumps(result, indent=2)

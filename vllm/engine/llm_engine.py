@@ -237,6 +237,8 @@ class LLMEngine:
                 "transfer_id": transfer_id,
                 "direction": direction,
                 "bytes": current.get("bytes", 0),
+                "submit_ts": current.get("submit_ts"),
+                "dispatch_overhead_us": current.get("dispatch_overhead_us"),
                 "draft_model_state": self.draft_model_state,
             })
 
@@ -265,10 +267,18 @@ class LLMEngine:
                     "transfer_id": transfer_id,
                     "direction": direction,
                     "bytes": last_completed.get("bytes", 0),
+                    "dispatch_overhead_us":
+                    last_completed.get("dispatch_overhead_us"),
+                    "queue_delay_ms": last_completed.get("queue_delay_ms"),
                     "duration_ms": last_completed.get("duration_ms"),
+                    "total_duration_ms":
+                    last_completed.get("total_duration_ms"),
+                    "ready_latency_ms":
+                    last_completed.get("ready_latency_ms"),
                     "submit_ts": last_completed.get("submit_ts"),
                     "start_ts": last_completed.get("start_ts"),
                     "complete_ts": last_completed.get("complete_ts"),
+                    "ready_ts": last_completed.get("ready_ts"),
                     "draft_model_state": self.draft_model_state,
                 })
         return status

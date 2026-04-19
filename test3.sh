@@ -2,7 +2,7 @@
 export VLLM_WORKER_MULTIPROC_METHOD=spawn
 
 #python run_benchmark_tests.py --strategy ilp --sub-strategy ngram --model /data/model/deepseek-aiDeepSeek-R1-Distill-Qwen-7B         --dataset-name sharegpt         --dataset-path /data/sharegpt.json   --num-prompts 442 --request-rate 10 --output-len $output_len 1>> a120new.log 2>> a120new_error.log 
-NUM_PROMPTS=350
+NUM_PROMPTS=150
 PROMPT_RATE=5
 FILE_NAME=medusa4.log # 
 MAX_SPECULATIVE_LEN=3

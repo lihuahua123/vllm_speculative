@@ -32,7 +32,8 @@ SEED="${SEED:-42}"
 
 # Keep some headroom for output tokens and special tokens. The bucket names stay
 # 8K/32K/64K/128K, but the actual prompt length is slightly smaller on purpose.
-DEFAULT_CONTEXT_BUCKETS=(8k 32k 64k 128k)
+# 8k
+DEFAULT_CONTEXT_BUCKETS=(16K 32k 64k 128k)
 if [ "$#" -gt 0 ]; then
     CONTEXT_BUCKETS=("$@")
 else

@@ -23,7 +23,7 @@ SIZE_VALUES=(${SIZE_VALUES:-64 256 512 1024})
 
 mkdir -p "$RESULT_DIR"
 rm -f "$SUMMARY_CSV" "$RUN_LOG"
-printf "direction,size_mb,concurrency,pinned,lat_mean_ms,lat_p95_ms,wall_mean_ms,agg_gib_s,result_json\n" > "$SUMMARY_CSV"
+printf "direction,size_mb,concurrency,pinned,dispatch_overhead_us,per_transfer_mean_ms,per_transfer_p95_ms,batch_completion_mean_ms,batch_completion_p95_ms,draft_available_mean_ms,agg_gib_s,result_json\n" > "$SUMMARY_CSV"
 
 for size_mb in "${SIZE_VALUES[@]}"; do
     for concurrency in "${CONCURRENCY_VALUES[@]}"; do
@@ -66,9 +66,12 @@ with open(summary_csv, "a", newline="", encoding="utf-8") as f:
         data["size_mb"],
         data["concurrency"],
         data["pinned"],
-        data["latency_ms"]["mean"],
-        data["latency_ms"]["p95"],
-        data["wall_ms"]["mean"],
+        data.get("dispatch_overhead_us", 0.0),
+        data.get("per_transfer_elapsed_ms", data["latency_ms"])["mean"],
+        data.get("per_transfer_elapsed_ms", data["latency_ms"])["p95"],
+        data.get("batch_completion_ms", data["wall_ms"])["mean"],
+        data.get("batch_completion_ms", data["wall_ms"])["p95"],
+        data.get("draft_available_ms", data["wall_ms"])["mean"],
         data["aggregate_bandwidth_gib_s"],
         result_json,
     ])
