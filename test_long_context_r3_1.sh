@@ -14,15 +14,15 @@ RESULT_DIR="${RESULT_DIR:-$ROOT_DIR/benchmark_results/long_context_r3_1}"
 RUN_LOG="${RUN_LOG:-$RESULT_DIR/long_context_r3_1.log}"
 SUMMARY_CSV="${SUMMARY_CSV:-$RESULT_DIR/long_context_r3_1_summary.csv}"
 
-MODEL_NAME="${MODEL_NAME:-/root/autodl-tmp/DeepSeek-R1-Distill-Qwen-7B}"
-DRAFT_MODEL_NAME="${DRAFT_MODEL_NAME:-/root/autodl-tmp/deep05b}"
+MODEL_NAME="${MODEL_NAME:-/root/autodl-tmp/Llama-3.1-8B-Instruct}"
+DRAFT_MODEL_NAME="${DRAFT_MODEL_NAME:-/root/autodl-tmp/Llama-3.2-1B}"
 STRATEGIES="${STRATEGIES:-epsilon_greedy epsilon_greedy_with_offload}"
 SPECULATIVE_LEN="${SPECULATIVE_LEN:-3}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.85}"
 SELECT_STRATEGY="${SELECT_STRATEGY:-capacity}"
 DATASET_NAME="${DATASET_NAME:-random}"
 DATASET_PATH="${DATASET_PATH:-unused_for_random_dataset}"
-OUTPUT_LEN="${OUTPUT_LEN:-128}"
+OUTPUT_LEN="${OUTPUT_LEN:-16}"
 TRACE_WINDOW_SEC="${TRACE_WINDOW_SEC:-1.0}"
 TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
 SPECULATIVE_DRAFT_TP_SIZE="${SPECULATIVE_DRAFT_TP_SIZE:-1}"
@@ -33,7 +33,7 @@ SEED="${SEED:-42}"
 # Keep some headroom for output tokens and special tokens. The bucket names stay
 # 8K/32K/64K/128K, but the actual prompt length is slightly smaller on purpose.
 # 8k
-DEFAULT_CONTEXT_BUCKETS=(16K 32k 64k 128k)
+DEFAULT_CONTEXT_BUCKETS=(64K 128K)
 if [ "$#" -gt 0 ]; then
     CONTEXT_BUCKETS=("$@")
 else
@@ -41,11 +41,18 @@ else
 fi
 
 mkdir -p "$RESULT_DIR"
-rm -f "$RUN_LOG" "$SUMMARY_CSV"
+rm -f "$RUN_LOG"
 
-printf "%s\n" \
-  "context_bucket,max_model_len,input_len,output_len,strategy,request_rate,num_prompts,num_gpu_blocks_override,increase_block_threshold,decrease_block_threshold,persist_steps,completed,total_token_throughput,mean_ttft_ms,p99_ttft_ms,mean_e2el_ms,p99_e2el_ms,avg_queue_len,p95_queue_len,max_queue_len,avg_num_swapped,max_num_swapped,min_free_gpu_blocks,draft_transfer_done,kv_expand_events,kv_migration_events,speculative_steps,result_json,trace_summary_json,event_log" \
-  > "$SUMMARY_CSV"
+if [ "${OUTPUT_LEN}" -lt 1 ]; then
+    echo "OUTPUT_LEN must be >= 1 for vLLM /generate; got ${OUTPUT_LEN}" >&2
+    exit 1
+fi
+
+if [ ! -f "$SUMMARY_CSV" ]; then
+    printf "%s\n" \
+      "context_bucket,max_model_len,input_len,output_len,strategy,request_rate,num_prompts,num_gpu_blocks_override,increase_block_threshold,decrease_block_threshold,persist_steps,completed,total_token_throughput,mean_ttft_ms,p99_ttft_ms,mean_e2el_ms,p99_e2el_ms,avg_queue_len,p95_queue_len,max_queue_len,avg_num_swapped,max_num_swapped,min_free_gpu_blocks,draft_transfer_done,kv_expand_events,kv_migration_events,speculative_steps,result_json,trace_summary_json,event_log" \
+      > "$SUMMARY_CSV"
+fi
 
 set_profile() {
     local bucket="$1"
@@ -56,7 +63,7 @@ set_profile() {
             RANDOM_INPUT_LEN=7680
             NUM_PROMPTS=24
             REQUEST_RATES=(1 2 4)
-            NUM_GPU_BLOCKS_OVERRIDE=4938
+            NUM_GPU_BLOCKS_OVERRIDE="${NUM_GPU_BLOCKS_OVERRIDE_8K:-4608}"
             INCREASE_BLOCK_THRESHOLD=256
             DECREASE_BLOCK_THRESHOLD=192
             PERSIST_STEPS=2
@@ -67,7 +74,7 @@ set_profile() {
             RANDOM_INPUT_LEN=32256
             NUM_PROMPTS=16
             REQUEST_RATES=(0.5 1 2)
-            NUM_GPU_BLOCKS_OVERRIDE=4800
+            NUM_GPU_BLOCKS_OVERRIDE="${NUM_GPU_BLOCKS_OVERRIDE_32K:-4480}"
             INCREASE_BLOCK_THRESHOLD=384
             DECREASE_BLOCK_THRESHOLD=256
             PERSIST_STEPS=3
@@ -78,7 +85,7 @@ set_profile() {
             RANDOM_INPUT_LEN=65024
             NUM_PROMPTS=12
             REQUEST_RATES=(0.25 0.5 1)
-            NUM_GPU_BLOCKS_OVERRIDE=4608
+            NUM_GPU_BLOCKS_OVERRIDE="${NUM_GPU_BLOCKS_OVERRIDE_64K:-4608}"
             INCREASE_BLOCK_THRESHOLD=512
             DECREASE_BLOCK_THRESHOLD=384
             PERSIST_STEPS=4
@@ -89,7 +96,7 @@ set_profile() {
             RANDOM_INPUT_LEN=130048
             NUM_PROMPTS=8
             REQUEST_RATES=(0.125 0.25 0.5)
-            NUM_GPU_BLOCKS_OVERRIDE=4096
+            NUM_GPU_BLOCKS_OVERRIDE="${NUM_GPU_BLOCKS_OVERRIDE_128K:-3968}"
             INCREASE_BLOCK_THRESHOLD=640
             DECREASE_BLOCK_THRESHOLD=512
             PERSIST_STEPS=5
@@ -288,7 +295,7 @@ run_one() {
             --export-trace-summary "$trace_summary_json" \
             --random-input-len "$RANDOM_INPUT_LEN" \
             --random-output-len "$OUTPUT_LEN" \
-            --random-range-ratio 0.0 \
+            --random-range-ratio 1.0 \
             --random-prefix-len 0 \
             >>"$RUN_LOG" 2>&1
     )
