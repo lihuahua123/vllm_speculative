@@ -73,7 +73,7 @@ def parse_args():
     parser.add_argument("--strategy", type=str, default="baseline",
                         choices=["baseline", "ilp", "no-spec"], help="策略名称")
     parser.add_argument("--sub-strategy", type=str, default="ngram",
-                        choices=["ngram", "deep", "nospec", "daspec", "smart_spec", "threshold","ucb","ucb-offload","epsilon_greedy","epsilon_greedy_with_offload","epsilon_greedy_with_c_prefill","ada_bin_greedy","ada_bin_greedy_simple","epsilon_greedy_simple","epsilon_greedy_context_bin","lin_ucb"], help="子策略名称")
+                        choices=["ngram", "fixed_ngram", "deep", "nospec", "daspec", "smart_spec", "threshold","ucb","ucb-offload","epsilon_greedy","epsilon_greedy_with_offload","epsilon_greedy_with_c_prefill","ada_bin_greedy","ada_bin_greedy_simple","epsilon_greedy_simple","epsilon_greedy_context_bin","lin_ucb"], help="子策略名称")
     parser.add_argument("--speculative-len", type=int, default=1, help="speculative长度")
     parser.add_argument("--draft-model", type=str, default="", help="draft模型")
     parser.add_argument("--profile",action="store_true", help="是否开启profile")
@@ -311,6 +311,7 @@ def get_strategy_name(sub_strategy, speculative_len, select_strategy=None):
         "smart_spec": "smart_spec",
         "daspec": "daspec",
         "ngram": "ngram",
+        "fixed_ngram": f"ngram-{speculative_len}",
         "ada_bin_greedy": "ADABinGreedy",
         "ada_bin_greedy_simple": "ADABinGreedySimple",
         "epsilon_greedy_simple": "EpsilonGreedySimple",
@@ -403,6 +404,31 @@ def main():
                 if args.save_trace == "True":
                     send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ngram.json")
                 send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ngram.json")
+            if sub_strategy == "fixed_ngram":
+                strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
+                run_benchmark_fn(
+                        host=args.host,
+                        port=args.port,
+                        model=args.model,
+                        dataset_name=args.dataset_name,
+                        dataset_path=args.dataset_path,
+                        num_prompts=num_prompts,
+                        request_rate=request_rate,
+                        result_dir=args.result_dir,
+                        strategy=args.strategy,
+                        text=sub_strategy+"_"+str(args.speculative_len),
+                        start_index=start_index,
+                        output_len=args.output_len,
+                        enable_trace=args.enable_trace,
+                        burstiness=args.burstiness,
+                        strategy_name=strategy_name,
+                        increase_block_threshold=args.increase_block_threshold,
+                        decrease_block_threshold=args.decrease_block_threshold,
+                        seed=args.seed,
+                    )
+                if args.save_trace == "True":
+                    send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_fixed_ngram.json")
+                send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_fixed_ngram.json")
             if sub_strategy == "nospec":
                 send_speculative_action(args.host, args.port, 2,strategy=args.sub_strategy,profile=profile)
                 time.sleep(5)

@@ -528,8 +528,8 @@ class _AsyncLLMEngine(LLMEngine):
                 # to each of the non-last PP stages for in-place prepare_input.
                 last_sampled_token_ids=last_sampled_token_ids)
             # FIXME
-            # if execute_model_req.num_lookahead_slots != 0:
-            #     execute_model_req.num_lookahead_slots = best_proposed_lengths
+            if execute_model_req.num_lookahead_slots != 0:
+                execute_model_req.num_lookahead_slots = best_proposed_lengths
             if allow_async_output_proc:
                 execute_model_req.async_callback = self.async_callbacks[
                     virtual_engine]
