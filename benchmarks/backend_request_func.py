@@ -18,6 +18,8 @@ from transformers import (AutoTokenizer, PreTrainedTokenizer,
 # can run without vLLM installed.
 
 AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=6 * 60 * 60)
+SSE_READ_BUF_SIZE = 16 * 1024 * 1024
+SSE_MAX_LINE_SIZE = 16 * 1024 * 1024
 
 
 @dataclass
@@ -46,6 +48,48 @@ class RequestFuncOutput:
     tpot: float = 0.0  # avg next-token latencies
     prompt_len: int = 0
     error: str = ""
+
+
+async def _iter_sse_payloads(response):
+    """Yield SSE payload strings without relying on aiohttp readline limits."""
+    buffer = ""
+    async for chunk_bytes in response.content.iter_any():
+        if not chunk_bytes:
+            continue
+        buffer += chunk_bytes.decode("utf-8")
+
+        while True:
+            separator = None
+            for candidate in ("\r\n\r\n", "\n\n"):
+                idx = buffer.find(candidate)
+                if idx != -1:
+                    separator = candidate
+                    break
+            if separator is None:
+                break
+
+            raw_event = buffer[:idx]
+            buffer = buffer[idx + len(separator):]
+
+            data_lines = []
+            for line in raw_event.splitlines():
+                if not line or line.startswith(":"):
+                    continue
+                if line.startswith("data:"):
+                    data_lines.append(line[5:].lstrip())
+            if data_lines:
+                yield "\n".join(data_lines)
+
+    tail = buffer.strip()
+    if tail:
+        data_lines = []
+        for line in tail.splitlines():
+            if not line or line.startswith(":"):
+                continue
+            if line.startswith("data:"):
+                data_lines.append(line[5:].lstrip())
+        if data_lines:
+            yield "\n".join(data_lines)
 
 
 async def async_request_tgi(
@@ -243,8 +287,11 @@ async def async_request_openai_completions(
         ("completions", "profile")
     ), "OpenAI Completions API URL must end with 'completions' or 'profile'."
 
-    async with aiohttp.ClientSession(trust_env=False,
-                                     timeout=AIOHTTP_TIMEOUT) as session:
+    async with aiohttp.ClientSession(
+            trust_env=False,
+            timeout=AIOHTTP_TIMEOUT,
+            read_bufsize=SSE_READ_BUF_SIZE,
+            max_line_size=SSE_MAX_LINE_SIZE) as session:
         payload = {
             "model": request_func_input.model_name \
                 if request_func_input.model_name else request_func_input.model,
@@ -344,8 +391,11 @@ async def async_request_openai_chat_completions(
         ("chat/completions", "profile")
     ), "OpenAI Chat Completions API URL must end with 'chat/completions'."
 
-    async with aiohttp.ClientSession(trust_env=False,
-                                     timeout=AIOHTTP_TIMEOUT) as session:
+    async with aiohttp.ClientSession(
+            trust_env=False,
+            timeout=AIOHTTP_TIMEOUT,
+            read_bufsize=SSE_READ_BUF_SIZE,
+            max_line_size=SSE_MAX_LINE_SIZE) as session:
         content = [{"type": "text", "text": request_func_input.prompt}]
         if request_func_input.multi_modal_content:
             content.append(request_func_input.multi_modal_content)
@@ -439,8 +489,11 @@ async def async_request_generate(
     api_url = request_func_input.api_url
     assert api_url.endswith("generate")
 
-    async with aiohttp.ClientSession(trust_env=False,
-                                     timeout=AIOHTTP_TIMEOUT) as session:
+    async with aiohttp.ClientSession(
+            trust_env=False,
+            timeout=AIOHTTP_TIMEOUT,
+            read_bufsize=SSE_READ_BUF_SIZE,
+            max_line_size=SSE_MAX_LINE_SIZE) as session:
         payload = {
             "prompt": request_func_input.prompt,
             "stream": True,
@@ -468,43 +521,36 @@ async def async_request_generate(
             async with session.post(url=api_url, json=payload, proxy=None) as response:
                 if response.status == 200:
                     if payload.get("stream", False):
-                        # 处理流式响应
-                        async for chunk_bytes in response.content:
-                            chunk_bytes = chunk_bytes.strip()
-                            if not chunk_bytes:
+                        async for chunk in _iter_sse_payloads(response):
+                            if chunk == "[DONE]":
                                 continue
-
-                            chunk = chunk_bytes.decode("utf-8")
-                            if chunk.startswith("data: "):
-                                chunk = chunk.removeprefix("data: ")
 
                             try:
                                 data = json.loads(chunk)
-                                if "text" in data:
-                                    text_outputs = data["text"]
-                                    if isinstance(text_outputs, list) and text_outputs:
-                                        # 获取当前生成的文本片段
-                                        current_text = text_outputs[0]
-                                        timestamp = time.perf_counter()
-                                        
-                                        # 第一个token
-                                        if ttft == 0.0:
-                                            ttft = timestamp - st
-                                            output.ttft = ttft
-                                        # 解码阶段
-                                        else:
-                                            output.itl.append(timestamp - most_recent_timestamp)
-
-                                        most_recent_timestamp = timestamp
-                                        generated_text = current_text  # 使用最新返回的完整文本
-                                # 服务端在流结束时可发送 usage chunk（需 api_server 支持）
-                                if usage := data.get("usage"):
-                                    output.output_tokens = usage.get(
-                                        "completion_tokens")
-                                    
                             except json.JSONDecodeError:
-                                # 处理JSON解析错误
-                                output.error += f"JSON解析错误: {chunk}\n"
+                                output.error += f"JSON解析错误: {chunk[:512]}\n"
+                                continue
+
+                            if "text" in data:
+                                text_outputs = data["text"]
+                                if isinstance(text_outputs,
+                                              list) and text_outputs:
+                                    current_text = text_outputs[0]
+                                    timestamp = time.perf_counter()
+
+                                    if ttft == 0.0:
+                                        ttft = timestamp - st
+                                        output.ttft = ttft
+                                    else:
+                                        output.itl.append(timestamp -
+                                                          most_recent_timestamp)
+
+                                    most_recent_timestamp = timestamp
+                                    generated_text = current_text
+
+                            if usage := data.get("usage"):
+                                output.output_tokens = usage.get(
+                                    "completion_tokens")
                     else:
                         # 处理非流式响应
                         data = await response.json()

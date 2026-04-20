@@ -154,7 +154,7 @@ get_num_gpu_blocks_override() {
 require_gpu
 
 echo "Probing num_gpu_blocks_override for model: $MODEL_NAME"
-NUM_GPU_BLOCKS_OVERRIDE="$(get_num_gpu_blocks_override)"
+NUM_GPU_BLOCKS_OVERRIDE=4000 #"$(get_num_gpu_blocks_override)"
 echo "Detected num_gpu_blocks_override=$NUM_GPU_BLOCKS_OVERRIDE"
 
 cleanup
