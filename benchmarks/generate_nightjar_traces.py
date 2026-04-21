@@ -87,34 +87,40 @@ def high_low_oscillation() -> list[dict[str, float]]:
 def sync_migration_worst_case() -> list[dict[str, float]]:
     return [
         {
-            "label": "low_load_with_draft_resident",
-            "request_rate": 6,
-            "num_requests": 40,
-            "burstiness": 1.0
-        },
-        {
-            "label": "first_contraction_wave",
-            "request_rate": 36,
-            "num_requests": 140,
-            "burstiness": 0.45
-        },
-        {
-            "label": "sustained_contract_pressure",
-            "request_rate": 36,
-            "num_requests": 140,
-            "burstiness": 0.45
-        },
-        {
-            "label": "reload_window",
-            "request_rate": 3,
-            "num_requests": 20,
+            "label": "warmup_low_0",
+            "request_rate": 2,
+            "num_requests": 50,
             "burstiness": 1.3
         },
         {
-            "label": "second_contraction_wave",
-            "request_rate": 30,
+            "label": "sync_peak_0",
+            "request_rate": 44,
+            "num_requests": 110,
+            "burstiness": 0.25
+        },
+        {
+            "label": "drain_reload_0",
+            "request_rate": 1,
+            "num_requests": 70,
+            "burstiness": 1.5
+        },
+        {
+            "label": "sync_peak_1",
+            "request_rate": 48,
             "num_requests": 120,
-            "burstiness": 0.4
+            "burstiness": 0.2
+        },
+        {
+            "label": "drain_reload_1",
+            "request_rate": 1,
+            "num_requests": 70,
+            "burstiness": 1.5
+        },
+        {
+            "label": "sync_peak_2",
+            "request_rate": 46,
+            "num_requests": 120,
+            "burstiness": 0.22
         },
     ]
 

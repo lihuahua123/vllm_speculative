@@ -335,6 +335,10 @@ def main():
     run_benchmark_fn = partial(
         run_benchmark,
         max_concurrency=args.max_concurrency,
+        trace_plan=args.trace_plan,
+        trace_window_sec=args.trace_window_sec,
+        export_trace_summary=args.export_trace_summary,
+        export_step_log=args.export_step_log,
         random_input_len=args.random_input_len,
         random_output_len=args.random_output_len,
         random_range_ratio=args.random_range_ratio,

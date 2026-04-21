@@ -820,6 +820,8 @@ def export_to_csv(
     persist_steps: int = 3,
 ):
     """Export benchmark results to CSV file. Append if file exists, create if not."""
+    csv_file = os.environ.get("BENCHMARK_RESULTS_CSV", csv_file)
+
     # Prepare CSV row data（含本次配置的 output_len，便于在 benchmark_results.csv 中区分实验）
     row_data = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
