@@ -90,6 +90,15 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=300,
         help="Maximum plotted points per trace after downsampling.")
+    parser.add_argument(
+        "--only-gamma-trace",
+        action="store_true",
+        help="Only generate the gamma trace PDF and skip all other outputs.")
+    parser.add_argument(
+        "--zero-gamma-scale",
+        type=float,
+        default=0.08,
+        help="Relative horizontal scale for gamma=0 steps. Smaller values compress disabled-speculation regions.")
     return parser.parse_args()
 
 
@@ -112,6 +121,18 @@ def downsample_pairs(xs: list[float], ys: list[float],
         return xs, ys
     stride = max(1, math.ceil(len(xs) / max_points))
     return xs[::stride], ys[::stride]
+
+
+def compressed_step_axis(gammas: list[float], zero_gamma_scale: float) -> list[float]:
+    if not gammas:
+        return []
+    scale = max(0.0, zero_gamma_scale)
+    xs: list[float] = []
+    current = 0.0
+    for gamma in gammas:
+        xs.append(current)
+        current += 1.0 if gamma > 0 else scale
+    return xs
 
 
 def mean_or_zero(values: list[float]) -> float:
@@ -326,7 +347,8 @@ def plot_acceptance_distribution(runs: list[RunData], output_path: Path) -> None
 
 def plot_acceptance_gamma_traces(runs: list[RunData], output_path: Path,
                                  smooth_window: int,
-                                 max_trace_points: int) -> None:
+                                 max_trace_points: int,
+                                 zero_gamma_scale: float) -> None:
     relevant = [run for run in runs if run.speculative_steps]
     if not relevant:
         return
@@ -335,7 +357,6 @@ def plot_acceptance_gamma_traces(runs: list[RunData], output_path: Path,
                              figsize=(12, max(3.4, 3.0 * len(relevant))),
                              squeeze=False)
     for axis, run in zip(axes[:, 0], relevant):
-        steps = list(range(len(run.speculative_steps)))
         acceptance = [
             float(step.get("acceptance_rate", 0.0))
             for step in run.speculative_steps
@@ -344,6 +365,7 @@ def plot_acceptance_gamma_traces(runs: list[RunData], output_path: Path,
             float(step.get("proposal_length_gamma", 0))
             for step in run.speculative_steps
         ]
+        steps = compressed_step_axis(gamma, zero_gamma_scale)
         acceptance_smooth = moving_average(acceptance, smooth_window)
         x_acc, y_acc = downsample_pairs(steps, acceptance_smooth,
                                         max_trace_points)
@@ -365,7 +387,102 @@ def plot_acceptance_gamma_traces(runs: list[RunData], output_path: Path,
                         label="Gamma")
         gamma_axis.set_ylabel("Gamma", color="#dd8452")
         gamma_axis.tick_params(axis="y", labelcolor="#dd8452")
-    axes[-1, 0].set_xlabel("Decode Step")
+    axes[-1, 0].set_xlabel("Compressed Decode Step")
+    fig.tight_layout()
+    fig.savefig(output_path, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_gamma_traces(runs: list[RunData], output_path: Path,
+                      max_trace_points: int,
+                      zero_gamma_scale: float) -> None:
+    relevant = [run for run in runs if run.speculative_steps]
+    if not relevant:
+        return
+    fig, axes = plt.subplots(len(relevant),
+                             1,
+                             figsize=(12, max(3.0, 2.8 * len(relevant))),
+                             squeeze=False)
+    for axis, run in zip(axes[:, 0], relevant):
+        gamma = [
+            float(step.get("proposal_length_gamma", 0))
+            for step in run.speculative_steps
+        ]
+        steps = compressed_step_axis(gamma, zero_gamma_scale)
+        x_gamma, y_gamma = downsample_pairs(steps, gamma, max_trace_points)
+        axis.step(x_gamma,
+                  y_gamma,
+                  where="post",
+                  color="#dd8452",
+                  linewidth=1.8)
+        axis.set_ylabel("Gamma")
+        axis.grid(alpha=0.25)
+        axis.set_title(format_run_title(run), fontsize=10)
+    axes[-1, 0].set_xlabel("Compressed Decode Step")
+    fig.tight_layout()
+    fig.savefig(output_path, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_throughput_gamma_traces(runs: list[RunData], output_path: Path,
+                                 smooth_window: int,
+                                 max_trace_points: int,
+                                 zero_gamma_scale: float) -> None:
+    relevant = [run for run in runs if run.speculative_steps]
+    if not relevant:
+        return
+    fig, axes = plt.subplots(len(relevant),
+                             1,
+                             figsize=(12, max(3.4, 3.0 * len(relevant))),
+                             squeeze=False)
+    for axis, run in zip(axes[:, 0], relevant):
+        filtered_steps = [
+            step for step in run.speculative_steps
+            if float(step.get("proposal_length_gamma", 0)) > 0
+        ]
+        if not filtered_steps:
+            continue
+        gamma = [
+            float(step.get("proposal_length_gamma", 0))
+            for step in filtered_steps
+        ]
+        steps = compressed_step_axis(gamma, zero_gamma_scale)
+        throughput = []
+        for step in filtered_steps:
+            batch_size = float(step.get("batch_size", 0.0))
+            num_accepted_tokens = float(step.get("num_accepted_tokens", 0.0))
+            step_total_time_ms = float(step.get("step_total_time_ms", 0.0))
+            step_total_time_s = step_total_time_ms / 1000.0
+            if step_total_time_s > 0:
+                throughput.append((batch_size + num_accepted_tokens) /
+                                  step_total_time_s)
+            else:
+                throughput.append(0.0)
+        throughput_smooth = moving_average(throughput, smooth_window)
+        x_tp, y_tp = downsample_pairs(steps, throughput_smooth,
+                                      max_trace_points)
+        x_gamma, y_gamma = downsample_pairs(steps, gamma, max_trace_points)
+
+        axis.plot(x_tp,
+                  y_tp,
+                  color="#4c72b0",
+                  linewidth=2,
+                  label="Throughput")
+        axis.set_ylabel("Throughput (tokens/s)", color="#4c72b0")
+        axis.tick_params(axis="y", labelcolor="#4c72b0")
+        axis.grid(alpha=0.25)
+        axis.set_title(format_run_title(run), fontsize=10)
+
+        gamma_axis = axis.twinx()
+        gamma_axis.step(x_gamma,
+                        y_gamma,
+                        where="post",
+                        color="#dd8452",
+                        alpha=0.85,
+                        label="Gamma")
+        gamma_axis.set_ylabel("Gamma", color="#dd8452")
+        gamma_axis.tick_params(axis="y", labelcolor="#dd8452")
+    axes[-1, 0].set_xlabel("Compressed Decode Step")
     fig.tight_layout()
     fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
@@ -589,6 +706,14 @@ def main() -> None:
     runs = [load_run_data(spec) for spec in run_specs]
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.only_gamma_trace:
+        plot_gamma_traces(runs,
+                          args.output_dir / f"{args.prefix}_gamma_traces.pdf",
+                          args.max_trace_points,
+                          args.zero_gamma_scale)
+        return
+
     summaries = save_summary(runs, args.output_dir, args.prefix)
 
     plot_acceptance_distribution(
@@ -598,6 +723,14 @@ def main() -> None:
         args.output_dir / f"{args.prefix}_acceptance_gamma_traces.pdf",
         args.smooth_window,
         args.max_trace_points,
+        args.zero_gamma_scale,
+    )
+    plot_throughput_gamma_traces(
+        runs,
+        args.output_dir / f"{args.prefix}_throughput_gamma_traces.pdf",
+        args.smooth_window,
+        args.max_trace_points,
+        args.zero_gamma_scale,
     )
     plot_time_breakdown_bars(
         summaries, args.output_dir / f"{args.prefix}_time_breakdown_bar.pdf")
