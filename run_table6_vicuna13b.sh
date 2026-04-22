@@ -1,144 +1,158 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -u
 
-# Reproduce the Vicuna-13B side of paper Table 6 as closely as the local
-# benchmark scripts expose it: Alpaca/ShareGPT/SpecBench, 200 requests, 5 QPS.
+# Table 6 13B setting:
+# target/draft: Vicuna-13B + vicuna-68m
+# datasets: Alpaca, ShareGPT, SpecBench
+# local Table-6-like CSV rows use 200 requests, 5 QPS, burstiness 1.0.
 
-export VLLM_WORKER_MULTIPROC_METHOD="${VLLM_WORKER_MULTIPROC_METHOD:-spawn}"
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 export HF_HOME="${HF_HOME:-/root/autodl-tmp/.cache/huggingface}"
 export HUGGINGFACE_HUB_CACHE="${HUGGINGFACE_HUB_CACHE:-$HF_HOME/hub}"
 export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$HF_HOME/datasets}"
 
-MODEL_NAME="${MODEL_NAME:-/root/autodl-tmp/vicuna-13b-v1.3}"
-DRAFT_MODEL_NAME="${DRAFT_MODEL_NAME:-/root/autodl-tmp/vicuna-68m}"
+NUM_PROMPTS=${NUM_PROMPTS:-200}
+PROMPT_RATES="${PROMPT_RATES:-5}"
+FILE_NAME=${FILE_NAME:-table6_vicuna13b.log}
+MAX_SPECULATIVE_LEN=${MAX_SPECULATIVE_LEN:-3}
+START_INDEX=${START_INDEX:-0}
+ENABLE_TRACE=${ENABLE_TRACE:-False}
+SAVE_TRACE=${SAVE_TRACE:-False}
 
-NUM_PROMPTS="${NUM_PROMPTS:-200}"
-REQUEST_RATES="${REQUEST_RATES:-5}"
-START_INDEX="${START_INDEX:-0}"
-BURSTINESS="${BURSTINESS:-1.0}"
-SEED="${SEED:-42}"
+# Follow test3_diff_length_13B.sh. Override if your GPU needs a different value.
+num_gpu_blocks_override=${num_gpu_blocks_override:-4938}
+gpu_memory_utilization=${gpu_memory_utilization:-0.85}
+increase_block_threshold=${increase_block_threshold:-150}
+decrease_block_threshold=${decrease_block_threshold:-100}
+burstiness=${burstiness:-1.0}
 
-MAX_SPECULATIVE_LEN="${MAX_SPECULATIVE_LEN:-3}"
-GPU_BLOCKS="${GPU_BLOCKS:-1285}"
-GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.85}"
-MAX_MODEL_LEN="${MAX_MODEL_LEN:-2048}"
-INCREASE_BLOCK_THRESHOLD="${INCREASE_BLOCK_THRESHOLD:-150}"
-DECREASE_BLOCK_THRESHOLD="${DECREASE_BLOCK_THRESHOLD:-100}"
-PERSIST_STEPS="${PERSIST_STEPS:-3}"
+model_name=${model_name:-/root/autodl-tmp/vicuna-13b-v1.3}
+draft_model_name=${draft_model_name:-/root/autodl-tmp/vicuna-68m}
 
-ENABLE_TRACE="${ENABLE_TRACE:-False}"
-SAVE_TRACE="${SAVE_TRACE:-False}"
-RESULT_DIR="${RESULT_DIR:-benchmark_results_table6_vicuna13b}"
-LOG_FILE="${LOG_FILE:-table6_vicuna13b.log}"
-
-# Table 6 baselines:
-# nospec             -> w/o SD
-# deep:3             -> SD, gamma=3
-# ucb                -> BanditSpec-style MAB baseline
-# smart_spec         -> DSD-style baseline in this repo
-# deep:3:capacity    -> TETRIS/capacity-style baseline used by existing scripts
-# ada_bin_greedy     -> Nightjar
-METHODS="${METHODS:-nospec deep:3 ucb smart_spec deep:3:capacity ada_bin_greedy}"
-DATASETS="${DATASETS:-alpaca sharegpt specbench}"
+# Table 6 methods in this repo's implementation names:
+# nospec: w/o SD
+# deep gamma=3: SD
+# ucb: BanditSpec
+# smart_spec: DSD
+# deep --select-strategy capacity: TETRIS/capacity baseline
+# ada_bin_greedy: Nightjar
+RUN_NOSPEC=${RUN_NOSPEC:-1}
+RUN_SD=${RUN_SD:-1}
+RUN_BANDITSPEC=${RUN_BANDITSPEC:-1}
+RUN_DSD=${RUN_DSD:-1}
+RUN_TETRIS=${RUN_TETRIS:-1}
+RUN_NIGHTJAR=${RUN_NIGHTJAR:-1}
 
 cd "$(dirname "$0")"
-rm -f "$LOG_FILE"
+rm -rf "$FILE_NAME"
 
-for required_path in "$MODEL_NAME" "$DRAFT_MODEL_NAME"; do
-    if [[ ! -e "$required_path" ]]; then
-        echo "Missing required model path: $required_path" | tee -a "$LOG_FILE"
-        echo "Override MODEL_NAME or DRAFT_MODEL_NAME if the model is stored elsewhere." | tee -a "$LOG_FILE"
-        exit 1
+run_cmd() {
+    echo "" | tee -a "$FILE_NAME"
+    echo "[$(date '+%F %T')] $*" | tee -a "$FILE_NAME"
+    "$@" &>> "$FILE_NAME"
+
+    pid=$(pgrep -f "adaptive_engine_example" || true)
+    if [ -n "$pid" ]; then
+        kill $pid || true
     fi
-done
-
-run_one() {
-    local dataset_name="$1"
-    local dataset_path="$2"
-    local sub_strategy="$3"
-    local speculative_len="$4"
-    local select_strategy="$5"
-    local rate="$6"
-
-    local cmd=(
-        python run_benchmark_tests.py
-        --strategy ilp
-        --sub-strategy "$sub_strategy"
-        --model "$MODEL_NAME"
-        --draft-model "$DRAFT_MODEL_NAME"
-        --dataset-name "$dataset_name"
-        --dataset-path "$dataset_path"
-        --speculative-len "$speculative_len"
-        --num-prompts "$NUM_PROMPTS"
-        --request-rates "$rate"
-        --start-index "$START_INDEX"
-        --num-gpu-blocks-override "$GPU_BLOCKS"
-        --enable-trace "$ENABLE_TRACE"
-        --save-trace "$SAVE_TRACE"
-        --burstiness "$BURSTINESS"
-        --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION"
-        --max-model-len "$MAX_MODEL_LEN"
-        --increase-block-threshold "$INCREASE_BLOCK_THRESHOLD"
-        --decrease-block-threshold "$DECREASE_BLOCK_THRESHOLD"
-        --persist-steps "$PERSIST_STEPS"
-        --seed "$SEED"
-        --result-dir "$RESULT_DIR"
-    )
-
-    if [[ -n "$select_strategy" ]]; then
-        cmd+=(--select-strategy "$select_strategy")
-    fi
-
-    {
-        printf '\n[%s] dataset=%s method=%s len=%s qps=%s\n' \
-            "$(date '+%F %T')" "$dataset_name" "$sub_strategy" "$speculative_len" "$rate"
-        printf 'Command:'
-        printf ' %q' "${cmd[@]}"
-        printf '\n'
-    } | tee -a "$LOG_FILE"
-
-    "${cmd[@]}" 2>&1 | tee -a "$LOG_FILE"
+    sleep 3
 }
 
-for dataset in $DATASETS; do
-    case "$dataset" in
-        alpaca)
-            dataset_name="alpaca"
-            dataset_path="tatsu-lab/alpaca"
-            ;;
-        sharegpt)
-            dataset_name="sharegpt"
-            dataset_path="/root/autodl-tmp/sharegpt.json"
-            ;;
-        specbench)
-            dataset_name="specbench"
-            dataset_path="./question_shuffled.jsonl"
-            ;;
-        *)
-            echo "Unknown dataset: $dataset" | tee -a "$LOG_FILE"
-            exit 1
-            ;;
-    esac
+run_dataset() {
+    data_set_name=$1
+    data_set_path=$2
 
-    for rate in $REQUEST_RATES; do
-        for method in $METHODS; do
-            sub_strategy="$method"
-            speculative_len="$MAX_SPECULATIVE_LEN"
-            select_strategy=""
+    for PROMPT_RATE in $PROMPT_RATES
+    do
+        explore="False"
 
-            IFS=':' read -r sub_strategy maybe_len maybe_select <<< "$method"
-            if [[ -n "${maybe_len:-}" ]]; then
-                speculative_len="$maybe_len"
-            fi
-            if [[ -n "${maybe_select:-}" ]]; then
-                select_strategy="$maybe_select"
-            fi
+        if [ "$RUN_NOSPEC" = "1" ]; then
+            run_cmd python run_benchmark_tests.py --strategy ilp --sub-strategy nospec \
+                --model "$model_name" --save-trace "$SAVE_TRACE" --draft-model "$draft_model_name" \
+                --dataset-name "$data_set_name" --dataset-path "$data_set_path" \
+                --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts "$NUM_PROMPTS" \
+                --request-rate "$PROMPT_RATE" --start-index "$START_INDEX" \
+                --num-gpu-blocks-override "$num_gpu_blocks_override" \
+                --enable-trace "$ENABLE_TRACE" --burstiness "$burstiness" \
+                --gpu-memory-utilization "$gpu_memory_utilization" \
+                --increase-block-threshold "$increase_block_threshold" \
+                --decrease-block-threshold "$decrease_block_threshold"
+        fi
 
-            run_one "$dataset_name" "$dataset_path" "$sub_strategy" \
-                "$speculative_len" "$select_strategy" "$rate"
-        done
+        if [ "$RUN_SD" = "1" ]; then
+            run_cmd python run_benchmark_tests.py --strategy ilp --sub-strategy deep \
+                --model "$model_name" --save-trace "$SAVE_TRACE" --draft-model "$draft_model_name" \
+                --dataset-name "$data_set_name" --dataset-path "$data_set_path" \
+                --speculative-len 3 --num-prompts "$NUM_PROMPTS" \
+                --request-rate "$PROMPT_RATE" --start-index "$START_INDEX" \
+                --num-gpu-blocks-override "$num_gpu_blocks_override" \
+                --enable-trace "$ENABLE_TRACE" --burstiness "$burstiness" \
+                --gpu-memory-utilization "$gpu_memory_utilization" \
+                --increase-block-threshold "$increase_block_threshold" \
+                --decrease-block-threshold "$decrease_block_threshold"
+        fi
+
+        if [ "$RUN_BANDITSPEC" = "1" ]; then
+            run_cmd python run_benchmark_tests.py --strategy ilp --sub-strategy ucb \
+                --explore "$explore" --save-trace "$SAVE_TRACE" \
+                --model "$model_name" --draft-model "$draft_model_name" \
+                --dataset-name "$data_set_name" --dataset-path "$data_set_path" \
+                --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts "$NUM_PROMPTS" \
+                --request-rate "$PROMPT_RATE" --start-index "$START_INDEX" \
+                --num-gpu-blocks-override "$num_gpu_blocks_override" \
+                --enable-trace "$ENABLE_TRACE" --burstiness "$burstiness" \
+                --gpu-memory-utilization "$gpu_memory_utilization" \
+                --increase-block-threshold "$increase_block_threshold" \
+                --decrease-block-threshold "$decrease_block_threshold"
+        fi
+
+        if [ "$RUN_DSD" = "1" ]; then
+            run_cmd python run_benchmark_tests.py --strategy ilp --sub-strategy smart_spec \
+                --model "$model_name" --save-trace "$SAVE_TRACE" --draft-model "$draft_model_name" \
+                --dataset-name "$data_set_name" --dataset-path "$data_set_path" \
+                --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts "$NUM_PROMPTS" \
+                --request-rate "$PROMPT_RATE" --start-index "$START_INDEX" \
+                --num-gpu-blocks-override "$num_gpu_blocks_override" \
+                --enable-trace "$ENABLE_TRACE" --burstiness "$burstiness" \
+                --gpu-memory-utilization "$gpu_memory_utilization" \
+                --increase-block-threshold "$increase_block_threshold" \
+                --decrease-block-threshold "$decrease_block_threshold"
+        fi
+
+        if [ "$RUN_TETRIS" = "1" ]; then
+            run_cmd python run_benchmark_tests.py --strategy ilp --sub-strategy deep \
+                --select-strategy capacity --save-trace "$SAVE_TRACE" \
+                --model "$model_name" --draft-model "$draft_model_name" \
+                --dataset-name "$data_set_name" --dataset-path "$data_set_path" \
+                --speculative-len 3 --num-prompts "$NUM_PROMPTS" \
+                --request-rate "$PROMPT_RATE" --start-index "$START_INDEX" \
+                --num-gpu-blocks-override "$num_gpu_blocks_override" \
+                --enable-trace "$ENABLE_TRACE" --burstiness "$burstiness" \
+                --gpu-memory-utilization "$gpu_memory_utilization" \
+                --increase-block-threshold "$increase_block_threshold" \
+                --decrease-block-threshold "$decrease_block_threshold"
+        fi
+
+        if [ "$RUN_NIGHTJAR" = "1" ]; then
+            run_cmd python run_benchmark_tests.py --strategy ilp --sub-strategy ada_bin_greedy \
+                --explore "$explore" --save-trace "$SAVE_TRACE" \
+                --model "$model_name" --draft-model "$draft_model_name" \
+                --dataset-name "$data_set_name" --dataset-path "$data_set_path" \
+                --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts "$NUM_PROMPTS" \
+                --request-rate "$PROMPT_RATE" --start-index "$START_INDEX" \
+                --num-gpu-blocks-override "$num_gpu_blocks_override" \
+                --enable-trace "$ENABLE_TRACE" --burstiness "$burstiness" \
+                --gpu-memory-utilization "$gpu_memory_utilization" \
+                --increase-block-threshold "$increase_block_threshold" \
+                --decrease-block-threshold "$decrease_block_threshold"
+        fi
     done
-done
+}
 
-echo "Done. Log: $LOG_FILE, result dir: $RESULT_DIR"
+for i in 1
+do
+    run_dataset alpaca tatsu-lab/alpaca
+    run_dataset sharegpt /root/autodl-tmp/sharegpt.json
+    run_dataset specbench ./question_shuffled.jsonl
+done
