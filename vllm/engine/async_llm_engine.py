@@ -535,8 +535,15 @@ class _AsyncLLMEngine(LLMEngine):
                     virtual_engine]
 
             # Execute the model.
+            execute_start = time.perf_counter()
             outputs = await self.model_executor.execute_model_async(
                 execute_model_req)
+            execute_duration_s = time.perf_counter() - execute_start
+            self._log_disabled_decode_step(
+                virtual_engine=virtual_engine,
+                seq_group_metadata_list=seq_group_metadata_list,
+                outputs=outputs,
+                execute_duration_s=execute_duration_s)
             metrics = self._get_stage_data(execute_model_req)
             self.stage_data = metrics
             if self.ilp_manager.profile:

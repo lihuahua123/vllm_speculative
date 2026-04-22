@@ -224,6 +224,69 @@ class LLMEngine:
                            payload: Dict[str, object]) -> None:
         self.nightjar_event_logger.log(event_type, payload)
 
+    def _count_sampled_tokens_for_nightjar(self, outputs: object) -> int:
+        sampled_tokens = 0
+        if not isinstance(outputs, list):
+            return sampled_tokens
+        for output in outputs:
+            sequence_group_outputs = getattr(output, "outputs", None)
+            if sequence_group_outputs is None:
+                continue
+            for sequence_group_output in sequence_group_outputs:
+                samples = getattr(sequence_group_output, "samples", None)
+                if samples is not None:
+                    sampled_tokens += len(samples)
+        return sampled_tokens
+
+    def _log_disabled_decode_step(
+            self, virtual_engine: int,
+            seq_group_metadata_list: List[SequenceGroupMetadata],
+            outputs: object,
+            execute_duration_s: float) -> None:
+        if not (self.disable_speculative_decoding or self.proposer_worker_to_cpu):
+            return
+        if execute_duration_s <= 0.0:
+            return
+
+        num_prefill_groups = sum(
+            1 for seq_group_meta in seq_group_metadata_list
+            if getattr(seq_group_meta, "is_prompt", False))
+        batch_size = len(seq_group_metadata_list)
+        num_decode_groups = max(0, batch_size - num_prefill_groups)
+        if num_decode_groups == 0:
+            return
+
+        sampled_tokens = self._count_sampled_tokens_for_nightjar(outputs)
+        token_count_source = "sampled_outputs"
+        if sampled_tokens <= 0:
+            sampled_tokens = num_decode_groups
+            token_count_source = "decode_group_estimate"
+
+        scheduler = self.scheduler[virtual_engine]
+        throughput = sampled_tokens / execute_duration_s
+        self.log_nightjar_event(
+            "disabled_decode_step", {
+                "batch_size": batch_size,
+                "num_prefill_groups": num_prefill_groups,
+                "num_decode_groups": num_decode_groups,
+                "proposal_length_gamma": 0,
+                "output_tokens": sampled_tokens,
+                "output_token_count_source": token_count_source,
+                "step_total_time_ms": execute_duration_s * 1000.0,
+                "throughput_tokens_per_s": throughput,
+                "queue_len": len(scheduler.waiting),
+                "num_running": len(scheduler.running),
+                "num_swapped": len(scheduler.swapped),
+                "free_gpu_blocks":
+                scheduler.block_manager.get_num_free_gpu_blocks(),
+                "usable_gpu_blocks":
+                scheduler.block_manager.num_usable_gpu_blocks,
+                "total_gpu_blocks":
+                scheduler.block_manager.num_total_gpu_blocks,
+                "draft_model_on_gpu": not self.proposer_worker_to_cpu,
+                "speculation_enabled": False,
+            })
+
     def _log_draft_transfer_start(self, status: Optional[dict]) -> None:
         if not status:
             return
@@ -1579,8 +1642,15 @@ class LLMEngine:
                 execute_model_req.async_callback = self.async_callbacks[
                     virtual_engine]
             try:
+                execute_start = time.perf_counter()
                 outputs = self.model_executor.execute_model(
                     execute_model_req=execute_model_req)
+                execute_duration_s = time.perf_counter() - execute_start
+                self._log_disabled_decode_step(
+                    virtual_engine=virtual_engine,
+                    seq_group_metadata_list=seq_group_metadata_list,
+                    outputs=outputs,
+                    execute_duration_s=execute_duration_s)
                 self._skip_scheduling_next_step = False
             except InputProcessingError as e:
                 # The input for this request cannot be processed, so we must

@@ -42,6 +42,7 @@ SPEC_EVENT = "speculative_step"
 EXPAND_EVENT = "memory_expand"
 CONTRACT_EVENT = "memory_contract"
 MIGRATION_EVENT = "kv_block_migration"
+DISABLED_DECODE_EVENT = "disabled_decode_step"
 
 
 @dataclass
@@ -59,6 +60,7 @@ class RunData:
     expand_events: list[dict[str, Any]]
     contract_events: list[dict[str, Any]]
     migration_events: list[dict[str, Any]]
+    disabled_decode_events: list[dict[str, Any]]
     all_events: list[dict[str, Any]]
 
 
@@ -188,6 +190,33 @@ def shade_disabled_intervals(axis: Any, intervals: list[tuple[float, float]]) ->
                      linewidth=0)
 
 
+def force_zero_in_intervals(xs: list[float], ys: list[float],
+                            intervals: list[tuple[float, float]]
+                            ) -> tuple[list[float], list[float]]:
+    if not xs or not ys or not intervals:
+        return xs, ys
+    pairs = sorted(zip(xs, ys), key=lambda item: item[0])
+    output: list[tuple[float, float]] = []
+    cursor = 0
+    for start, end in sorted(intervals):
+        if end < start:
+            continue
+        while cursor < len(pairs) and pairs[cursor][0] < start:
+            output.append(pairs[cursor])
+            cursor += 1
+        previous_y = output[-1][1] if output else pairs[0][1]
+        output.append((start, previous_y))
+        output.append((start, 0.0))
+        while cursor < len(pairs) and pairs[cursor][0] <= end:
+            output.append((pairs[cursor][0], 0.0))
+            cursor += 1
+        output.append((end, 0.0))
+        if cursor < len(pairs):
+            output.append((end, pairs[cursor][1]))
+    output.extend(pairs[cursor:])
+    return [item[0] for item in output], [item[1] for item in output]
+
+
 def mean_or_zero(values: list[float]) -> float:
     return statistics.fmean(values) if values else 0.0
 
@@ -233,6 +262,7 @@ def load_run_data(spec: RunSpec) -> RunData:
     expand_events: list[dict[str, Any]] = []
     contract_events: list[dict[str, Any]] = []
     migration_events: list[dict[str, Any]] = []
+    disabled_decode_events: list[dict[str, Any]] = []
     all_events: list[dict[str, Any]] = []
     with spec.path.open("r", encoding="utf-8") as f:
         for line in f:
@@ -252,11 +282,14 @@ def load_run_data(spec: RunSpec) -> RunData:
                 contract_events.append(record)
             elif event_type == MIGRATION_EVENT:
                 migration_events.append(record)
+            elif event_type == DISABLED_DECODE_EVENT:
+                disabled_decode_events.append(record)
     return RunData(spec=spec,
                    speculative_steps=speculative_steps,
                    expand_events=expand_events,
                    contract_events=contract_events,
                    migration_events=migration_events,
+                   disabled_decode_events=disabled_decode_events,
                    all_events=all_events)
 
 
@@ -424,6 +457,8 @@ def plot_acceptance_gamma_traces(runs: list[RunData], output_path: Path,
         acceptance_smooth = moving_average(acceptance, smooth_window)
         x_acc, y_acc = downsample_pairs(steps, acceptance_smooth,
                                         max_trace_points)
+        x_acc, y_acc = force_zero_in_intervals(x_acc, y_acc, intervals)
+        x_gamma, y_gamma = force_zero_in_intervals(steps, gamma, intervals)
         zero_indices = zero_value_indices(gamma)
 
         shade_disabled_intervals(axis, intervals)
@@ -436,8 +471,8 @@ def plot_acceptance_gamma_traces(runs: list[RunData], output_path: Path,
 
         gamma_axis = axis.twinx()
         shade_disabled_intervals(gamma_axis, intervals)
-        gamma_axis.step(steps,
-                        gamma,
+        gamma_axis.step(x_gamma,
+                        y_gamma,
                         where="post",
                         color="#dd8452",
                         alpha=0.85,
@@ -525,8 +560,8 @@ def plot_throughput_gamma_traces(runs: list[RunData], output_path: Path,
         for step in run.speculative_steps:
             batch_size = float(step.get("batch_size", 0.0))
             num_accepted_tokens = float(step.get("num_accepted_tokens", 0.0))
-            step_total_time_ms = float(step.get("step_total_time_ms", 0.0))
-            step_total_time_s = step_total_time_ms / 1000.0
+            step_total_time_us = float(step.get("step_total_time_ms", 0.0))
+            step_total_time_s = step_total_time_us / 1_000_000.0
             if step_total_time_s > 0:
                 throughput.append((batch_size + num_accepted_tokens) /
                                   step_total_time_s)
@@ -535,14 +570,32 @@ def plot_throughput_gamma_traces(runs: list[RunData], output_path: Path,
         throughput_smooth = moving_average(throughput, smooth_window)
         x_tp, y_tp = downsample_pairs(steps, throughput_smooth,
                                       max_trace_points)
+        x_gamma, y_gamma = force_zero_in_intervals(steps, gamma, intervals)
         zero_indices = zero_value_indices(gamma)
+        disabled_timestamps = [
+            float(step.get("timestamp", 0.0))
+            for step in run.disabled_decode_events
+        ]
+        disabled_steps = relative_time_axis(disabled_timestamps, origin)
+        disabled_throughput = [
+            float(step.get("throughput_tokens_per_s", 0.0))
+            for step in run.disabled_decode_events
+        ]
 
         shade_disabled_intervals(axis, intervals)
         axis.plot(x_tp,
                   y_tp,
                   color="#4c72b0",
                   linewidth=2,
-                  label="Throughput")
+                  label="Spec throughput")
+        if disabled_steps:
+            axis.plot(disabled_steps,
+                      disabled_throughput,
+                      color="#c44e52",
+                      linewidth=1.8,
+                      marker="o",
+                      markersize=3.5,
+                      label="Disabled decode throughput")
         axis.set_ylabel("Throughput (tokens/s)", color="#4c72b0")
         axis.tick_params(axis="y", labelcolor="#4c72b0")
         axis.grid(alpha=0.25)
@@ -550,8 +603,8 @@ def plot_throughput_gamma_traces(runs: list[RunData], output_path: Path,
 
         gamma_axis = axis.twinx()
         shade_disabled_intervals(gamma_axis, intervals)
-        gamma_axis.step(steps,
-                        gamma,
+        gamma_axis.step(x_gamma,
+                        y_gamma,
                         where="post",
                         color="#dd8452",
                         alpha=0.85,
@@ -565,6 +618,16 @@ def plot_throughput_gamma_traces(runs: list[RunData], output_path: Path,
                                s=36,
                                zorder=5,
                                label="Gamma = 0")
+        if disabled_steps:
+            gamma_axis.scatter(disabled_steps,
+                               [0.0] * len(disabled_steps),
+                               color="#c44e52",
+                               edgecolors="white",
+                               linewidths=0.5,
+                               s=20,
+                               alpha=0.8,
+                               zorder=4,
+                               label="Disabled decode")
         gamma_axis.set_ylim(-0.25, max(gamma + [1.0]) + 0.5)
         gamma_axis.set_ylabel("Gamma", color="#dd8452")
         gamma_axis.tick_params(axis="y", labelcolor="#dd8452")
