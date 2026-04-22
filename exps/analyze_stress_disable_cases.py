@@ -55,6 +55,8 @@ def parse_stress_cases(summary_csv: Path,
         for row in reader:
             pattern = (row.get("pattern") or "").strip()
             event_log = Path(row["event_log"]).expanduser()
+            if not event_log.exists():
+                continue
             trace_path = None
             if trace_dir:
                 candidate = trace_dir / f"{pattern}.json"

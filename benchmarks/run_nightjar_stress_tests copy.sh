@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#!/usr/bin/env bash
 
 set -euo pipefail
 
@@ -22,20 +23,17 @@ DATASET_NAME="${DATASET_NAME:-sharegpt}"
 DATASET_PATH="${DATASET_PATH:-/root/autodl-tmp/sharegpt.json}"
 SUB_STRATEGY="${SUB_STRATEGY:-epsilon_greedy_with_offload}"
 SELECT_STRATEGY="${SELECT_STRATEGY:-capacity}"
-EXPLORE="${EXPLORE:-False}"
 
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8010}"
 NUM_PROMPTS="${NUM_PROMPTS:-600}"
 START_INDEX="${START_INDEX:-0}"
 SPECULATIVE_LEN="${SPECULATIVE_LEN:-5}"
-MAX_SPECULATIVE_LEN="${MAX_SPECULATIVE_LEN:-3}"
-SD_SPECULATIVE_LEN="${SD_SPECULATIVE_LEN:-3}"
 OUTPUT_LEN="${OUTPUT_LEN:-128}"
 NUM_GPU_BLOCKS_OVERRIDE="${NUM_GPU_BLOCKS_OVERRIDE:-4112}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.85}"
 INCREASE_BLOCK_THRESHOLD="${INCREASE_BLOCK_THRESHOLD:-2500}"
-DECREASE_BLOCK_THRESHOLD="${DECREASE_BLOCK_THRESHOLD:-2500}"
+DECREASE_BLOCK_THRESHOLD="${DECREASE_BLOCK_THRESHOLD:-2000}"
 PERSIST_STEPS="${PERSIST_STEPS:-3}"
 STATIC_INCREASE_BLOCK_THRESHOLD="${STATIC_INCREASE_BLOCK_THRESHOLD:-999999}"
 STATIC_DECREASE_BLOCK_THRESHOLD="${STATIC_DECREASE_BLOCK_THRESHOLD:-999999}"
@@ -47,22 +45,10 @@ ENABLE_TRACE="${ENABLE_TRACE:-True}"
 SAVE_TRACE="${SAVE_TRACE:-False}"
 SEED="${SEED:-42}"
 TRACE_WINDOW_SEC="${TRACE_WINDOW_SEC:-1.0}"
-RUN_NIGHTJAR="${RUN_NIGHTJAR:-True}"
-RUN_STATIC_MEMORY="${RUN_STATIC_MEMORY:-True}"
-RUN_BASELINES="${RUN_BASELINES:-True}"
-
-# Paper-facing baselines:
-#   w/o SD     -> nospec
-#   SD         -> fixed_ngram, gamma=3
-#   BanditSpec -> ucb
-#   DSD        -> daspec
-#   TETRIS     -> deep with capacity-based selection
-# Format: variant:sub_strategy:speculative_len:select_strategy
-BASELINE_CASES="${BASELINE_CASES:-wo_sd:nospec:$MAX_SPECULATIVE_LEN: SD:fixed_ngram:$SD_SPECULATIVE_LEN: BanditSpec:ucb:$MAX_SPECULATIVE_LEN: DSD:daspec:$MAX_SPECULATIVE_LEN: TETRIS:deep:$MAX_SPECULATIVE_LEN:capacity}"
 
 mkdir -p "$RESULT_DIR" "$TRACE_DIR"
 rm -f "$RUN_LOG" "$SUMMARY_CSV"
-printf "pattern,variant,sub_strategy,speculative_len,select_strategy,result_json,event_log,trace_summary\n" > "$SUMMARY_CSV"
+printf "pattern,variant,result_json,event_log,trace_summary\n" > "$SUMMARY_CSV"
 
 generate_trace() {
     local trace_key="$1"
@@ -77,12 +63,9 @@ generate_trace() {
 run_one() {
     local workload_pattern="$1"
     local variant="$2"
-    local sub_strategy="$3"
-    local speculative_len="$4"
-    local select_strategy="$5"
-    local increase_threshold="$6"
-    local decrease_threshold="$7"
-    local persist_steps="$8"
+    local increase_threshold="$3"
+    local decrease_threshold="$4"
+    local persist_steps="$5"
     local case_id="${workload_pattern}_${variant}"
     local case_dir="$RESULT_DIR/$case_id"
     local event_log="$case_dir/nightjar_events.jsonl"
@@ -103,15 +86,15 @@ run_one() {
     local cmd=(
         python "$ROOT_DIR/run_benchmark_tests.py"
         --strategy ilp
-        --sub-strategy "$sub_strategy"
-        --explore "$EXPLORE"
+        --sub-strategy "$SUB_STRATEGY"
+        --select-strategy "$SELECT_STRATEGY"
         --model "$MODEL_NAME"
         --draft-model "$DRAFT_MODEL_NAME"
         --host "$HOST"
         --port "$PORT"
         --dataset-name "$DATASET_NAME"
         --dataset-path "$DATASET_PATH"
-        --speculative-len "$speculative_len"
+        --speculative-len "$SPECULATIVE_LEN"
         --num-prompts "$NUM_PROMPTS"
         --request-rates 1
         --start-index "$START_INDEX"
@@ -133,14 +116,10 @@ run_one() {
         --seed "$SEED"
     )
 
-    if [[ -n "$select_strategy" ]]; then
-        cmd+=(--select-strategy "$select_strategy")
-    fi
-
     {
-        echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] pattern=$workload_pattern variant=$variant sub_strategy=$sub_strategy speculative_len=$speculative_len select_strategy=${select_strategy:-none} start"
+        echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] pattern=$workload_pattern variant=$variant start"
         "${cmd[@]}"
-        echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] pattern=$workload_pattern variant=$variant sub_strategy=$sub_strategy speculative_len=$speculative_len select_strategy=${select_strategy:-none} done"
+        echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] pattern=$workload_pattern variant=$variant done"
     } >> "$RUN_LOG" 2>&1
 
     find "$case_dir" -maxdepth 1 -type f -name 'benchmark_*.json' | sort > "$after_file"
@@ -150,57 +129,26 @@ run_one() {
     fi
     rm -f "$before_file" "$after_file"
 
-    printf "%s,%s,%s,%s,%s,%s,%s,%s\n" \
-        "$case_id" "$variant" "$sub_strategy" "$speculative_len" \
-        "$select_strategy" "$result_json" "$event_log" "$trace_summary" \
+    printf "%s,%s,%s,%s,%s\n" \
+        "$case_id" "$variant" "$result_json" "$event_log" "$trace_summary" \
         >> "$SUMMARY_CSV"
 }
 
-run_baseline_cases() {
+run_pair() {
     local workload_pattern="$1"
-    local case_spec variant sub_strategy speculative_len select_strategy
-
-    for case_spec in $BASELINE_CASES; do
-        IFS=: read -r variant sub_strategy speculative_len select_strategy <<< "$case_spec"
-        if [[ -z "$variant" || -z "$sub_strategy" || -z "$speculative_len" ]]; then
-            echo "Invalid BASELINE_CASES entry: $case_spec" >> "$RUN_LOG"
-            exit 1
-        fi
-        run_one "$workload_pattern" "$variant" "$sub_strategy" "$speculative_len" \
-            "${select_strategy:-}" \
-            "$STATIC_INCREASE_BLOCK_THRESHOLD" \
-            "$STATIC_DECREASE_BLOCK_THRESHOLD" \
-            "$STATIC_PERSIST_STEPS"
-    done
+    run_one "$workload_pattern" "elastic" \
+        "$INCREASE_BLOCK_THRESHOLD" \
+        "$DECREASE_BLOCK_THRESHOLD" \
+        "$PERSIST_STEPS"
+    run_one "$workload_pattern" "static_memory" \
+        "$STATIC_INCREASE_BLOCK_THRESHOLD" \
+        "$STATIC_DECREASE_BLOCK_THRESHOLD" \
+        "$STATIC_PERSIST_STEPS"
 }
 
-run_pattern() {
-    local workload_pattern="$1"
-
-    if [[ "$RUN_NIGHTJAR" == "True" || "$RUN_NIGHTJAR" == "true" ]]; then
-        run_one "$workload_pattern" "Nightjar" "$SUB_STRATEGY" "$SPECULATIVE_LEN" \
-            "$SELECT_STRATEGY" \
-            "$INCREASE_BLOCK_THRESHOLD" \
-            "$DECREASE_BLOCK_THRESHOLD" \
-            "$PERSIST_STEPS"
-    fi
-
-    if [[ "$RUN_STATIC_MEMORY" == "True" || "$RUN_STATIC_MEMORY" == "true" ]]; then
-        run_one "$workload_pattern" "Nightjar_static_memory" "$SUB_STRATEGY" "$SPECULATIVE_LEN" \
-            "$SELECT_STRATEGY" \
-            "$STATIC_INCREASE_BLOCK_THRESHOLD" \
-            "$STATIC_DECREASE_BLOCK_THRESHOLD" \
-            "$STATIC_PERSIST_STEPS"
-    fi
-
-    if [[ "$RUN_BASELINES" == "True" || "$RUN_BASELINES" == "true" ]]; then
-        run_baseline_cases "$workload_pattern"
-    fi
-}
-
-run_pattern burst_spike
-run_pattern high_low_oscillation
-run_pattern sync_migration_worst_case
+run_pair burst_spike
+run_pair high_low_oscillation
+run_pair sync_migration_worst_case
 
 python "$ROOT_DIR/exps/analyze_stress_disable_cases.py" \
     --summary-csv "$SUMMARY_CSV" \
