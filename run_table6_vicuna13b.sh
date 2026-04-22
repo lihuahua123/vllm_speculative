@@ -15,6 +15,7 @@ export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$HF_HOME/datasets}"
 NUM_PROMPTS=${NUM_PROMPTS:-200}
 PROMPT_RATES="${PROMPT_RATES:-5}"
 FILE_NAME=${FILE_NAME:-table6_vicuna13b.log}
+RESULT_DIR=${RESULT_DIR:-benchmark_results/vicuna13B}
 MAX_SPECULATIVE_LEN=${MAX_SPECULATIVE_LEN:-3}
 START_INDEX=${START_INDEX:-0}
 ENABLE_TRACE=${ENABLE_TRACE:-False}
@@ -45,6 +46,7 @@ RUN_TETRIS=${RUN_TETRIS:-1}
 RUN_NIGHTJAR=${RUN_NIGHTJAR:-1}
 
 cd "$(dirname "$0")"
+mkdir -p "$RESULT_DIR"
 rm -rf "$FILE_NAME"
 
 run_cmd() {
@@ -71,6 +73,7 @@ run_dataset() {
             run_cmd python run_benchmark_tests.py --strategy ilp --sub-strategy nospec \
                 --model "$model_name" --save-trace "$SAVE_TRACE" --draft-model "$draft_model_name" \
                 --dataset-name "$data_set_name" --dataset-path "$data_set_path" \
+                --result-dir "$RESULT_DIR" \
                 --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts "$NUM_PROMPTS" \
                 --request-rate "$PROMPT_RATE" --start-index "$START_INDEX" \
                 --num-gpu-blocks-override "$num_gpu_blocks_override" \
@@ -84,6 +87,7 @@ run_dataset() {
             run_cmd python run_benchmark_tests.py --strategy ilp --sub-strategy deep \
                 --model "$model_name" --save-trace "$SAVE_TRACE" --draft-model "$draft_model_name" \
                 --dataset-name "$data_set_name" --dataset-path "$data_set_path" \
+                --result-dir "$RESULT_DIR" \
                 --speculative-len 3 --num-prompts "$NUM_PROMPTS" \
                 --request-rate "$PROMPT_RATE" --start-index "$START_INDEX" \
                 --num-gpu-blocks-override "$num_gpu_blocks_override" \
@@ -98,6 +102,7 @@ run_dataset() {
                 --explore "$explore" --save-trace "$SAVE_TRACE" \
                 --model "$model_name" --draft-model "$draft_model_name" \
                 --dataset-name "$data_set_name" --dataset-path "$data_set_path" \
+                --result-dir "$RESULT_DIR" \
                 --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts "$NUM_PROMPTS" \
                 --request-rate "$PROMPT_RATE" --start-index "$START_INDEX" \
                 --num-gpu-blocks-override "$num_gpu_blocks_override" \
@@ -111,6 +116,7 @@ run_dataset() {
             run_cmd python run_benchmark_tests.py --strategy ilp --sub-strategy smart_spec \
                 --model "$model_name" --save-trace "$SAVE_TRACE" --draft-model "$draft_model_name" \
                 --dataset-name "$data_set_name" --dataset-path "$data_set_path" \
+                --result-dir "$RESULT_DIR" \
                 --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts "$NUM_PROMPTS" \
                 --request-rate "$PROMPT_RATE" --start-index "$START_INDEX" \
                 --num-gpu-blocks-override "$num_gpu_blocks_override" \
@@ -125,6 +131,7 @@ run_dataset() {
                 --select-strategy capacity --save-trace "$SAVE_TRACE" \
                 --model "$model_name" --draft-model "$draft_model_name" \
                 --dataset-name "$data_set_name" --dataset-path "$data_set_path" \
+                --result-dir "$RESULT_DIR" \
                 --speculative-len 3 --num-prompts "$NUM_PROMPTS" \
                 --request-rate "$PROMPT_RATE" --start-index "$START_INDEX" \
                 --num-gpu-blocks-override "$num_gpu_blocks_override" \
@@ -139,6 +146,7 @@ run_dataset() {
                 --explore "$explore" --save-trace "$SAVE_TRACE" \
                 --model "$model_name" --draft-model "$draft_model_name" \
                 --dataset-name "$data_set_name" --dataset-path "$data_set_path" \
+                --result-dir "$RESULT_DIR" \
                 --speculative-len ${MAX_SPECULATIVE_LEN} --num-prompts "$NUM_PROMPTS" \
                 --request-rate "$PROMPT_RATE" --start-index "$START_INDEX" \
                 --num-gpu-blocks-override "$num_gpu_blocks_override" \
