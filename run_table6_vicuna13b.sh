@@ -16,13 +16,15 @@ NUM_PROMPTS=${NUM_PROMPTS:-200}
 PROMPT_RATES="${PROMPT_RATES:-5}"
 FILE_NAME=${FILE_NAME:-table6_vicuna13b.log}
 RESULT_DIR=${RESULT_DIR:-benchmark_results/vicuna13B}
+DIAG_DIR=${DIAG_DIR:-benchmark_results/vicuna13B_diagnostics}
 MAX_SPECULATIVE_LEN=${MAX_SPECULATIVE_LEN:-3}
 START_INDEX=${START_INDEX:-0}
 ENABLE_TRACE=${ENABLE_TRACE:-False}
 SAVE_TRACE=${SAVE_TRACE:-False}
+TRACE_WINDOW_SEC=${TRACE_WINDOW_SEC:-1.0}
 
 # Follow test3_diff_length_13B.sh. Override if your GPU needs a different value.
-num_gpu_blocks_override=${num_gpu_blocks_override:-4938}
+num_gpu_blocks_override=${num_gpu_blocks_override:-717}
 gpu_memory_utilization=${gpu_memory_utilization:-0.85}
 increase_block_threshold=${increase_block_threshold:-150}
 decrease_block_threshold=${decrease_block_threshold:-100}
@@ -47,6 +49,7 @@ RUN_NIGHTJAR=${RUN_NIGHTJAR:-1}
 
 cd "$(dirname "$0")"
 mkdir -p "$RESULT_DIR"
+mkdir -p "$DIAG_DIR"
 rm -rf "$FILE_NAME"
 
 run_cmd() {
@@ -80,7 +83,10 @@ run_dataset() {
                 --enable-trace "$ENABLE_TRACE" --burstiness "$burstiness" \
                 --gpu-memory-utilization "$gpu_memory_utilization" \
                 --increase-block-threshold "$increase_block_threshold" \
-                --decrease-block-threshold "$decrease_block_threshold"
+                --decrease-block-threshold "$decrease_block_threshold" \
+                --trace-window-sec "$TRACE_WINDOW_SEC" \
+                --export-trace-summary "$DIAG_DIR/${data_set_name}_${PROMPT_RATE}_nospec_trace_summary.json" \
+                --export-step-log "$DIAG_DIR/${data_set_name}_${PROMPT_RATE}_nospec_events.jsonl"
         fi
 
         if [ "$RUN_SD" = "1" ]; then
@@ -94,7 +100,10 @@ run_dataset() {
                 --enable-trace "$ENABLE_TRACE" --burstiness "$burstiness" \
                 --gpu-memory-utilization "$gpu_memory_utilization" \
                 --increase-block-threshold "$increase_block_threshold" \
-                --decrease-block-threshold "$decrease_block_threshold"
+                --decrease-block-threshold "$decrease_block_threshold" \
+                --trace-window-sec "$TRACE_WINDOW_SEC" \
+                --export-trace-summary "$DIAG_DIR/${data_set_name}_${PROMPT_RATE}_sd_deep3_trace_summary.json" \
+                --export-step-log "$DIAG_DIR/${data_set_name}_${PROMPT_RATE}_sd_deep3_events.jsonl"
         fi
 
         if [ "$RUN_BANDITSPEC" = "1" ]; then
@@ -109,7 +118,10 @@ run_dataset() {
                 --enable-trace "$ENABLE_TRACE" --burstiness "$burstiness" \
                 --gpu-memory-utilization "$gpu_memory_utilization" \
                 --increase-block-threshold "$increase_block_threshold" \
-                --decrease-block-threshold "$decrease_block_threshold"
+                --decrease-block-threshold "$decrease_block_threshold" \
+                --trace-window-sec "$TRACE_WINDOW_SEC" \
+                --export-trace-summary "$DIAG_DIR/${data_set_name}_${PROMPT_RATE}_banditspec_ucb_trace_summary.json" \
+                --export-step-log "$DIAG_DIR/${data_set_name}_${PROMPT_RATE}_banditspec_ucb_events.jsonl"
         fi
 
         if [ "$RUN_DSD" = "1" ]; then
@@ -123,7 +135,10 @@ run_dataset() {
                 --enable-trace "$ENABLE_TRACE" --burstiness "$burstiness" \
                 --gpu-memory-utilization "$gpu_memory_utilization" \
                 --increase-block-threshold "$increase_block_threshold" \
-                --decrease-block-threshold "$decrease_block_threshold"
+                --decrease-block-threshold "$decrease_block_threshold" \
+                --trace-window-sec "$TRACE_WINDOW_SEC" \
+                --export-trace-summary "$DIAG_DIR/${data_set_name}_${PROMPT_RATE}_dsd_smart_spec_trace_summary.json" \
+                --export-step-log "$DIAG_DIR/${data_set_name}_${PROMPT_RATE}_dsd_smart_spec_events.jsonl"
         fi
 
         if [ "$RUN_TETRIS" = "1" ]; then
@@ -138,7 +153,10 @@ run_dataset() {
                 --enable-trace "$ENABLE_TRACE" --burstiness "$burstiness" \
                 --gpu-memory-utilization "$gpu_memory_utilization" \
                 --increase-block-threshold "$increase_block_threshold" \
-                --decrease-block-threshold "$decrease_block_threshold"
+                --decrease-block-threshold "$decrease_block_threshold" \
+                --trace-window-sec "$TRACE_WINDOW_SEC" \
+                --export-trace-summary "$DIAG_DIR/${data_set_name}_${PROMPT_RATE}_tetris_capacity_trace_summary.json" \
+                --export-step-log "$DIAG_DIR/${data_set_name}_${PROMPT_RATE}_tetris_capacity_events.jsonl"
         fi
 
         if [ "$RUN_NIGHTJAR" = "1" ]; then
@@ -153,7 +171,10 @@ run_dataset() {
                 --enable-trace "$ENABLE_TRACE" --burstiness "$burstiness" \
                 --gpu-memory-utilization "$gpu_memory_utilization" \
                 --increase-block-threshold "$increase_block_threshold" \
-                --decrease-block-threshold "$decrease_block_threshold"
+                --decrease-block-threshold "$decrease_block_threshold" \
+                --trace-window-sec "$TRACE_WINDOW_SEC" \
+                --export-trace-summary "$DIAG_DIR/${data_set_name}_${PROMPT_RATE}_nightjar_ada_bin_greedy_trace_summary.json" \
+                --export-step-log "$DIAG_DIR/${data_set_name}_${PROMPT_RATE}_nightjar_ada_bin_greedy_events.jsonl"
         fi
     done
 }
