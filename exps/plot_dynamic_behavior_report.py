@@ -135,6 +135,59 @@ def compressed_step_axis(gammas: list[float], zero_gamma_scale: float) -> list[f
     return xs
 
 
+def step_axis(values: list[Any]) -> list[int]:
+    return list(range(len(values)))
+
+
+def zero_value_indices(values: list[float]) -> list[int]:
+    return [index for index, value in enumerate(values) if value <= 0]
+
+
+def relative_time_axis(timestamps: list[float], origin: float) -> list[float]:
+    return [timestamp - origin for timestamp in timestamps]
+
+
+def event_time_origin(run: RunData) -> float:
+    timestamps = [
+        float(event["timestamp"]) for event in run.all_events
+        if "timestamp" in event
+    ]
+    return min(timestamps) if timestamps else 0.0
+
+
+def disabled_time_intervals(run: RunData, origin: float) -> list[tuple[float, float]]:
+    intervals: list[tuple[float, float]] = []
+    active_start: float | None = None
+    for event in sorted(run.all_events, key=lambda item: float(item.get("timestamp", 0.0))):
+        if event.get("event_type") != "memory_policy_decision":
+            continue
+        action = event.get("action")
+        timestamp = float(event.get("timestamp", 0.0))
+        if action == "expand_kv_cache":
+            active_start = timestamp
+        elif action == "restore_draft_model" and active_start is not None:
+            intervals.append((active_start - origin, timestamp - origin))
+            active_start = None
+    if active_start is not None:
+        timestamps = [
+            float(event["timestamp"]) for event in run.all_events
+            if "timestamp" in event
+        ]
+        end = max(timestamps) if timestamps else active_start
+        intervals.append((active_start - origin, end - origin))
+    return intervals
+
+
+def shade_disabled_intervals(axis: Any, intervals: list[tuple[float, float]]) -> None:
+    for start, end in intervals:
+        if end < start:
+            continue
+        axis.axvspan(start, end,
+                     color="#d8d8d8",
+                     alpha=0.32,
+                     linewidth=0)
+
+
 def mean_or_zero(values: list[float]) -> float:
     return statistics.fmean(values) if values else 0.0
 
@@ -209,10 +262,7 @@ def load_run_data(spec: RunSpec) -> RunData:
 
 def compute_run_summary(run: RunData) -> dict[str, Any]:
     steps = run.speculative_steps
-    acceptances = [
-        float(step.get("acceptance_rate", 0.0)) for step in steps
-        if int(step.get("proposal_length_gamma", 0)) > 0
-    ]
+    acceptances = [float(step.get("acceptance_rate", 0.0)) for step in steps]
     gammas = [int(step.get("proposal_length_gamma", 0)) for step in steps]
     speculative_gammas = [gamma for gamma in gammas if gamma > 0]
     speculative_steps = [
@@ -365,12 +415,18 @@ def plot_acceptance_gamma_traces(runs: list[RunData], output_path: Path,
             float(step.get("proposal_length_gamma", 0))
             for step in run.speculative_steps
         ]
-        steps = compressed_step_axis(gamma, zero_gamma_scale)
+        timestamps = [
+            float(step.get("timestamp", 0.0)) for step in run.speculative_steps
+        ]
+        origin = event_time_origin(run)
+        steps = relative_time_axis(timestamps, origin)
+        intervals = disabled_time_intervals(run, origin)
         acceptance_smooth = moving_average(acceptance, smooth_window)
         x_acc, y_acc = downsample_pairs(steps, acceptance_smooth,
                                         max_trace_points)
-        x_gamma, y_gamma = downsample_pairs(steps, gamma, max_trace_points)
+        zero_indices = zero_value_indices(gamma)
 
+        shade_disabled_intervals(axis, intervals)
         axis.plot(x_acc, y_acc, color="#4c72b0", linewidth=2, label="Acceptance")
         axis.set_ylim(0.0, 1.05)
         axis.set_ylabel("Acceptance", color="#4c72b0")
@@ -379,15 +435,26 @@ def plot_acceptance_gamma_traces(runs: list[RunData], output_path: Path,
         axis.set_title(format_run_title(run), fontsize=10)
 
         gamma_axis = axis.twinx()
-        gamma_axis.step(x_gamma,
-                        y_gamma,
+        shade_disabled_intervals(gamma_axis, intervals)
+        gamma_axis.step(steps,
+                        gamma,
                         where="post",
                         color="#dd8452",
                         alpha=0.85,
                         label="Gamma")
+        if zero_indices:
+            gamma_axis.scatter([steps[index] for index in zero_indices],
+                               [0.0] * len(zero_indices),
+                               color="#c44e52",
+                               edgecolors="white",
+                               linewidths=0.8,
+                               s=36,
+                               zorder=5,
+                               label="Gamma = 0")
+        gamma_axis.set_ylim(-0.25, max(gamma + [1.0]) + 0.5)
         gamma_axis.set_ylabel("Gamma", color="#dd8452")
         gamma_axis.tick_params(axis="y", labelcolor="#dd8452")
-    axes[-1, 0].set_xlabel("Compressed Decode Step")
+    axes[-1, 0].set_xlabel("Time since first event (s)")
     fig.tight_layout()
     fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
@@ -408,8 +475,14 @@ def plot_gamma_traces(runs: list[RunData], output_path: Path,
             float(step.get("proposal_length_gamma", 0))
             for step in run.speculative_steps
         ]
-        steps = compressed_step_axis(gamma, zero_gamma_scale)
+        timestamps = [
+            float(step.get("timestamp", 0.0)) for step in run.speculative_steps
+        ]
+        origin = event_time_origin(run)
+        steps = relative_time_axis(timestamps, origin)
+        intervals = disabled_time_intervals(run, origin)
         x_gamma, y_gamma = downsample_pairs(steps, gamma, max_trace_points)
+        shade_disabled_intervals(axis, intervals)
         axis.step(x_gamma,
                   y_gamma,
                   where="post",
@@ -418,7 +491,7 @@ def plot_gamma_traces(runs: list[RunData], output_path: Path,
         axis.set_ylabel("Gamma")
         axis.grid(alpha=0.25)
         axis.set_title(format_run_title(run), fontsize=10)
-    axes[-1, 0].set_xlabel("Compressed Decode Step")
+    axes[-1, 0].set_xlabel("Time since first event (s)")
     fig.tight_layout()
     fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
@@ -436,19 +509,20 @@ def plot_throughput_gamma_traces(runs: list[RunData], output_path: Path,
                              figsize=(12, max(3.4, 3.0 * len(relevant))),
                              squeeze=False)
     for axis, run in zip(axes[:, 0], relevant):
-        filtered_steps = [
-            step for step in run.speculative_steps
-            if float(step.get("proposal_length_gamma", 0)) > 0
-        ]
-        if not filtered_steps:
+        if not run.speculative_steps:
             continue
         gamma = [
             float(step.get("proposal_length_gamma", 0))
-            for step in filtered_steps
+            for step in run.speculative_steps
         ]
-        steps = compressed_step_axis(gamma, zero_gamma_scale)
+        timestamps = [
+            float(step.get("timestamp", 0.0)) for step in run.speculative_steps
+        ]
+        origin = event_time_origin(run)
+        steps = relative_time_axis(timestamps, origin)
+        intervals = disabled_time_intervals(run, origin)
         throughput = []
-        for step in filtered_steps:
+        for step in run.speculative_steps:
             batch_size = float(step.get("batch_size", 0.0))
             num_accepted_tokens = float(step.get("num_accepted_tokens", 0.0))
             step_total_time_ms = float(step.get("step_total_time_ms", 0.0))
@@ -461,8 +535,9 @@ def plot_throughput_gamma_traces(runs: list[RunData], output_path: Path,
         throughput_smooth = moving_average(throughput, smooth_window)
         x_tp, y_tp = downsample_pairs(steps, throughput_smooth,
                                       max_trace_points)
-        x_gamma, y_gamma = downsample_pairs(steps, gamma, max_trace_points)
+        zero_indices = zero_value_indices(gamma)
 
+        shade_disabled_intervals(axis, intervals)
         axis.plot(x_tp,
                   y_tp,
                   color="#4c72b0",
@@ -474,15 +549,26 @@ def plot_throughput_gamma_traces(runs: list[RunData], output_path: Path,
         axis.set_title(format_run_title(run), fontsize=10)
 
         gamma_axis = axis.twinx()
-        gamma_axis.step(x_gamma,
-                        y_gamma,
+        shade_disabled_intervals(gamma_axis, intervals)
+        gamma_axis.step(steps,
+                        gamma,
                         where="post",
                         color="#dd8452",
                         alpha=0.85,
                         label="Gamma")
+        if zero_indices:
+            gamma_axis.scatter([steps[index] for index in zero_indices],
+                               [0.0] * len(zero_indices),
+                               color="#c44e52",
+                               edgecolors="white",
+                               linewidths=0.8,
+                               s=36,
+                               zorder=5,
+                               label="Gamma = 0")
+        gamma_axis.set_ylim(-0.25, max(gamma + [1.0]) + 0.5)
         gamma_axis.set_ylabel("Gamma", color="#dd8452")
         gamma_axis.tick_params(axis="y", labelcolor="#dd8452")
-    axes[-1, 0].set_xlabel("Compressed Decode Step")
+    axes[-1, 0].set_xlabel("Time since first event (s)")
     fig.tight_layout()
     fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)

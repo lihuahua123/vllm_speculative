@@ -1453,6 +1453,7 @@ class AsyncLLMEngine(EngineClient):
         virtual_engine = 0
         scheduler = self.engine.scheduler[virtual_engine]
         all_strategy_attrs = ['daspec_spec', 'smart_spec', 'ucbspec', 'epsilon_greedy_spec']
+        fixed_strategy_names = {'ngram', 'fixed_ngram', 'fixed_draft'}
         strategy_attr_map = {
             'smart_spec': 'smart_spec',
             'daspec': 'daspec_spec',
@@ -1467,10 +1468,19 @@ class AsyncLLMEngine(EngineClient):
             'lin_ucb': 'epsilon_greedy_spec',
         }
         active_attr = strategy_attr_map.get(strategy)
-        if strategy is not None and active_attr is not None:
+        if strategy in fixed_strategy_names:
+            for attr in all_strategy_attrs:
+                setattr(scheduler, attr, None)
+            scheduler.fixed_speculative_strategy = strategy
+            logger.info(
+                "Fixed speculative strategy requested: strategy=%s action=%s; "
+                "disabled adaptive controllers=%s",
+                strategy, action, all_strategy_attrs)
+        elif strategy is not None and active_attr is not None:
             for attr in all_strategy_attrs:
                 if attr != active_attr:
                     setattr(scheduler, attr, None)
+            scheduler.fixed_speculative_strategy = None
         self.engine.ilp_manager.offload = offload
         self.engine.enable_memory_elasticity = offload
         if action == 10:
@@ -1586,9 +1596,31 @@ class AsyncLLMEngine(EngineClient):
         self.engine.enable_memory_elasticity = (
             offload or strategy == "epsilon_greedy_with_offload")
         self.engine.scheduler[virtual_engine].profile = profile
-        logger.info(f"change_speculative_action: {strategy}, {profile}")
+        logger.info(
+            "change_speculative_action: strategy=%s action=%s profile=%s "
+            "active_attr=%s fixed_strategy=%s active_specs_before=%s",
+            strategy, action, profile, active_attr,
+            getattr(scheduler, "fixed_speculative_strategy", None),
+            {
+                attr: type(getattr(scheduler, attr)).__name__
+                for attr in ALL_STRATEGY_ATTRS
+                if getattr(scheduler, attr, None) is not None
+            })
         
         active_attr = STRATEGY_ATTR_MAP.get(strategy)
+        if strategy in fixed_strategy_names:
+            for attr in ALL_STRATEGY_ATTRS:
+                setattr(scheduler, attr, None)
+            scheduler.fixed_speculative_strategy = strategy
+            logger.info(
+                "Configured fixed speculative strategy: strategy=%s "
+                "num_lookahead_slots=%s active_specs_after=%s",
+                strategy, scheduler.scheduler_config.num_lookahead_slots,
+                {
+                    attr: type(getattr(scheduler, attr)).__name__
+                    for attr in ALL_STRATEGY_ATTRS
+                    if getattr(scheduler, attr, None) is not None
+                })
         
         # 如果策略使用 epsilon_greedy_spec，需要根据策略名称动态实例化不同的类
         if active_attr == 'epsilon_greedy_spec':

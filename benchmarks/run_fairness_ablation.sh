@@ -17,7 +17,8 @@ HOST="${HOST:-127.0.0.1}"
 PORT_BASE="${PORT_BASE:-8110}"
 
 NUM_PROMPTS="${NUM_PROMPTS:-350}"
-REQUEST_RATES="${REQUEST_RATES:-5 10 15 20}"
+REQUEST_RATES="${REQUEST_RATES:-1 5 10}"
+FORCE_RERUN="${FORCE_RERUN:-False}"
 START_INDEX="${START_INDEX:-0}"
 OUTPUT_LEN="${OUTPUT_LEN:-150}"
 MAX_SPECULATIVE_LEN="${MAX_SPECULATIVE_LEN:-3}"
@@ -51,6 +52,9 @@ DATASETS="${DATASETS:-sharegpt:/root/autodl-tmp/sharegpt.json alpaca:tatsu-lab/a
 #   - DSD: daspec
 #   - SmartSpec, BanditSpec, TETRIS
 BASELINE_CASES="${BASELINE_CASES:-vanilla:nospec: sd:fixed_ngram: smart_spec:smart_spec: banditspec:ucb: tetris:deep:capacity}"
+RUN_NIGHTJAR_WO_OFFLOAD="${RUN_NIGHTJAR_WO_OFFLOAD:-True}"
+RUN_NIGHTJAR_FULL="${RUN_NIGHTJAR_FULL:-True}"
+RUN_BASELINES="${RUN_BASELINES:-True}"
 
 RESULT_ROOT="${RESULT_ROOT:-$ROOT_DIR/benchmark_results/fairness_ablation}"
 MANIFEST_CSV="$RESULT_ROOT/run_manifest.csv"
@@ -120,6 +124,10 @@ pending_request_rates() {
     for rate in $REQUEST_RATES; do
         if [[ "$(rate_label "$rate")" == "25.0" ]]; then
             echo "[fairness-ablation] skip dataset=$dataset_name sub_strategy=$sub_strategy qps=$rate reason=25qps-disabled" >> "$MASTER_LOG"
+            continue
+        fi
+        if [[ "$FORCE_RERUN" == "True" || "$FORCE_RERUN" == "true" ]]; then
+            pending+=("$rate")
             continue
         fi
         if has_successful_result "$result_dir" "$sub_strategy" "$dataset_name" "$rate"; then
@@ -238,8 +246,12 @@ Running fairness ablation with:
   BASELINE_CASES=$BASELINE_CASES
   NUM_PROMPTS=$NUM_PROMPTS
   REQUEST_RATES=$REQUEST_RATES (25 qps is always skipped)
+  FORCE_RERUN=$FORCE_RERUN
   MAX_SPECULATIVE_LEN=$MAX_SPECULATIVE_LEN
   NUM_GPU_BLOCKS_OVERRIDE=$NUM_GPU_BLOCKS_OVERRIDE
+  RUN_NIGHTJAR_WO_OFFLOAD=$RUN_NIGHTJAR_WO_OFFLOAD
+  RUN_NIGHTJAR_FULL=$RUN_NIGHTJAR_FULL
+  RUN_BASELINES=$RUN_BASELINES
 
 Outputs:
   1. Nightjar w/o offload
@@ -253,24 +265,30 @@ for dataset in $DATASETS; do
     dataset_name="${dataset%%:*}"
     dataset_path="${dataset#*:}"
 
-    run_case "$dataset_name" "$dataset_path" "nightjar_wo_offload" "nightjar_wo_offload" "epsilon_greedy" "" "false" "$((PORT_BASE + port_offset))"
-    port_offset=$((port_offset + 1))
-
-    run_case "$dataset_name" "$dataset_path" "nightjar_full" "nightjar_full" "epsilon_greedy_with_offload" "" "true" "$((PORT_BASE + port_offset))"
-    port_offset=$((port_offset + 1))
-
-    for baseline_case in $BASELINE_CASES; do
-        method_name="${baseline_case%%:*}"
-        remainder="${baseline_case#*:}"
-        sub_strategy="${remainder%%:*}"
-        select_strategy="${remainder#*:}"
-        if [[ "$select_strategy" == "$remainder" ]]; then
-            select_strategy=""
-        fi
-
-        run_case "$dataset_name" "$dataset_path" "baseline_static_memory" "$method_name" "$sub_strategy" "$select_strategy" "false" "$((PORT_BASE + port_offset))"
+    if [[ "$RUN_NIGHTJAR_WO_OFFLOAD" == "True" || "$RUN_NIGHTJAR_WO_OFFLOAD" == "true" ]]; then
+        run_case "$dataset_name" "$dataset_path" "nightjar_wo_offload" "nightjar_wo_offload" "epsilon_greedy" "" "false" "$((PORT_BASE + port_offset))"
         port_offset=$((port_offset + 1))
-    done
+    fi
+
+    if [[ "$RUN_NIGHTJAR_FULL" == "True" || "$RUN_NIGHTJAR_FULL" == "true" ]]; then
+        run_case "$dataset_name" "$dataset_path" "nightjar_full" "nightjar_full" "epsilon_greedy_with_offload" "" "true" "$((PORT_BASE + port_offset))"
+        port_offset=$((port_offset + 1))
+    fi
+
+    if [[ "$RUN_BASELINES" == "True" || "$RUN_BASELINES" == "true" ]]; then
+        for baseline_case in $BASELINE_CASES; do
+            method_name="${baseline_case%%:*}"
+            remainder="${baseline_case#*:}"
+            sub_strategy="${remainder%%:*}"
+            select_strategy="${remainder#*:}"
+            if [[ "$select_strategy" == "$remainder" ]]; then
+                select_strategy=""
+            fi
+
+            run_case "$dataset_name" "$dataset_path" "baseline_static_memory" "$method_name" "$sub_strategy" "$select_strategy" "false" "$((PORT_BASE + port_offset))"
+            port_offset=$((port_offset + 1))
+        done
+    fi
 done
 
 append_run_csv

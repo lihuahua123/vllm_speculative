@@ -1851,6 +1851,25 @@ class Scheduler:
             ("daspec", self.daspec_spec),
         ]
         non_null_specs = [(name, obj) for name, obj in active_specs if obj is not None]
+        fixed_speculative_strategy = getattr(self, "fixed_speculative_strategy", None)
+        scheduler_debug_state = (
+            fixed_speculative_strategy,
+            tuple(name for name, _ in non_null_specs),
+            is_decode,
+            len(self.running),
+        )
+        if (is_decode and len(self.running) > 0
+                and getattr(self, "_last_spec_schedule_debug_state", None)
+                != scheduler_debug_state):
+            logger.info(
+                "Spec schedule state: fixed_strategy=%s active_specs=%s "
+                "profile=%s proposer_worker_to_cpu=%s default_gamma=%s",
+                fixed_speculative_strategy,
+                [name for name, _ in non_null_specs],
+                self.profile,
+                self.proposer_worker_to_cpu,
+                best_proposed_lengths)
+            self._last_spec_schedule_debug_state = scheduler_debug_state
         if len(non_null_specs) > 1:
             keep_name = "epsilon_greedy" if self.epsilon_greedy_spec is not None else non_null_specs[0][0]
             self.smart_spec = self.smart_spec if keep_name == "smart_spec" else None

@@ -73,7 +73,7 @@ def parse_args():
     parser.add_argument("--strategy", type=str, default="baseline",
                         choices=["baseline", "ilp", "no-spec"], help="策略名称")
     parser.add_argument("--sub-strategy", type=str, default="ngram",
-                        choices=["ngram", "fixed_ngram", "deep", "nospec", "daspec", "smart_spec", "threshold","ucb","ucb-offload","epsilon_greedy","epsilon_greedy_with_offload","epsilon_greedy_with_c_prefill","ada_bin_greedy","ada_bin_greedy_simple","epsilon_greedy_simple","epsilon_greedy_context_bin","lin_ucb"], help="子策略名称")
+                        choices=["ngram", "fixed_ngram", "fixed_draft", "deep", "nospec", "daspec", "smart_spec", "threshold","ucb","ucb-offload","epsilon_greedy","epsilon_greedy_with_offload","epsilon_greedy_with_c_prefill","ada_bin_greedy","ada_bin_greedy_simple","epsilon_greedy_simple","epsilon_greedy_context_bin","lin_ucb"], help="子策略名称")
     parser.add_argument("--speculative-len", type=int, default=1, help="speculative长度")
     parser.add_argument("--draft-model", type=str, default="", help="draft模型")
     parser.add_argument("--profile",action="store_true", help="是否开启profile")
@@ -146,6 +146,8 @@ def start_server(model, host, port, strategy,sub_strategy,draft_model,speculativ
             exec_cmd.append("1")
         else:
             exec_cmd.append(str(speculative_len))
+        exec_cmd.append("--num-lookahead-slots")
+        exec_cmd.append(str(speculative_len))
 
         # vLLM requires a positive prompt lookup window when using [ngram]
         # as a model-free draft backend.
@@ -182,7 +184,7 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
                  request_rate, result_dir, strategy, text, start_index=0,
                  output_len=None, enable_trace="False", burstiness=1.0,
                  strategy_name=None, increase_block_threshold=150,
-                 decrease_block_threshold=100, seed=42, trace_plan=None,
+                 decrease_block_threshold=100, persist_steps=3, seed=42, trace_plan=None,
                  trace_window_sec=1.0, export_trace_summary=None,
                  export_step_log=None, max_concurrency=None,
                  random_input_len=None, random_output_len=None,
@@ -218,6 +220,7 @@ def run_benchmark(host, port, model, dataset_name, dataset_path, num_prompts,
         # "--ignore-eos",
         "--increase-block-threshold", str(increase_block_threshold),
         "--decrease-block-threshold", str(decrease_block_threshold),
+        "--persist-steps", str(persist_steps),
         "--seed", str(seed),
     ]
     if strategy_name:
@@ -311,7 +314,8 @@ def get_strategy_name(sub_strategy, speculative_len, select_strategy=None):
         "smart_spec": "smart_spec",
         "daspec": "daspec",
         "ngram": "ngram",
-        "fixed_ngram": f"ngram-{speculative_len}",
+        "fixed_ngram": f"fixed-sd-{speculative_len}",
+        "fixed_draft": f"fixed-draft-{speculative_len}",
         "ada_bin_greedy": "ADABinGreedy",
         "ada_bin_greedy_simple": "ADABinGreedySimple",
         "epsilon_greedy_simple": "EpsilonGreedySimple",
@@ -339,6 +343,7 @@ def main():
         trace_window_sec=args.trace_window_sec,
         export_trace_summary=args.export_trace_summary,
         export_step_log=args.export_step_log,
+        persist_steps=args.persist_steps,
         random_input_len=args.random_input_len,
         random_output_len=args.random_output_len,
         random_range_ratio=args.random_range_ratio,
@@ -408,7 +413,12 @@ def main():
                 if args.save_trace == "True":
                     send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ngram.json")
                 send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_ngram.json")
-            if sub_strategy == "fixed_ngram":
+            if sub_strategy in ("fixed_ngram", "fixed_draft"):
+                if args.strategy == "ilp":
+                    if not send_speculative_action(args.host, args.port, 0,strategy=args.sub_strategy,profile=profile):
+                        print("发送speculative_action请求失败")
+                        return
+                    time.sleep(5)
                 strategy_name = get_strategy_name(sub_strategy, args.speculative_len, args.select_strategy)
                 run_benchmark_fn(
                         host=args.host,
@@ -431,8 +441,8 @@ def main():
                         seed=args.seed,
                     )
                 if args.save_trace == "True":
-                    send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_fixed_ngram.json")
-                send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_fixed_ngram.json")
+                    send_speculative_action(args.host, args.port, 9,strategy=args.sub_strategy,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_{sub_strategy}.json")
+                send_speculative_action(args.host, args.port, -1,save_action_time_history=save_action_time_history,profile=profile,file_name=f"{profile_file_name}_{sub_strategy}.json")
             if sub_strategy == "nospec":
                 send_speculative_action(args.host, args.port, 2,strategy=args.sub_strategy,profile=profile)
                 time.sleep(5)
