@@ -51,7 +51,7 @@ class RequestFuncOutput:
 
 
 async def _iter_sse_payloads(response):
-    """Yield SSE payload strings without relying on aiohttp readline limits."""
+    """Yield JSON payload strings from SSE or newline-delimited streams."""
     buffer = ""
     async for chunk_bytes in response.content.iter_any():
         if not chunk_bytes:
@@ -66,6 +66,17 @@ async def _iter_sse_payloads(response):
                     separator = candidate
                     break
             if separator is None:
+                newline_idx = buffer.find("\n")
+                if newline_idx != -1:
+                    raw_line = buffer[:newline_idx].strip()
+                    buffer = buffer[newline_idx + 1:]
+                    if raw_line and not raw_line.startswith(":"):
+                        if raw_line.startswith("data:"):
+                            yield raw_line[5:].lstrip()
+                        else:
+                            yield raw_line
+                    continue
+            if separator is None:
                 break
 
             raw_event = buffer[:idx]
@@ -79,6 +90,11 @@ async def _iter_sse_payloads(response):
                     data_lines.append(line[5:].lstrip())
             if data_lines:
                 yield "\n".join(data_lines)
+            else:
+                for line in raw_event.splitlines():
+                    line = line.strip()
+                    if line and not line.startswith(":"):
+                        yield line
 
     tail = buffer.strip()
     if tail:
@@ -90,6 +106,11 @@ async def _iter_sse_payloads(response):
                 data_lines.append(line[5:].lstrip())
         if data_lines:
             yield "\n".join(data_lines)
+        else:
+            for line in tail.splitlines():
+                line = line.strip()
+                if line and not line.startswith(":"):
+                    yield line
 
 
 async def async_request_tgi(

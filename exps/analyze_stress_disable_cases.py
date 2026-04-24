@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 
 
 SPEC_STEP_EVENT = "speculative_step"
+DISABLED_DECODE_EVENT = "disabled_decode_step"
 POLICY_EVENT = "memory_policy_decision"
 EXPAND_EVENT = "memory_expand"
 CONTRACT_EVENT = "memory_contract"
@@ -23,8 +24,36 @@ MIGRATION_EVENT = "kv_block_migration"
 @dataclass
 class StressCase:
     pattern: str
+    variant: str
     event_log: Path
     trace_path: Path | None
+
+
+PATTERN_ORDER = {
+    "burst_spike": 0,
+    "high_low_oscillation": 1,
+    "sync_migration_worst_case": 2,
+}
+
+VARIANT_ORDER = {
+    "Nightjar": 0,
+    "Nightjar_static_memory": 1,
+    "BanditSpec": 2,
+    "DSD": 3,
+    "SD": 4,
+    "TETRIS": 5,
+    "wo_sd": 6,
+}
+
+VARIANT_LABELS = {
+    "Nightjar": "Nightjar",
+    # "Nightjar_static_memory": "Nightjar (w/o offload)",
+    "BanditSpec": "BanditSpec",
+    "DSD": "DSD",
+    "SD": "SD",
+    "TETRIS": "TETRIS",
+    "wo_sd": "w/o SD",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,6 +83,7 @@ def parse_stress_cases(summary_csv: Path,
         reader = csv.DictReader(f)
         for row in reader:
             pattern = (row.get("pattern") or "").strip()
+            variant = (row.get("variant") or "").strip()
             event_log = Path(row["event_log"]).expanduser()
             if not event_log.exists():
                 continue
@@ -64,9 +94,35 @@ def parse_stress_cases(summary_csv: Path,
                     trace_path = candidate
             cases.append(
                 StressCase(pattern=pattern,
+                           variant=variant,
                            event_log=event_log,
                            trace_path=trace_path))
+    cases.sort(key=case_sort_key)
     return cases
+
+
+def split_workload_pattern(case_pattern: str, variant: str) -> str:
+    suffix = f"_{variant}"
+    if variant and case_pattern.endswith(suffix):
+        return case_pattern[: -len(suffix)]
+    return case_pattern
+
+
+def pretty_workload_pattern(workload_pattern: str) -> str:
+    return workload_pattern.replace("_", " ")
+
+
+def pretty_variant(variant: str) -> str:
+    return VARIANT_LABELS.get(variant, variant.replace("_", " "))
+
+
+def case_sort_key(case: StressCase) -> tuple[int, int, str]:
+    workload_pattern = split_workload_pattern(case.pattern, case.variant)
+    return (
+        PATTERN_ORDER.get(workload_pattern, 99),
+        VARIANT_ORDER.get(case.variant, 99),
+        case.pattern,
+    )
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -109,16 +165,39 @@ def first_disable_step(
     return None, None
 
 
+def timeline_steps(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    steps = [
+        event for event in events
+        if event.get("event_type") in (SPEC_STEP_EVENT, DISABLED_DECODE_EVENT)
+    ]
+    return steps
+
+
 def rel_ms(anchor_ts: float | None, event_ts: float | None) -> float:
     if anchor_ts is None or event_ts is None:
         return 0.0
     return (event_ts - anchor_ts) * 1000.0
 
 
+def timeline_rel_ms(steps: list[dict[str, Any]]) -> list[float]:
+    anchor_ts = None
+    for step in steps:
+        ts = step.get("timestamp")
+        if isinstance(ts, (int, float)):
+            anchor_ts = float(ts)
+            break
+    return [
+        rel_ms(anchor_ts, float(step["timestamp"]))
+        if isinstance(step.get("timestamp"), (int, float)) else 0.0
+        for step in steps
+    ]
+
+
 def summarize_case(case: StressCase) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     events = load_jsonl(case.event_log)
     spec_steps = [e for e in events if e.get("event_type") == SPEC_STEP_EVENT]
-    disable_index, disable_event = first_disable_step(spec_steps)
+    steps = timeline_steps(events)
+    disable_index, disable_event = first_disable_step(steps)
     expand_policy = find_first(events, POLICY_EVENT, action="expand_kv_cache")
     restore_policy = find_first(events, POLICY_EVENT, action="restore_draft_model")
     expand_event = find_first(events, EXPAND_EVENT)
@@ -137,8 +216,12 @@ def summarize_case(case: StressCase) -> tuple[dict[str, Any], list[dict[str, Any
         "trace_segments": load_trace_segments(case.trace_path),
         "event_log": str(case.event_log),
         "num_speculative_steps": len(spec_steps),
+        "num_timeline_steps": len(steps),
+        "num_disabled_decode_steps": sum(
+            1 for event in events
+            if event.get("event_type") == DISABLED_DECODE_EVENT),
         "disable_step_count": sum(
-            1 for step in spec_steps
+            1 for step in steps
             if int(step.get("proposal_length_gamma", 0)) == 0),
         "first_disable_step_index": disable_index if disable_index is not None else -1,
         "first_disable_ts": float(disable_event.get("timestamp", 0.0))
@@ -227,7 +310,7 @@ def summarize_case(case: StressCase) -> tuple[dict[str, Any], list[dict[str, Any
         rel_ms(contract_event.get("timestamp") if contract_event else None,
                disable_event.get("timestamp") if disable_event else None),
     }
-    return summary, spec_steps
+    return summary, steps
 
 
 def save_summaries(summaries: list[dict[str, Any]], output_dir: Path,
@@ -242,34 +325,42 @@ def save_summaries(summaries: list[dict[str, Any]], output_dir: Path,
 
 
 def plot_cases(cases: list[StressCase],
-               spec_steps_by_pattern: dict[str, list[dict[str, Any]]],
+               timeline_steps_by_pattern: dict[str, list[dict[str, Any]]],
                summaries: list[dict[str, Any]],
                output_path: Path) -> None:
     if not summaries:
         return
     fig, axes = plt.subplots(len(cases),
                              3,
-                             figsize=(16, max(3.6, 3.2 * len(cases))),
+                             figsize=(16, max(3.6, 2.9 * len(cases))),
                              squeeze=False)
 
     for row_index, case in enumerate(cases):
-        steps = spec_steps_by_pattern[case.pattern]
+        steps = timeline_steps_by_pattern[case.pattern]
         summary = next(item for item in summaries if item["pattern"] == case.pattern)
-        xs = list(range(len(steps)))
+        workload_pattern = split_workload_pattern(case.pattern, case.variant)
+        xs = timeline_rel_ms(steps)
         gamma = [int(step.get("proposal_length_gamma", 0)) for step in steps]
+        acceptance = [float(step.get("acceptance_rate", 0.0)) for step in steps]
         free_blocks = [int(step.get("free_gpu_blocks", 0)) for step in steps]
         running = [int(step.get("num_running", 0)) for step in steps]
         queue = [int(step.get("queue_len", 0)) for step in steps]
 
-        gamma_axis = axes[row_index, 0]
+        acceptance_axis = axes[row_index, 0]
         free_axis = axes[row_index, 1]
         load_axis = axes[row_index, 2]
 
-        gamma_axis.step(xs, gamma, where="post", color="#dd8452", linewidth=2)
-        gamma_axis.axhline(0, color="#c44e52", linewidth=1, alpha=0.5)
-        gamma_axis.set_ylabel("Gamma")
-        gamma_axis.set_title(case.pattern.replace("_", " "))
-        gamma_axis.grid(alpha=0.25)
+        acceptance_axis.plot(xs,
+                             acceptance,
+                             color="#4c72b0",
+                             linewidth=2,
+                             label="Acceptance")
+        acceptance_axis.set_ylim(0.0, 1.05)
+        acceptance_axis.set_ylabel("Acceptance")
+        acceptance_axis.set_title(
+            f"{pretty_workload_pattern(workload_pattern)} | {pretty_variant(case.variant)}"
+        )
+        acceptance_axis.grid(alpha=0.25)
 
         free_axis.plot(xs, free_blocks, color="#4c72b0", linewidth=2)
         threshold = summary["increase_block_threshold"]
@@ -287,24 +378,116 @@ def plot_cases(cases: list[StressCase],
         load_axis.set_ylabel("Requests")
         load_axis.grid(alpha=0.25)
 
-        disable_index = summary["first_disable_step_index"]
-        if disable_index >= 0:
-            for axis in (gamma_axis, free_axis, load_axis):
-                axis.axvline(disable_index,
+        disable_ts = summary["first_disable_rel_ms"]
+        if summary["first_disable_step_index"] >= 0:
+            for axis in (acceptance_axis, free_axis, load_axis):
+                axis.axvline(disable_ts,
                              color="#000000",
                              linestyle=":",
                              linewidth=1.2)
 
         if row_index == 0:
+            acceptance_axis.legend(loc="upper right")
             free_axis.legend(loc="upper right")
             load_axis.legend(loc="upper right")
 
     for axis in axes[-1, :]:
-        axis.set_xlabel("Speculative Step Index")
+        axis.set_xlabel("Relative Time (ms)")
 
     fig.tight_layout()
     fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
+
+
+def plot_cases_by_workload(
+        cases: list[StressCase],
+        timeline_steps_by_pattern: dict[str, list[dict[str, Any]]],
+        summaries: list[dict[str, Any]],
+        output_dir: Path,
+        prefix: str) -> None:
+    grouped_cases: dict[str, list[StressCase]] = {}
+    for case in cases:
+        workload_pattern = split_workload_pattern(case.pattern, case.variant)
+        grouped_cases.setdefault(workload_pattern, []).append(case)
+
+    for workload_pattern, workload_cases in grouped_cases.items():
+        fig, axes = plt.subplots(len(workload_cases),
+                                 3,
+                                 figsize=(16, max(3.6, 2.9 * len(workload_cases))),
+                                 squeeze=False)
+
+        for row_index, case in enumerate(workload_cases):
+            steps = timeline_steps_by_pattern[case.pattern]
+            summary = next(item for item in summaries
+                           if item["pattern"] == case.pattern)
+            xs = timeline_rel_ms(steps)
+            acceptance = [
+                float(step.get("acceptance_rate", 0.0)) for step in steps
+            ]
+            free_blocks = [int(step.get("free_gpu_blocks", 0)) for step in steps]
+            running = [int(step.get("num_running", 0)) for step in steps]
+            queue = [int(step.get("queue_len", 0)) for step in steps]
+
+            acceptance_axis = axes[row_index, 0]
+            free_axis = axes[row_index, 1]
+            load_axis = axes[row_index, 2]
+
+            acceptance_axis.plot(xs,
+                                 acceptance,
+                                 color="#4c72b0",
+                                 linewidth=2,
+                                 label="Acceptance")
+            acceptance_axis.set_ylim(0.0, 1.05)
+            acceptance_axis.set_ylabel("Acceptance")
+            acceptance_axis.set_title(
+                f"{pretty_workload_pattern(workload_pattern)} | {pretty_variant(case.variant)}"
+            )
+            acceptance_axis.grid(alpha=0.25)
+
+            free_axis.plot(xs, free_blocks, color="#4c72b0", linewidth=2)
+            threshold = summary["increase_block_threshold"]
+            if threshold > 0:
+                free_axis.axhline(threshold,
+                                  linestyle="--",
+                                  color="#c44e52",
+                                  linewidth=1.2,
+                                  label="Expand threshold")
+            free_axis.set_ylabel("Free GPU Blocks")
+            free_axis.grid(alpha=0.25)
+
+            load_axis.plot(xs,
+                           running,
+                           color="#55a868",
+                           linewidth=2,
+                           label="Running")
+            load_axis.plot(xs,
+                           queue,
+                           color="#8172b3",
+                           linewidth=2,
+                           label="Queue")
+            load_axis.set_ylabel("Requests")
+            load_axis.grid(alpha=0.25)
+
+            disable_ts = summary["first_disable_rel_ms"]
+            if summary["first_disable_step_index"] >= 0:
+                for axis in (acceptance_axis, free_axis, load_axis):
+                    axis.axvline(disable_ts,
+                                 color="#000000",
+                                 linestyle=":",
+                                 linewidth=1.2)
+
+            if row_index == 0:
+                acceptance_axis.legend(loc="upper right")
+                free_axis.legend(loc="upper right")
+                load_axis.legend(loc="upper right")
+
+        for axis in axes[-1, :]:
+            axis.set_xlabel("Relative Time (ms)")
+
+        fig.tight_layout()
+        output_path = output_dir / f"{prefix}_{workload_pattern}_timeline.pdf"
+        fig.savefig(output_path, bbox_inches="tight")
+        plt.close(fig)
 
 
 def main() -> None:
@@ -313,16 +496,18 @@ def main() -> None:
 
     cases = parse_stress_cases(args.summary_csv, args.trace_dir)
     summaries: list[dict[str, Any]] = []
-    spec_steps_by_pattern: dict[str, list[dict[str, Any]]] = {}
+    timeline_steps_by_pattern: dict[str, list[dict[str, Any]]] = {}
     for case in cases:
-        summary, spec_steps = summarize_case(case)
+        summary, steps = summarize_case(case)
         summaries.append(summary)
-        spec_steps_by_pattern[case.pattern] = spec_steps
+        timeline_steps_by_pattern[case.pattern] = steps
 
     if summaries:
         save_summaries(summaries, args.output_dir, args.prefix)
-        plot_cases(cases, spec_steps_by_pattern, summaries,
+        plot_cases(cases, timeline_steps_by_pattern, summaries,
                    args.output_dir / f"{args.prefix}_timeline.pdf")
+        plot_cases_by_workload(cases, timeline_steps_by_pattern, summaries,
+                               args.output_dir, args.prefix)
 
 
 if __name__ == "__main__":

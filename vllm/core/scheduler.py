@@ -1842,7 +1842,7 @@ class Scheduler:
         
         # Move to next cache (if exists)
         self.cache_id = self.next_cache_id
-        best_proposed_lengths = 5 #self.last_best_proposed_lengths # self.scheduler_config.num_lookahead_slots
+        best_proposed_lengths = self.scheduler_config.num_lookahead_slots
         is_decode = (scheduler_outputs.num_prefill_groups == 0)
         active_specs = [
             ("smart_spec", self.smart_spec),

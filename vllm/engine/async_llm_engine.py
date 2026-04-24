@@ -1461,6 +1461,7 @@ class AsyncLLMEngine(EngineClient):
         scheduler = self.engine.scheduler[virtual_engine]
         all_strategy_attrs = ['daspec_spec', 'smart_spec', 'ucbspec', 'epsilon_greedy_spec']
         fixed_strategy_names = {'ngram', 'fixed_ngram', 'fixed_draft'}
+        controllerless_strategy_names = {'deep', 'nospec', 'threshold'}
         strategy_attr_map = {
             'smart_spec': 'smart_spec',
             'daspec': 'daspec_spec',
@@ -1474,20 +1475,92 @@ class AsyncLLMEngine(EngineClient):
             'epsilon_greedy_context_bin': 'epsilon_greedy_spec',
             'lin_ucb': 'epsilon_greedy_spec',
         }
-        active_attr = strategy_attr_map.get(strategy)
-        if strategy in fixed_strategy_names:
+
+        def clear_strategy_controllers() -> None:
             for attr in all_strategy_attrs:
                 setattr(scheduler, attr, None)
-            scheduler.fixed_speculative_strategy = strategy
-            logger.info(
-                "Fixed speculative strategy requested: strategy=%s action=%s; "
-                "disabled adaptive controllers=%s",
-                strategy, action, all_strategy_attrs)
-        elif strategy is not None and active_attr is not None:
-            for attr in all_strategy_attrs:
-                if attr != active_attr:
-                    setattr(scheduler, attr, None)
-            scheduler.fixed_speculative_strategy = None
+
+        def active_strategy_snapshot() -> Dict[str, str]:
+            return {
+                attr: type(getattr(scheduler, attr)).__name__
+                for attr in all_strategy_attrs
+                if getattr(scheduler, attr, None) is not None
+            }
+
+        def ensure_strategy_controller(active_attr: Optional[str]) -> None:
+            if active_attr is None or getattr(scheduler, active_attr, None) is not None:
+                return
+
+            num_lookahead_slots = scheduler.scheduler_config.num_lookahead_slots
+            if num_lookahead_slots <= 0:
+                logger.warning(
+                    "Cannot enable controller for strategy=%s because "
+                    "num_lookahead_slots=%s",
+                    strategy, num_lookahead_slots)
+                return
+
+            if active_attr == "ucbspec":
+                from vllm.core.spec_scheduler import UCBSpec
+                scheduler.ucbspec = UCBSpec(
+                    num_lookahead_slots + 1,
+                    max_spec_length=num_lookahead_slots)
+            elif active_attr == "epsilon_greedy_spec":
+                from vllm.core.spec_scheduler import EpsilonGreedySimple
+                scheduler.epsilon_greedy_spec = EpsilonGreedySimple(
+                    num_lookahead_slots + 1,
+                    max_spec_length=num_lookahead_slots)
+            elif active_attr == "smart_spec":
+                from joblib import load
+                from vllm.core.spec_scheduler import SmartSpec
+                verify_profile = "DeepSeek-R1-Qwen2.5-0.5B-Verify_LinearRegression.pkl"
+                draft_profile = "DeepSeek-R1-DRAFT-Qwen2.5-0.5B_LinearRegression.pkl"
+                if os.path.exists(verify_profile) and os.path.exists(draft_profile):
+                    scheduler.smart_spec = SmartSpec(
+                        load(verify_profile), load(draft_profile),
+                        num_lookahead_slots)
+                else:
+                    logger.warning(
+                        "Cannot enable smart_spec; missing profile files: %s, %s",
+                        verify_profile, draft_profile)
+            elif active_attr == "daspec_spec":
+                from vllm.core.spec_scheduler import OnlineDASpec
+                verify_profile = "llama-Verify-online_RiverDecisionTree.pkl"
+                draft_profile = "llama-eagle-online_RiverDecisionTree.pkl"
+                if os.path.exists(verify_profile) and os.path.exists(draft_profile):
+                    scheduler.daspec_spec = OnlineDASpec(
+                        verify_profile, draft_profile, num_lookahead_slots)
+                else:
+                    logger.warning(
+                        "Cannot enable daspec; missing profile files: %s, %s",
+                        verify_profile, draft_profile)
+
+        def select_strategy_controller() -> None:
+            active_attr = strategy_attr_map.get(strategy)
+            if strategy in fixed_strategy_names:
+                clear_strategy_controllers()
+                scheduler.fixed_speculative_strategy = strategy
+                logger.info(
+                    "Fixed speculative strategy requested: strategy=%s action=%s; "
+                    "disabled adaptive controllers=%s",
+                    strategy, action, all_strategy_attrs)
+                return
+            if strategy in controllerless_strategy_names:
+                clear_strategy_controllers()
+                scheduler.fixed_speculative_strategy = None
+                logger.info(
+                    "Controllerless speculative strategy requested: "
+                    "strategy=%s action=%s; disabled adaptive controllers=%s",
+                    strategy, action, all_strategy_attrs)
+                return
+            if strategy is not None and active_attr is not None:
+                ensure_strategy_controller(active_attr)
+                for attr in all_strategy_attrs:
+                    if attr != active_attr:
+                        setattr(scheduler, attr, None)
+                scheduler.fixed_speculative_strategy = None
+
+        active_attr = strategy_attr_map.get(strategy)
+        select_strategy_controller()
         self.engine.ilp_manager.offload = offload
         self.engine.enable_memory_elasticity = offload
         if action == 10:
@@ -1592,10 +1665,8 @@ class AsyncLLMEngine(EngineClient):
         if strategy == "threshold":
             self.engine.strategy = strategy
             self.engine.model_executor.set_disable_by_batch_size(action)
-            # 禁用所有策略
-            scheduler = self.engine.scheduler[virtual_engine]
-            for attr in ALL_STRATEGY_ATTRS:
-                setattr(scheduler, attr, None)
+            clear_strategy_controllers()
+            scheduler.fixed_speculative_strategy = None
             return
         
         if strategy is not None:
@@ -1605,29 +1676,18 @@ class AsyncLLMEngine(EngineClient):
         self.engine.scheduler[virtual_engine].profile = profile
         logger.info(
             "change_speculative_action: strategy=%s action=%s profile=%s "
-            "active_attr=%s fixed_strategy=%s active_specs_before=%s",
+            "active_attr=%s fixed_strategy=%s active_specs_after_select=%s",
             strategy, action, profile, active_attr,
             getattr(scheduler, "fixed_speculative_strategy", None),
-            {
-                attr: type(getattr(scheduler, attr)).__name__
-                for attr in ALL_STRATEGY_ATTRS
-                if getattr(scheduler, attr, None) is not None
-            })
+            active_strategy_snapshot())
         
         active_attr = STRATEGY_ATTR_MAP.get(strategy)
-        if strategy in fixed_strategy_names:
-            for attr in ALL_STRATEGY_ATTRS:
-                setattr(scheduler, attr, None)
-            scheduler.fixed_speculative_strategy = strategy
+        if strategy in fixed_strategy_names or strategy in controllerless_strategy_names:
             logger.info(
-                "Configured fixed speculative strategy: strategy=%s "
+                "Configured non-adaptive speculative strategy: strategy=%s "
                 "num_lookahead_slots=%s active_specs_after=%s",
                 strategy, scheduler.scheduler_config.num_lookahead_slots,
-                {
-                    attr: type(getattr(scheduler, attr)).__name__
-                    for attr in ALL_STRATEGY_ATTRS
-                    if getattr(scheduler, attr, None) is not None
-                })
+                active_strategy_snapshot())
         
         # 如果策略使用 epsilon_greedy_spec，需要根据策略名称动态实例化不同的类
         if active_attr == 'epsilon_greedy_spec':

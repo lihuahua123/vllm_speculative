@@ -394,6 +394,25 @@ def format_run_title(run: RunData) -> str:
     return " | ".join(parts)
 
 
+def is_medium_load(run: RunData) -> bool:
+    load = run.spec.load.strip().lower()
+    label = run.spec.label.strip().lower()
+    return load.startswith("med") or label.endswith("_med")
+
+
+def medium_load_runs(runs: list[RunData]) -> list[RunData]:
+    dataset_order = {"sharegpt": 0, "alpaca": 1, "specbench": 2}
+    relevant = [
+        run for run in runs if run.speculative_steps and is_medium_load(run)
+    ]
+    relevant.sort(
+        key=lambda run: (
+            dataset_order.get(run.spec.dataset.strip().lower(), 99),
+            run.spec.label,
+        ))
+    return relevant
+
+
 def plot_acceptance_distribution(runs: list[RunData], output_path: Path) -> None:
     relevant = [run for run in runs if run.speculative_steps]
     if not relevant:
@@ -432,7 +451,7 @@ def plot_acceptance_gamma_traces(runs: list[RunData], output_path: Path,
                                  smooth_window: int,
                                  max_trace_points: int,
                                  zero_gamma_scale: float) -> None:
-    relevant = [run for run in runs if run.speculative_steps]
+    relevant = medium_load_runs(runs)
     if not relevant:
         return
     fig, axes = plt.subplots(len(relevant),
