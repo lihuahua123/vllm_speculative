@@ -2410,10 +2410,11 @@ class ADABinGreedy:
             for arm_idx in range(self.K):
                 if representative_context < 50:  # 小/中流量
                     self.prior_weights[b_idx][arm_idx] = 0.5
-                    self.prior_weights[b_idx][0] = 0     # 抑制不开启投机
+                    #self.prior_weights[b_idx][0] = 0     # 抑制不开启投机
                 else: # 大流量
                     # 投机长度越短，初始权重越高
-                    self.prior_weights[b_idx][arm_idx] = 1.0 + (self.K - arm_idx) / self.K
+                    self.prior_weights[b_idx][arm_idx] = 0.5
+                    #self.prior_weights[b_idx][arm_idx] = 1.0 + (self.K - arm_idx) / self.K
 
     def _get_context_bin(self, context: int) -> int:
         """每2个batch为一个bin的分箱逻辑 """
@@ -2426,9 +2427,9 @@ class ADABinGreedy:
         self.total_rounds += 1
         ctx_idx = self._get_context_bin(context)
         s = self.context_stats[ctx_idx]
-        if context > 100:
-            self.have_disabled = True
-            return 0
+        # if context > 100:
+        #     self.have_disabled = True
+        #     return 0
        
         # ===== 强制探索模式（由 explore=True -> action=12 -> round_robin=True）=====
         # 目标：对“每个 batch(bin)”把所有 speculative length(K 个 arm) 都至少尝试一次；

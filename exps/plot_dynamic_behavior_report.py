@@ -225,6 +225,13 @@ def pct(part: float, whole: float) -> float:
     return (part / whole * 100.0) if whole > 0 else 0.0
 
 
+def speculation_enabled(step: dict[str, Any]) -> bool:
+    value = step.get("speculation_enabled")
+    if isinstance(value, bool):
+        return value
+    return int(step.get("proposal_length_gamma", 0)) > 0
+
+
 def load_manifest(path: Path) -> list[RunSpec]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, list):
@@ -297,17 +304,17 @@ def compute_run_summary(run: RunData) -> dict[str, Any]:
     steps = run.speculative_steps
     acceptances = [float(step.get("acceptance_rate", 0.0)) for step in steps]
     gammas = [int(step.get("proposal_length_gamma", 0)) for step in steps]
-    speculative_gammas = [gamma for gamma in gammas if gamma > 0]
-    speculative_steps = [
-        step for step in steps if int(step.get("proposal_length_gamma", 0)) > 0
+    enabled_steps = [step for step in steps if speculation_enabled(step)]
+    speculative_gammas = [
+        int(step.get("proposal_length_gamma", 0)) for step in enabled_steps
     ]
-    ar_steps = [step for step in steps if int(step.get("proposal_length_gamma", 0)) == 0]
+    ar_steps = [step for step in steps if not speculation_enabled(step)]
 
     draft_ms = sum(float(step.get("draft_time_ms", 0.0))
-                   for step in speculative_steps)
+                   for step in enabled_steps)
     verify_ms = sum(
         float(step.get("scoring_time_ms", 0.0)) +
-        float(step.get("verify_time_ms", 0.0)) for step in speculative_steps)
+        float(step.get("verify_time_ms", 0.0)) for step in enabled_steps)
     ar_ms = sum(float(step.get("step_total_time_ms", 0.0)) for step in ar_steps)
     total_pipeline_ms = draft_ms + verify_ms + ar_ms
 
@@ -331,7 +338,7 @@ def compute_run_summary(run: RunData) -> dict[str, Any]:
         "dataset": run.spec.dataset,
         "load": run.spec.load,
         "path": str(run.spec.path),
-        "num_speculative_steps": len(speculative_steps),
+        "num_speculative_steps": len(enabled_steps),
         "num_ar_steps": len(ar_steps),
         "mean_acceptance_rate": mean_or_zero(acceptances),
         "median_acceptance_rate": statistics.median(acceptances)
@@ -426,7 +433,7 @@ def plot_acceptance_distribution(runs: list[RunData], output_path: Path) -> None
         values = [
             float(step.get("acceptance_rate", 0.0))
             for step in run.speculative_steps
-            if int(step.get("proposal_length_gamma", 0)) > 0
+            if speculation_enabled(step)
         ]
         axis.hist(values,
                   bins=bins,
@@ -459,9 +466,11 @@ def plot_acceptance_gamma_traces(runs: list[RunData], output_path: Path,
                              figsize=(12, max(3.4, 3.0 * len(relevant))),
                              squeeze=False)
     for axis, run in zip(axes[:, 0], relevant):
+        acceptance_steps = [
+            step for step in run.speculative_steps if speculation_enabled(step)
+        ]
         acceptance = [
-            float(step.get("acceptance_rate", 0.0))
-            for step in run.speculative_steps
+            float(step.get("acceptance_rate", 0.0)) for step in acceptance_steps
         ]
         gamma = [
             float(step.get("proposal_length_gamma", 0))
@@ -470,11 +479,15 @@ def plot_acceptance_gamma_traces(runs: list[RunData], output_path: Path,
         timestamps = [
             float(step.get("timestamp", 0.0)) for step in run.speculative_steps
         ]
+        acceptance_timestamps = [
+            float(step.get("timestamp", 0.0)) for step in acceptance_steps
+        ]
         origin = event_time_origin(run)
         steps = relative_time_axis(timestamps, origin)
+        acceptance_steps_x = relative_time_axis(acceptance_timestamps, origin)
         intervals = disabled_time_intervals(run, origin)
         acceptance_smooth = moving_average(acceptance, smooth_window)
-        x_acc, y_acc = downsample_pairs(steps, acceptance_smooth,
+        x_acc, y_acc = downsample_pairs(acceptance_steps_x, acceptance_smooth,
                                         max_trace_points)
         x_acc, y_acc = force_zero_in_intervals(x_acc, y_acc, intervals)
         x_gamma, y_gamma = force_zero_in_intervals(steps, gamma, intervals)
@@ -515,6 +528,7 @@ def plot_acceptance_gamma_traces(runs: list[RunData], output_path: Path,
 
 
 def plot_gamma_traces(runs: list[RunData], output_path: Path,
+                      smooth_window: int,
                       max_trace_points: int,
                       zero_gamma_scale: float) -> None:
     relevant = [run for run in runs if run.speculative_steps]
@@ -529,6 +543,9 @@ def plot_gamma_traces(runs: list[RunData], output_path: Path,
             float(step.get("proposal_length_gamma", 0))
             for step in run.speculative_steps
         ]
+        batch_size = [
+            float(step.get("batch_size", 0.0)) for step in run.speculative_steps
+        ]
         timestamps = [
             float(step.get("timestamp", 0.0)) for step in run.speculative_steps
         ]
@@ -536,15 +553,42 @@ def plot_gamma_traces(runs: list[RunData], output_path: Path,
         steps = relative_time_axis(timestamps, origin)
         intervals = disabled_time_intervals(run, origin)
         x_gamma, y_gamma = downsample_pairs(steps, gamma, max_trace_points)
+        batch_window = max(5, smooth_window // 2)
+        batch_smooth = moving_average(batch_size, batch_window)
+        x_batch, y_batch = downsample_pairs(steps, batch_smooth, max_trace_points)
         shade_disabled_intervals(axis, intervals)
         axis.step(x_gamma,
                   y_gamma,
                   where="post",
                   color="#dd8452",
-                  linewidth=1.8)
-        axis.set_ylabel("Gamma")
+                  linewidth=2.2,
+                  label="Selected gamma")
+        axis.set_ylabel("Selected gamma", color="#dd8452")
+        axis.tick_params(axis="y", labelcolor="#dd8452")
+        axis.set_ylim(-0.25, max(gamma + [1.0]) + 0.5)
         axis.grid(alpha=0.25)
         axis.set_title(format_run_title(run), fontsize=10)
+        load_axis = axis.twinx()
+        shade_disabled_intervals(load_axis, intervals)
+        load_axis.plot(x_batch,
+                       y_batch,
+                       color="#7f7f7f",
+                       alpha=0.4,
+                       linewidth=2.0,
+                       label="Batch size")
+        load_axis.fill_between(x_batch,
+                               y_batch,
+                               color="#bdbdbd",
+                               alpha=0.15)
+        load_axis.set_ylabel("Batch size", color="#7f7f7f")
+        load_axis.tick_params(axis="y", labelcolor="#7f7f7f")
+        handles, labels = axis.get_legend_handles_labels()
+        load_handles, load_labels = load_axis.get_legend_handles_labels()
+        axis.legend(handles + load_handles,
+                    labels + load_labels,
+                    loc="upper right",
+                    frameon=False,
+                    fontsize=9)
     axes[-1, 0].set_xlabel("Time since first event (s)")
     fig.tight_layout()
     fig.savefig(output_path, bbox_inches="tight")
@@ -721,12 +765,12 @@ def plot_time_breakdown_traces(runs: list[RunData], output_path: Path,
         verify = []
         ar = []
         for step in run.speculative_steps:
-            gamma = int(step.get("proposal_length_gamma", 0))
-            draft_ms = float(step.get("draft_time_ms", 0.0)) if gamma > 0 else 0.0
+            enabled = speculation_enabled(step)
+            draft_ms = float(step.get("draft_time_ms", 0.0)) if enabled else 0.0
             verify_ms = (
                 float(step.get("scoring_time_ms", 0.0)) +
-                float(step.get("verify_time_ms", 0.0))) if gamma > 0 else 0.0
-            ar_ms = float(step.get("step_total_time_ms", 0.0)) if gamma == 0 else 0.0
+                float(step.get("verify_time_ms", 0.0))) if enabled else 0.0
+            ar_ms = float(step.get("step_total_time_ms", 0.0)) if not enabled else 0.0
             draft.append(draft_ms)
             verify.append(verify_ms)
             ar.append(ar_ms)
@@ -833,7 +877,9 @@ def plot_migration_overhead(runs: list[RunData], summaries: list[dict[str, Any]]
                                color="#c44e52", marker="o", label="KV Migration" if index == 0 else "")
     axes[1, 0].set_yticks(xs)
     axes[1, 0].set_yticklabels(labels)
-    axes[1, 0].legend(loc="upper right")
+    handles, labels = axes[1, 0].get_legend_handles_labels()
+    if handles:
+        axes[1, 0].legend(loc="upper right")
 
     share_pipeline = [
         summary["migration_share_of_pipeline_pct"] for summary in summaries
@@ -878,11 +924,20 @@ def main() -> None:
     if args.only_gamma_trace:
         plot_gamma_traces(runs,
                           args.output_dir / f"{args.prefix}_gamma_traces.pdf",
+                          args.smooth_window,
                           args.max_trace_points,
                           args.zero_gamma_scale)
         return
 
     summaries = save_summary(runs, args.output_dir, args.prefix)
+
+    plot_gamma_traces(
+        runs,
+        args.output_dir / f"{args.prefix}_gamma_traces.pdf",
+        args.smooth_window,
+        args.max_trace_points,
+        args.zero_gamma_scale,
+    )
 
     plot_acceptance_distribution(
         runs, args.output_dir / f"{args.prefix}_acceptance_distribution.pdf")

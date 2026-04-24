@@ -24,7 +24,7 @@ SHAREGPT_DATASET_PATH="${SHAREGPT_DATASET_PATH:-/root/autodl-tmp/sharegpt.json}"
 ALPACA_DATASET_PATH="${ALPACA_DATASET_PATH:-tatsu-lab/alpaca}"
 SPECBENCH_DATASET_PATH="${SPECBENCH_DATASET_PATH:-/root/autodl-tmp/nightjar/vllm_speculative/question_shuffled.jsonl}"
 
-NUM_PROMPTS="${NUM_PROMPTS:-410}"
+NUM_PROMPTS="${NUM_PROMPTS:-110}"
 START_INDEX="${START_INDEX:-0}"
 SPECULATIVE_LEN="${SPECULATIVE_LEN:-5}"
 NUM_GPU_BLOCKS_OVERRIDE="${NUM_GPU_BLOCKS_OVERRIDE:-4112}"
@@ -165,17 +165,17 @@ with open(manifest_entries_file, "a", encoding="utf-8") as f:
 PY
 }
 
-run_one "sharegpt" "$SHAREGPT_DATASET_PATH" "low" "$LOW_RATE"
+#run_one "sharegpt" "$SHAREGPT_DATASET_PATH" "low" "$LOW_RATE"
 run_one "sharegpt" "$SHAREGPT_DATASET_PATH" "med" "$MED_RATE"
-run_one "sharegpt" "$SHAREGPT_DATASET_PATH" "high" "$HIGH_RATE"
+#run_one "sharegpt" "$SHAREGPT_DATASET_PATH" "high" "$HIGH_RATE"
 
-run_one "alpaca" "$ALPACA_DATASET_PATH" "low" "$LOW_RATE"
+#run_one "alpaca" "$ALPACA_DATASET_PATH" "low" "$LOW_RATE"
 run_one "alpaca" "$ALPACA_DATASET_PATH" "med" "$MED_RATE"
-run_one "alpaca" "$ALPACA_DATASET_PATH" "high" "$HIGH_RATE"
+#run_one "alpaca" "$ALPACA_DATASET_PATH" "high" "$HIGH_RATE"
 
-run_one "specbench" "$SPECBENCH_DATASET_PATH" "low" "$LOW_RATE"
+#run_one "specbench" "$SPECBENCH_DATASET_PATH" "low" "$LOW_RATE"
 run_one "specbench" "$SPECBENCH_DATASET_PATH" "med" "$MED_RATE"
-run_one "specbench" "$SPECBENCH_DATASET_PATH" "high" "$HIGH_RATE"
+#run_one "specbench" "$SPECBENCH_DATASET_PATH" "high" "$HIGH_RATE"
 
 python - "$MANIFEST_ENTRIES_FILE" "$MANIFEST_PATH" <<'PY'
 import json
