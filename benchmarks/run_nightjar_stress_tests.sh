@@ -18,8 +18,7 @@ ANALYSIS_PREFIX="${ANALYSIS_PREFIX:-stress_disable}"
 
 MODEL_NAME="${MODEL_NAME:-/root/autodl-tmp/DeepSeek-R1-Distill-Qwen-7B}"
 DRAFT_MODEL_NAME="${DRAFT_MODEL_NAME:-/root/autodl-tmp/deep05b}"
-DATASET_NAME="${DATASET_NAME:-sharegpt}"
-DATASET_PATH="${DATASET_PATH:-/root/autodl-tmp/sharegpt.json}"
+DATASETS="${DATASETS:-alpaca:tatsu-lab/alpaca specbench:/root/autodl-tmp/nightjar/vllm_speculative/question_shuffled.jsonl}"
 SUB_STRATEGY="${SUB_STRATEGY:-epsilon_greedy_with_offload}"
 SELECT_STRATEGY="${SELECT_STRATEGY:-capacity}"
 EXPLORE="${EXPLORE:-False}"
@@ -28,7 +27,7 @@ HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8010}"
 NUM_PROMPTS="${NUM_PROMPTS:-600}"
 START_INDEX="${START_INDEX:-0}"
-SPECULATIVE_LEN="${SPECULATIVE_LEN:-5}"
+SPECULATIVE_LEN="${SPECULATIVE_LEN:-4}"
 MAX_SPECULATIVE_LEN="${MAX_SPECULATIVE_LEN:-3}"
 SD_SPECULATIVE_LEN="${SD_SPECULATIVE_LEN:-3}"
 OUTPUT_LEN="${OUTPUT_LEN:-128}"
@@ -62,7 +61,7 @@ BASELINE_CASES="${BASELINE_CASES:-wo_sd:nospec:$MAX_SPECULATIVE_LEN: SD:fixed_dr
 
 mkdir -p "$RESULT_DIR" "$TRACE_DIR"
 rm -f "$RUN_LOG" "$SUMMARY_CSV"
-printf "pattern,variant,sub_strategy,speculative_len,select_strategy,result_json,event_log,trace_summary\n" > "$SUMMARY_CSV"
+printf "dataset,pattern,variant,sub_strategy,speculative_len,select_strategy,result_json,event_log,trace_summary\n" > "$SUMMARY_CSV"
 
 generate_trace() {
     local trace_key="$1"
@@ -75,15 +74,17 @@ generate_trace() {
 }
 
 run_one() {
-    local workload_pattern="$1"
-    local variant="$2"
-    local sub_strategy="$3"
-    local speculative_len="$4"
-    local select_strategy="$5"
-    local increase_threshold="$6"
-    local decrease_threshold="$7"
-    local persist_steps="$8"
-    local case_id="${workload_pattern}_${variant}"
+    local dataset_name="$1"
+    local dataset_path="$2"
+    local workload_pattern="$3"
+    local variant="$4"
+    local sub_strategy="$5"
+    local speculative_len="$6"
+    local select_strategy="$7"
+    local increase_threshold="$8"
+    local decrease_threshold="$9"
+    local persist_steps="${10}"
+    local case_id="${dataset_name}_${workload_pattern}_${variant}"
     local case_dir="$RESULT_DIR/$case_id"
     local event_log="$case_dir/nightjar_events.jsonl"
     local trace_summary="$case_dir/trace_summary.json"
@@ -109,8 +110,8 @@ run_one() {
         --draft-model "$DRAFT_MODEL_NAME"
         --host "$HOST"
         --port "$PORT"
-        --dataset-name "$DATASET_NAME"
-        --dataset-path "$DATASET_PATH"
+        --dataset-name "$dataset_name"
+        --dataset-path "$dataset_path"
         --speculative-len "$speculative_len"
         --num-prompts "$NUM_PROMPTS"
         --request-rates 1
@@ -150,14 +151,16 @@ run_one() {
     fi
     rm -f "$before_file" "$after_file"
 
-    printf "%s,%s,%s,%s,%s,%s,%s,%s\n" \
-        "$case_id" "$variant" "$sub_strategy" "$speculative_len" \
+    printf "%s,%s,%s,%s,%s,%s,%s,%s,%s\n" \
+        "$dataset_name" "$workload_pattern" "$variant" "$sub_strategy" "$speculative_len" \
         "$select_strategy" "$result_json" "$event_log" "$trace_summary" \
         >> "$SUMMARY_CSV"
 }
 
 run_baseline_cases() {
-    local workload_pattern="$1"
+    local dataset_name="$1"
+    local dataset_path="$2"
+    local workload_pattern="$3"
     local case_spec variant sub_strategy speculative_len select_strategy
 
     for case_spec in $BASELINE_CASES; do
@@ -166,7 +169,7 @@ run_baseline_cases() {
             echo "Invalid BASELINE_CASES entry: $case_spec" >> "$RUN_LOG"
             exit 1
         fi
-        run_one "$workload_pattern" "$variant" "$sub_strategy" "$speculative_len" \
+        run_one "$dataset_name" "$dataset_path" "$workload_pattern" "$variant" "$sub_strategy" "$speculative_len" \
             "${select_strategy:-}" \
             "$STATIC_INCREASE_BLOCK_THRESHOLD" \
             "$STATIC_DECREASE_BLOCK_THRESHOLD" \
@@ -175,10 +178,12 @@ run_baseline_cases() {
 }
 
 run_pattern() {
-    local workload_pattern="$1"
+    local dataset_name="$1"
+    local dataset_path="$2"
+    local workload_pattern="$3"
 
     if [[ "$RUN_NIGHTJAR" == "True" || "$RUN_NIGHTJAR" == "true" ]]; then
-        run_one "$workload_pattern" "Nightjar" "$SUB_STRATEGY" "$SPECULATIVE_LEN" \
+        run_one "$dataset_name" "$dataset_path" "$workload_pattern" "Nightjar" "$SUB_STRATEGY" "$SPECULATIVE_LEN" \
             "$SELECT_STRATEGY" \
             "$INCREASE_BLOCK_THRESHOLD" \
             "$DECREASE_BLOCK_THRESHOLD" \
@@ -186,7 +191,7 @@ run_pattern() {
     fi
 
     if [[ "$RUN_STATIC_MEMORY" == "True" || "$RUN_STATIC_MEMORY" == "true" ]]; then
-        run_one "$workload_pattern" "Nightjar_static_memory" "$SUB_STRATEGY" "$SPECULATIVE_LEN" \
+        run_one "$dataset_name" "$dataset_path" "$workload_pattern" "Nightjar_static_memory" "$SUB_STRATEGY" "$SPECULATIVE_LEN" \
             "$SELECT_STRATEGY" \
             "$STATIC_INCREASE_BLOCK_THRESHOLD" \
             "$STATIC_DECREASE_BLOCK_THRESHOLD" \
@@ -194,13 +199,20 @@ run_pattern() {
     fi
 
     if [[ "$RUN_BASELINES" == "True" || "$RUN_BASELINES" == "true" ]]; then
-        run_baseline_cases "$workload_pattern"
+        run_baseline_cases "$dataset_name" "$dataset_path" "$workload_pattern"
     fi
 }
 
-run_pattern burst_spike
-run_pattern high_low_oscillation
-run_pattern sync_migration_worst_case
+for dataset_spec in $DATASETS; do
+    IFS=: read -r dataset_name dataset_path <<< "$dataset_spec"
+    if [[ -z "$dataset_name" || -z "$dataset_path" ]]; then
+        echo "Invalid DATASETS entry: $dataset_spec" >> "$RUN_LOG"
+        exit 1
+    fi
+    run_pattern "$dataset_name" "$dataset_path" burst_spike
+    # run_pattern "$dataset_name" "$dataset_path" high_low_oscillation
+    # run_pattern "$dataset_name" "$dataset_path" sync_migration_worst_case
+done
 
 python "$ROOT_DIR/exps/analyze_stress_disable_cases.py" \
     --summary-csv "$SUMMARY_CSV" \

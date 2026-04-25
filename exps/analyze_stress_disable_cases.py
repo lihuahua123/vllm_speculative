@@ -19,6 +19,7 @@ POLICY_EVENT = "memory_policy_decision"
 EXPAND_EVENT = "memory_expand"
 CONTRACT_EVENT = "memory_contract"
 MIGRATION_EVENT = "kv_block_migration"
+CONTRACTION_MARKER_ITEM_INDEX = 629
 
 
 @dataclass
@@ -40,8 +41,8 @@ VARIANT_ORDER = {
     "Nightjar_static_memory": 1,
     "BanditSpec": 2,
     "DSD": 3,
-    "SD": 4,
-    "TETRIS": 5,
+    "SD": 5,
+    "TETRIS": 4,
     "wo_sd": 6,
 }
 
@@ -79,14 +80,21 @@ def parse_args() -> argparse.Namespace:
 def parse_stress_cases(summary_csv: Path,
                        trace_dir: Path | None) -> list[StressCase]:
     cases: list[StressCase] = []
+    summary_dir = summary_csv.resolve().parent
     with summary_csv.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
             pattern = (row.get("pattern") or "").strip()
             variant = (row.get("variant") or "").strip()
-            event_log = Path(row["event_log"]).expanduser()
-            if not event_log.exists():
+            if variant == "Nightjar_static_memory":
                 continue
+            event_log = Path(row["event_log"]).expanduser()
+            if not event_log.is_absolute():
+                event_log = summary_dir / event_log
+            if not event_log.exists():
+                raise FileNotFoundError(
+                    f"Missing event_log for pattern={pattern!r}, "
+                    f"variant={variant!r}: {event_log}")
             trace_path = None
             if trace_dir:
                 candidate = trace_dir / f"{pattern}.json"
@@ -173,6 +181,13 @@ def timeline_steps(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return steps
 
 
+def timestamped_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        event for event in events
+        if isinstance(event.get("timestamp"), (int, float))
+    ]
+
+
 def rel_ms(anchor_ts: float | None, event_ts: float | None) -> float:
     if anchor_ts is None or event_ts is None:
         return 0.0
@@ -191,6 +206,55 @@ def timeline_rel_ms(steps: list[dict[str, Any]]) -> list[float]:
         if isinstance(step.get("timestamp"), (int, float)) else 0.0
         for step in steps
     ]
+
+
+def series_rel_ms(events: list[dict[str, Any]],
+                  value_key: str) -> tuple[list[float], list[float]]:
+    anchor_ts = None
+    for event in events:
+        ts = event.get("timestamp")
+        if isinstance(ts, (int, float)):
+            anchor_ts = float(ts)
+            break
+
+    xs: list[float] = []
+    ys: list[float] = []
+    for event in events:
+        ts = event.get("timestamp")
+        value = event.get(value_key)
+        if not isinstance(ts, (int, float)) or not isinstance(value,
+                                                               (int, float)):
+            continue
+        xs.append(rel_ms(anchor_ts, float(ts)))
+        ys.append(float(value))
+    return xs, ys
+
+
+def contraction_marker_rel_ms(steps: list[dict[str, Any]]) -> float | None:
+    if len(steps) < CONTRACTION_MARKER_ITEM_INDEX:
+        return None
+    xs = timeline_rel_ms(steps)
+    return xs[CONTRACTION_MARKER_ITEM_INDEX - 1]
+
+
+def add_nightjar_reference_lines(axes: Any, case: StressCase,
+                                 summary: dict[str, Any],
+                                 steps: list[dict[str, Any]]) -> None:
+    if case.variant != "Nightjar":
+        return
+    markers = [
+        (float(summary.get("expand_complete_rel_ms", 0.0)), "Expansion"),
+        (contraction_marker_rel_ms(steps), "Contraction"),
+    ]
+    for x, _ in markers:
+        if x is None:
+            continue
+        for axis in axes:
+            axis.axvline(x=x,
+                         color="#444444",
+                         linestyle="--",
+                         linewidth=1.2,
+                         alpha=0.9)
 
 
 def summarize_case(case: StressCase) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -262,6 +326,8 @@ def summarize_case(case: StressCase) -> tuple[dict[str, Any], list[dict[str, Any
         if restore_policy else 0.0,
         "restore_trigger_free_gpu_blocks": int(
             restore_policy.get("free_gpu_blocks", 0)) if restore_policy else 0,
+        "expand_complete_rel_ms": rel_ms(anchor_ts, expand_event.get("timestamp"))
+        if expand_event else 0.0,
         "offload_count": sum(1 for event in events
                               if event.get("event_type") == EXPAND_EVENT),
         "reload_count": sum(1 for event in events
@@ -337,20 +403,20 @@ def plot_cases(cases: list[StressCase],
 
     for row_index, case in enumerate(cases):
         steps = timeline_steps_by_pattern[case.pattern]
+        events = timestamped_events(load_jsonl(case.event_log))
         summary = next(item for item in summaries if item["pattern"] == case.pattern)
         workload_pattern = split_workload_pattern(case.pattern, case.variant)
-        xs = timeline_rel_ms(steps)
-        gamma = [int(step.get("proposal_length_gamma", 0)) for step in steps]
+        acceptance_xs = timeline_rel_ms(steps)
         acceptance = [float(step.get("acceptance_rate", 0.0)) for step in steps]
-        free_blocks = [int(step.get("free_gpu_blocks", 0)) for step in steps]
-        running = [int(step.get("num_running", 0)) for step in steps]
-        queue = [int(step.get("queue_len", 0)) for step in steps]
+        free_xs, free_blocks = series_rel_ms(events, "free_gpu_blocks")
+        running_xs, running = series_rel_ms(events, "num_running")
+        queue_xs, queue = series_rel_ms(events, "queue_len")
 
         acceptance_axis = axes[row_index, 0]
         free_axis = axes[row_index, 1]
         load_axis = axes[row_index, 2]
 
-        acceptance_axis.plot(xs,
+        acceptance_axis.plot(acceptance_xs,
                              acceptance,
                              color="#4c72b0",
                              linewidth=2,
@@ -358,38 +424,28 @@ def plot_cases(cases: list[StressCase],
         acceptance_axis.set_ylim(0.0, 1.05)
         acceptance_axis.set_ylabel("Acceptance")
         acceptance_axis.set_title(
-            f"{pretty_workload_pattern(workload_pattern)} | {pretty_variant(case.variant)}"
+            f"{pretty_variant(case.variant)}", fontsize=16
         )
         acceptance_axis.grid(alpha=0.25)
 
-        free_axis.plot(xs, free_blocks, color="#4c72b0", linewidth=2)
-        threshold = summary["increase_block_threshold"]
-        if threshold > 0:
-            free_axis.axhline(threshold,
-                              linestyle="--",
-                              color="#c44e52",
-                              linewidth=1.2,
-                              label="Expand threshold")
+        free_axis.plot(free_xs, free_blocks, color="#4c72b0", linewidth=2)
         free_axis.set_ylabel("Free GPU Blocks")
         free_axis.grid(alpha=0.25)
 
-        load_axis.plot(xs, running, color="#55a868", linewidth=2, label="Running")
-        load_axis.plot(xs, queue, color="#8172b3", linewidth=2, label="Queue")
+        load_axis.plot(running_xs,
+                       running,
+                       color="#55a868",
+                       linewidth=2,
+                       label="Running")
+        load_axis.plot(queue_xs,
+                       queue,
+                       color="#8172b3",
+                       linewidth=2,
+                       label="Queue")
         load_axis.set_ylabel("Requests")
         load_axis.grid(alpha=0.25)
-
-        disable_ts = summary["first_disable_rel_ms"]
-        if summary["first_disable_step_index"] >= 0:
-            for axis in (acceptance_axis, free_axis, load_axis):
-                axis.axvline(disable_ts,
-                             color="#000000",
-                             linestyle=":",
-                             linewidth=1.2)
-
-        if row_index == 0:
-            acceptance_axis.legend(loc="upper right")
-            free_axis.legend(loc="upper right")
-            load_axis.legend(loc="upper right")
+        add_nightjar_reference_lines(
+            (acceptance_axis, free_axis, load_axis), case, summary, steps)
 
     for axis in axes[-1, :]:
         axis.set_xlabel("Relative Time (ms)")
@@ -418,68 +474,50 @@ def plot_cases_by_workload(
 
         for row_index, case in enumerate(workload_cases):
             steps = timeline_steps_by_pattern[case.pattern]
+            events = timestamped_events(load_jsonl(case.event_log))
             summary = next(item for item in summaries
                            if item["pattern"] == case.pattern)
-            xs = timeline_rel_ms(steps)
+            acceptance_xs = timeline_rel_ms(steps)
             acceptance = [
                 float(step.get("acceptance_rate", 0.0)) for step in steps
             ]
-            free_blocks = [int(step.get("free_gpu_blocks", 0)) for step in steps]
-            running = [int(step.get("num_running", 0)) for step in steps]
-            queue = [int(step.get("queue_len", 0)) for step in steps]
+            free_xs, free_blocks = series_rel_ms(events, "free_gpu_blocks")
+            running_xs, running = series_rel_ms(events, "num_running")
+            queue_xs, queue = series_rel_ms(events, "queue_len")
 
             acceptance_axis = axes[row_index, 0]
             free_axis = axes[row_index, 1]
             load_axis = axes[row_index, 2]
 
-            acceptance_axis.plot(xs,
+            acceptance_axis.plot(acceptance_xs,
                                  acceptance,
                                  color="#4c72b0",
-                                 linewidth=2,
-                                 label="Acceptance")
+                                 linewidth=2)
             acceptance_axis.set_ylim(0.0, 1.05)
             acceptance_axis.set_ylabel("Acceptance")
             acceptance_axis.set_title(
-                f"{pretty_workload_pattern(workload_pattern)} | {pretty_variant(case.variant)}"
+                f"{pretty_variant(case.variant)}", fontsize=16
             )
             acceptance_axis.grid(alpha=0.25)
 
-            free_axis.plot(xs, free_blocks, color="#4c72b0", linewidth=2)
-            threshold = summary["increase_block_threshold"]
-            if threshold > 0:
-                free_axis.axhline(threshold,
-                                  linestyle="--",
-                                  color="#c44e52",
-                                  linewidth=1.2,
-                                  label="Expand threshold")
+            free_axis.plot(free_xs, free_blocks, color="#4c72b0", linewidth=2)
             free_axis.set_ylabel("Free GPU Blocks")
             free_axis.grid(alpha=0.25)
 
-            load_axis.plot(xs,
+            load_axis.plot(running_xs,
                            running,
                            color="#55a868",
                            linewidth=2,
                            label="Running")
-            load_axis.plot(xs,
+            load_axis.plot(queue_xs,
                            queue,
                            color="#8172b3",
                            linewidth=2,
                            label="Queue")
             load_axis.set_ylabel("Requests")
             load_axis.grid(alpha=0.25)
-
-            disable_ts = summary["first_disable_rel_ms"]
-            if summary["first_disable_step_index"] >= 0:
-                for axis in (acceptance_axis, free_axis, load_axis):
-                    axis.axvline(disable_ts,
-                                 color="#000000",
-                                 linestyle=":",
-                                 linewidth=1.2)
-
-            if row_index == 0:
-                acceptance_axis.legend(loc="upper right")
-                free_axis.legend(loc="upper right")
-                load_axis.legend(loc="upper right")
+            add_nightjar_reference_lines(
+                (acceptance_axis, free_axis, load_axis), case, summary, steps)
 
         for axis in axes[-1, :]:
             axis.set_xlabel("Relative Time (ms)")

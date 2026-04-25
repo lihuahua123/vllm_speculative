@@ -503,9 +503,12 @@ def plot_acceptance_gamma_traces(runs: list[RunData], output_path: Path,
 
         gamma_axis = axis.twinx()
         shade_disabled_intervals(gamma_axis, intervals)
+        # Center each gamma value on its recorded step timestamp instead of
+        # extending it entirely into the following interval, which visually
+        # shifts the selected-gamma trace to the right.
         gamma_axis.step(x_gamma,
                         y_gamma,
-                        where="post",
+                        where="mid",
                         color="#dd8452",
                         alpha=0.85,
                         label="Gamma")
@@ -534,10 +537,15 @@ def plot_gamma_traces(runs: list[RunData], output_path: Path,
     relevant = [run for run in runs if run.speculative_steps]
     if not relevant:
         return
+    axis_label_fontsize = 15
+    tick_label_fontsize = 13
+    legend_fontsize = 14
     fig, axes = plt.subplots(len(relevant),
                              1,
                              figsize=(12, max(3.0, 2.8 * len(relevant))),
                              squeeze=False)
+    legend_handles: list[Any] | None = None
+    legend_labels: list[str] | None = None
     for axis, run in zip(axes[:, 0], relevant):
         gamma = [
             float(step.get("proposal_length_gamma", 0))
@@ -557,17 +565,24 @@ def plot_gamma_traces(runs: list[RunData], output_path: Path,
         batch_smooth = moving_average(batch_size, batch_window)
         x_batch, y_batch = downsample_pairs(steps, batch_smooth, max_trace_points)
         shade_disabled_intervals(axis, intervals)
+        # Center each gamma value on its recorded step timestamp instead of
+        # extending it entirely into the following interval, which visually
+        # shifts the selected-gamma trace to the right.
         axis.step(x_gamma,
                   y_gamma,
-                  where="post",
+                  where="mid",
                   color="#dd8452",
                   linewidth=2.2,
-                  label="Selected gamma")
-        axis.set_ylabel("Selected gamma", color="#dd8452")
-        axis.tick_params(axis="y", labelcolor="#dd8452")
+                  label=r"Selected $\gamma$")
+        axis.set_ylabel(r"Selected $\gamma$",
+                        color="#dd8452",
+                        fontsize=axis_label_fontsize)
+        axis.tick_params(axis="y",
+                         labelcolor="#dd8452",
+                         labelsize=tick_label_fontsize)
+        axis.tick_params(axis="x", labelsize=tick_label_fontsize)
         axis.set_ylim(-0.25, max(gamma + [1.0]) + 0.5)
         axis.grid(alpha=0.25)
-        axis.set_title(format_run_title(run), fontsize=10)
         load_axis = axis.twinx()
         shade_disabled_intervals(load_axis, intervals)
         load_axis.plot(x_batch,
@@ -580,17 +595,28 @@ def plot_gamma_traces(runs: list[RunData], output_path: Path,
                                y_batch,
                                color="#bdbdbd",
                                alpha=0.15)
-        load_axis.set_ylabel("Batch size", color="#7f7f7f")
-        load_axis.tick_params(axis="y", labelcolor="#7f7f7f")
+        load_axis.set_ylabel("Batch size",
+                             color="#7f7f7f",
+                             fontsize=axis_label_fontsize)
+        load_axis.tick_params(axis="y",
+                              labelcolor="#7f7f7f",
+                              labelsize=tick_label_fontsize)
         handles, labels = axis.get_legend_handles_labels()
         load_handles, load_labels = load_axis.get_legend_handles_labels()
-        axis.legend(handles + load_handles,
-                    labels + load_labels,
-                    loc="upper right",
-                    frameon=False,
-                    fontsize=9)
-    axes[-1, 0].set_xlabel("Time since first event (s)")
-    fig.tight_layout()
+        if legend_handles is None and legend_labels is None:
+            legend_handles = handles + load_handles
+            legend_labels = labels + load_labels
+    axes[-1, 0].set_xlabel("Time since first event (s)",
+                           fontsize=axis_label_fontsize)
+    if legend_handles and legend_labels:
+        fig.legend(legend_handles,
+                   legend_labels,
+                   loc="upper center",
+                   bbox_to_anchor=(0.5, 1.02),
+                   ncol=len(legend_labels),
+                   frameon=False,
+                   fontsize=legend_fontsize)
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
     fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
 
@@ -666,9 +692,12 @@ def plot_throughput_gamma_traces(runs: list[RunData], output_path: Path,
 
         gamma_axis = axis.twinx()
         shade_disabled_intervals(gamma_axis, intervals)
+        # Center each gamma value on its recorded step timestamp instead of
+        # extending it entirely into the following interval, which visually
+        # shifts the selected-gamma trace to the right.
         gamma_axis.step(x_gamma,
                         y_gamma,
-                        where="post",
+                        where="mid",
                         color="#dd8452",
                         alpha=0.85,
                         label="Gamma")

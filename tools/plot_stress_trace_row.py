@@ -9,7 +9,7 @@ from matplotlib.ticker import MaxNLocator
 
 
 DEFAULT_INPUT = Path(
-    "/root/autodl-tmp/nightjar/vllm_speculative/benchmark_results/stress_tests/"
+    "/root/autodl-tmp/nightjar/vllm_speculative/benchmark_results/stress_tests_bak5/"
     "burst_spike_Nightjar/nightjar_events.jsonl"
 )
 DEFAULT_OUTPUT_DIR = Path(
@@ -91,17 +91,18 @@ def plot_traces(records: list[dict], output_path: Path) -> None:
     plt.rcParams.update({
         "font.family": "serif",
         "font.serif": ["Times New Roman", "Times", "DejaVu Serif"],
-        "font.size": 11,
-        "axes.labelsize": 11,
-        "axes.titlesize": 12,
-        "xtick.labelsize": 10,
-        "ytick.labelsize": 10,
-        "legend.fontsize": 10,
+        "mathtext.fontset": "stix",
+        "font.size": 18,
+        "axes.labelsize": 17,
+        "axes.titlesize": 16,
+        "xtick.labelsize": 14,
+        "ytick.labelsize": 14,
+        "legend.fontsize": 14,
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
     })
 
-    fig, axes = plt.subplots(1, 3, figsize=(16.5, 4.2), constrained_layout=True)
+    fig, axes = plt.subplots(1, 3, figsize=(17.5, 5.2), constrained_layout=True)
 
     for ax in axes:
         ax.grid(True, alpha=0.22, linewidth=0.7)
@@ -112,12 +113,10 @@ def plot_traces(records: list[dict], output_path: Path) -> None:
             ax.axvline(x=x, color=color, linestyle="--", linewidth=1.2, alpha=0.9)
 
     axes[0].plot(xs, free_gpu_blocks, color="#1f77b4", linewidth=2.0)
-    axes[0].set_title("(a)")
     axes[0].set_xlabel("Relative Time (s)")
     axes[0].set_ylabel("Free GPU Blocks")
 
     axes[1].plot(xs, used_usable_blocks, color="#ff7f0e", linewidth=2.0)
-    axes[1].set_title("(b)")
     axes[1].set_xlabel("Relative Time (s)")
     axes[1].set_ylabel("Occupied Usable Blocks")
 
@@ -125,10 +124,12 @@ def plot_traces(records: list[dict], output_path: Path) -> None:
                  linewidth=2.0)
     axes[2].plot(xs, queue_len, label="Queue Length", color="#d62728",
                  linewidth=2.0)
-    axes[2].set_title("(c)")
     axes[2].set_xlabel("Relative Time (s)")
     axes[2].set_ylabel("Number of Requests")
-    axes[2].legend(frameon=False)
+    axes[2].legend(frameon=False,
+                   loc="upper center",
+                   bbox_to_anchor=(0.5, 1.22),
+                   ncol=2)
 
     event_handles = [
         Line2D([0], [0], color=color, linestyle="--", linewidth=1.2,
@@ -139,7 +140,20 @@ def plot_traces(records: list[dict], output_path: Path) -> None:
         Line2D([0], [0], color="#000000", linestyle="--", linewidth=1.2,
                label="Memory Contraction")
     )
-    axes[0].legend(handles=event_handles, frameon=False, loc="best")
+    axes[0].legend(handles=event_handles,
+                   frameon=False,
+                   loc="upper center",
+                   bbox_to_anchor=(0.5, 1.22),
+                   ncol=2)
+
+    for ax, panel_label in zip(axes, ["(a)", "(b)", "(c)"]):
+        ax.text(0.5,
+                -0.18,
+                panel_label,
+                transform=ax.transAxes,
+                ha="center",
+                va="top",
+                fontsize=16)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=200, bbox_inches="tight")
